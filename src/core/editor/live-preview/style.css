@@ -123,6 +123,15 @@
   padding: 4px 0;
 }
 
+/* The editor breaks long words anywhere and keeps spaces, which suits text
+   being typed but not rendered UI: blocks and embeds wrap like a normal page. */
+.cm-editor .lp-block-body,
+.cm-editor .lp-embed {
+  white-space: normal;
+  word-break: normal;
+  overflow-wrap: normal;
+}
+
 .cm-editor .lp-block-edit {
   position: absolute;
   top: 6px;

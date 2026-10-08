@@ -1,0 +1,174 @@
+.ft {
+  position: relative;
+  padding-bottom: 20px;
+  font-family: var(--font-ui);
+  font-size: 0.94em;
+}
+
+.ft-scroll {
+  position: relative;
+  padding-right: 22px;
+  overflow-x: auto;
+}
+
+.ft table {
+  border-collapse: collapse;
+}
+
+.ft th,
+.ft td {
+  min-width: 60px;
+  max-width: 380px;
+  padding: 5px 10px;
+  border: 1px solid var(--border);
+  vertical-align: top;
+  cursor: text;
+}
+
+.ft thead th {
+  background: var(--bg-alt);
+  font-weight: 600;
+  text-align: left;
+}
+
+.ft td:hover,
+.ft thead th:hover {
+  background: var(--bg-hover);
+}
+
+/* Row numbers and column letters of an extended table, used in formulas. */
+.ft .ft-ref {
+  min-width: 0;
+  padding: 5px 6px;
+  border-color: transparent;
+  background: none;
+  color: var(--text-faint);
+  font-size: 11px;
+  font-weight: 400;
+  text-align: right;
+  cursor: default;
+}
+
+.ft-letter {
+  margin-right: 6px;
+  color: var(--text-faint);
+  font-size: 11px;
+  font-weight: 400;
+}
+
+.ft-type {
+  margin-left: 6px;
+  color: var(--text-faint);
+  font-size: 11px;
+  font-weight: 400;
+}
+
+.ft-formula {
+  background: color-mix(in srgb, var(--accent) 7%, transparent);
+}
+
+.ft-bad {
+  color: #d0342c;
+}
+
+.ft input[type='checkbox'] {
+  accent-color: var(--accent);
+  cursor: pointer;
+}
+
+.ft-editor {
+  display: block;
+  width: 100%;
+  min-width: 80px;
+  margin: 0;
+  padding: 0;
+  border: none;
+  background: none;
+  color: inherit;
+  font: inherit;
+  outline: none;
+  resize: none;
+  overflow: hidden;
+}
+
+.ft td:has(.ft-editor),
+.ft th:has(.ft-editor) {
+  outline: 2px solid var(--accent);
+  outline-offset: -2px;
+  background: var(--bg);
+}
+
+.ft-add {
+  position: absolute;
+  border-radius: 5px;
+  background: var(--bg-alt);
+  color: var(--text-muted);
+  line-height: 1;
+  opacity: 0;
+  transition: opacity 0.12s;
+}
+
+.ft:hover .ft-add,
+.ft-add:focus-visible {
+  opacity: 1;
+}
+
+.ft-add:hover {
+  background: var(--bg-hover);
+  color: var(--text);
+}
+
+.ft-add-row {
+  bottom: 0;
+  left: 0;
+  width: calc(100% - 22px);
+  height: 16px;
+}
+
+.ft-add-col {
+  top: 0;
+  right: 0;
+  width: 18px;
+  height: 100%;
+}
+
+.ft-error {
+  padding: 8px 12px;
+  border-radius: 6px;
+  background: var(--bg-alt);
+  color: #d0342c;
+  font-size: 13px;
+}
+
+.ft-menu {
+  position: fixed;
+  z-index: 20;
+  display: flex;
+  flex-direction: column;
+  min-width: 220px;
+  max-height: calc(100vh - 8px);
+  padding: 4px;
+  border: 1px solid var(--border);
+  border-radius: 8px;
+  background: var(--bg);
+  box-shadow: var(--shadow);
+  overflow-y: auto;
+  font: 13.5px var(--font-ui);
+}
+
+.ft-menu button {
+  padding: 4px 10px;
+  border-radius: 5px;
+  text-align: left;
+}
+
+.ft-menu button:hover {
+  background: var(--bg-hover);
+}
+
+.ft-menu hr {
+  width: 100%;
+  margin: 3px 0;
+  border: none;
+  border-top: 1px solid var(--border);
+}

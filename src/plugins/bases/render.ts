@@ -92,7 +92,7 @@ export function mountBase(el: HTMLElement, host: BaseHost, initial: string): Mou
           save(editBase(source, (doc) => doc.addIn(['views'], doc.createNode({ type, name: viewLabel(type) }))))
         },
       },
-      h('option', { value: '', hidden: true, selected: true }, '＋'),
+      h('option', { value: '', hidden: true, selected: true }, '+'),
       ...VIEW_TYPES.map(({ type, label }) => h('option', { value: type }, label)),
     )
 
@@ -132,7 +132,7 @@ export function mountBase(el: HTMLElement, host: BaseHost, initial: string): Mou
             void createRecord(app, [config.filters, view.filters], key && first !== undefined ? { [key]: first } : {})
           },
         },
-        '＋ Запись',
+        '+ Запись',
       ),
     )
 
