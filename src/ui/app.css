@@ -1,0 +1,156 @@
+/* Global styles: theme tokens and the parts of the UI that the core builds
+   with plain DOM (workspace, status bar, notices). Components style themselves. */
+
+:root {
+  --bg: #ffffff;
+  --bg-alt: #f5f4f1;
+  --bg-hover: #eae8e3;
+  --border: #dfdcd5;
+  --text: #24221f;
+  --text-muted: #6a665e;
+  --text-faint: #a39e94;
+  --accent: #c2570c;
+  --accent-text: #ffffff;
+  --selection: #f4d9c2;
+  --shadow: 0 12px 40px rgb(0 0 0 / 0.18);
+
+  --font-ui: system-ui, -apple-system, 'Segoe UI', sans-serif;
+  --font-text: system-ui, -apple-system, 'Segoe UI', sans-serif;
+  --font-mono: ui-monospace, 'Cascadia Code', 'JetBrains Mono', Consolas, monospace;
+  --editor-font-size: 16px;
+  --line-width: 46rem;
+
+  color-scheme: light;
+}
+
+@media (prefers-color-scheme: dark) {
+  :root:not([data-theme='light']) {
+    --bg: #1c1b1a;
+    --bg-alt: #242321;
+    --bg-hover: #32302d;
+    --border: #383633;
+    --text: #e4e1db;
+    --text-muted: #a19c92;
+    --text-faint: #6c6860;
+    --accent: #f08a3c;
+    --accent-text: #1c1b1a;
+    --selection: #5a3a22;
+    --shadow: 0 12px 40px rgb(0 0 0 / 0.5);
+    color-scheme: dark;
+  }
+}
+
+:root[data-theme='dark'] {
+  --bg: #1c1b1a;
+  --bg-alt: #242321;
+  --bg-hover: #32302d;
+  --border: #383633;
+  --text: #e4e1db;
+  --text-muted: #a19c92;
+  --text-faint: #6c6860;
+  --accent: #f08a3c;
+  --accent-text: #1c1b1a;
+  --selection: #5a3a22;
+  --shadow: 0 12px 40px rgb(0 0 0 / 0.5);
+  color-scheme: dark;
+}
+
+:root.wide {
+  --line-width: none;
+}
+
+* {
+  box-sizing: border-box;
+}
+
+html,
+body,
+#app {
+  height: 100%;
+  margin: 0;
+}
+
+body {
+  background: var(--bg);
+  color: var(--text);
+  font: 14px/1.4 var(--font-ui);
+  overflow: hidden;
+}
+
+button,
+input,
+select {
+  font: inherit;
+  color: inherit;
+}
+
+button {
+  background: none;
+  border: none;
+  padding: 0;
+  cursor: pointer;
+}
+
+:focus-visible {
+  outline: 2px solid var(--accent);
+  outline-offset: -2px;
+}
+
+.workspace {
+  position: absolute;
+  inset: 0;
+}
+
+.leaf {
+  height: 100%;
+  overflow: auto;
+}
+
+.leaf-message,
+.fatal {
+  padding: 48px 32px;
+  text-align: center;
+  color: var(--text-muted);
+}
+
+.status-bar {
+  display: flex;
+  justify-content: flex-end;
+  gap: 16px;
+  min-height: 24px;
+  padding: 3px 12px;
+  border-top: 1px solid var(--border);
+  background: var(--bg-alt);
+  color: var(--text-muted);
+  font-size: 12px;
+}
+
+.status-item:empty {
+  display: none;
+}
+
+.notices {
+  inset: auto 16px 40px auto;
+  margin: 0;
+  padding: 0;
+  border: none;
+  background: none;
+  display: flex;
+  flex-direction: column;
+  gap: 8px;
+  overflow: visible;
+}
+
+.notices:not(:popover-open) {
+  display: none;
+}
+
+.notice {
+  max-width: 360px;
+  padding: 10px 14px;
+  border: 1px solid var(--border);
+  border-radius: 8px;
+  background: var(--bg-alt);
+  color: var(--text);
+  box-shadow: var(--shadow);
+}
