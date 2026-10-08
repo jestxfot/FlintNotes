@@ -149,3 +149,22 @@
   font-family: var(--font-mono);
   font-size: 0.85em;
 }
+
+/* An embedded file (`![[file]]`). */
+.cm-editor .lp-embed {
+  display: block;
+  margin: 2px 0;
+  border: 1px solid var(--border);
+  border-radius: 8px;
+  overflow: hidden;
+}
+
+/* A read-only preview nested in an embed sizes itself to its text. */
+.lp-embed .cm-editor {
+  height: auto;
+}
+
+.lp-embed .cm-editor .cm-content {
+  max-width: none;
+  padding: 8px 14px 10px;
+}

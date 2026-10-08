@@ -4,7 +4,11 @@
   let { app }: { app: App } = $props()
 
   // svelte-ignore state_referenced_locally (props of a panel are set once, when it is mounted)
-  const active = watch(app.workspace, ['active-change', 'layout-change'], () => app.workspace.active?.path)
+  const active = watch(app.workspace, ['active-change', 'layout-change'], () => {
+    // Only files have backlinks; a tab like the graph has none.
+    const path = app.workspace.active?.path
+    return path && app.vault.get(path) ? path : undefined
+  })
   // svelte-ignore state_referenced_locally (props of a panel are set once, when it is mounted)
   const indexed = watch(app.metadata, ['resolved'], () => ({}))
 

@@ -5,7 +5,7 @@ import type { SyntaxNode, SyntaxNodeRef } from '@lezer/common'
 import type { App } from '../../app'
 import type { Off } from '../../events'
 import { errorMessage } from '../../notice'
-import { filePath } from '../state'
+import { filePath, staticPreview } from '../state'
 import { builtinRenderers } from './elements'
 import './style.css'
 
@@ -56,6 +56,7 @@ export class RenderContext {
   readonly ranges: Range<Decoration>[] = []
   /** Vault path of the note being rendered. */
   readonly path: string
+  private static: boolean
 
   constructor(
     readonly state: EditorState,
@@ -63,6 +64,7 @@ export class RenderContext {
     private preview: LivePreview,
   ) {
     this.path = state.facet(filePath)
+    this.static = state.facet(staticPreview)
   }
 
   text(from: number, to: number): string {
@@ -71,6 +73,7 @@ export class RenderContext {
 
   /** Whether the cursor or selection touches the range. Active elements show their source. */
   isActive(from: number, to: number): boolean {
+    if (this.static) return false
     return this.state.selection.ranges.some((range) => range.from <= to && range.to >= from)
   }
 
@@ -285,6 +288,7 @@ export class LivePreview {
     const block = readCodeBlock(state, node)
     const processor = block && this.processors.get(block.lang)
     if (!processor) return null
+    if (state.facet(staticPreview)) return { block, processor }
     // The cursor anywhere on the block's lines switches it back to source.
     const from = state.doc.lineAt(node.from).from
     const to = state.doc.lineAt(node.to).to

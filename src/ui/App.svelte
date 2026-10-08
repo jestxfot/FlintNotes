@@ -17,7 +17,7 @@
   let rightOpen = $state(true)
 
   const { workspace, settings } = app
-  const tabs = watch(workspace, ['layout-change'], () => workspace.leaves.map(({ id, path }) => ({ id, path })))
+  const tabs = watch(workspace, ['layout-change'], () => workspace.leaves.map(({ id, path, title }) => ({ id, path, title })))
   const activeId = watch(workspace, ['active-change'], () => workspace.active?.id ?? null)
   const hasRightPanels = watch(app.panels, ['change'], () => app.panels.list('right').length > 0)
   const theme = watch(settings, ['change'], () => settings.get<string>('core', 'theme'))
@@ -153,11 +153,11 @@
               class="tab-title"
               role="tab"
               aria-selected={tab.id === activeId.current}
-              title={tab.path}
+              title={tab.title ?? tab.path}
               onclick={() => workspace.setActive(leafById(tab.id))}
               onauxclick={(event) => event.button === 1 && workspace.close(leafById(tab.id))}
             >
-              {title(tab.path)}
+              {tab.title ?? title(tab.path)}
             </button>
             <button class="tab-close" aria-label="Закрыть вкладку" onclick={() => workspace.close(leafById(tab.id))}>
               ×

@@ -30,7 +30,10 @@ export type ViewCreator = (context: ViewContext) => FileView | Promise<FileView>
 /** One tab: a file shown by the view registered for its extension. */
 export interface Leaf {
   id: number
+  /** Vault path of the file, or `view:<type>` for a tab that shows no file (the graph). */
   path: string
+  /** Tab title for tabs that show no file. */
+  title?: string
   viewType: string
   el: HTMLElement
   view: FileView | null
@@ -46,10 +49,14 @@ type WorkspaceEvents = {
 const FALLBACK = 'unsupported'
 const STORAGE_KEY = 'flint:tabs'
 
+const VIEW_PREFIX = 'view:'
+
 const unsupportedView: ViewCreator = ({ path, containerEl }) => {
   const message = document.createElement('div')
   message.className = 'leaf-message'
-  message.textContent = `Нет включённого плагина для просмотра файлов .${extname(path) || '?'}`
+  message.textContent = path.startsWith(VIEW_PREFIX)
+    ? 'Плагин этой вкладки выключен'
+    : `Нет включённого плагина для просмотра файлов .${extname(path) || '?'}`
   containerEl.append(message)
   return { destroy: () => message.remove() }
 }
@@ -106,19 +113,28 @@ export class Workspace extends Events<WorkspaceEvents> {
    * keyboard focus alone; `line` scrolls to a zero-based line.
    */
   openFile(path: string, { focus = true, line }: { focus?: boolean; line?: number } = {}): void {
+    const leaf = this.open(path, undefined, focus)
+    if (line !== undefined) void leaf.ready.then(() => leaf.view?.revealLine?.(line))
+  }
+
+  /** Opens a tab of a registered view type that shows no file, such as the graph. */
+  openView(type: string, title: string): void {
+    this.open(VIEW_PREFIX + type, title, true)
+  }
+
+  private open(path: string, title: string | undefined, focus: boolean): Leaf & { ready: Promise<void> } {
     const existing = this.leaves.find((leaf) => leaf.path === path)
     if (existing) {
       this.setActive(existing)
-      if (line !== undefined) existing.view?.revealLine?.(line)
-      return
+      return Object.assign(existing, { ready: Promise.resolve() })
     }
     const el = document.createElement('div')
     el.className = 'leaf'
     this.containerEl.append(el)
-    const leaf: Leaf = { id: this.nextId++, path, viewType: '', el, view: null }
+    const leaf: Leaf = { id: this.nextId++, path, title, viewType: '', el, view: null }
     this.leaves.push(leaf)
     this.setActive(leaf)
-    void this.mount(leaf, focus).then(() => line !== undefined && leaf.view?.revealLine?.(line))
+    return Object.assign(leaf, { ready: this.mount(leaf, focus) })
   }
 
   setActive(leaf: Leaf | null): void {
@@ -148,8 +164,10 @@ export class Workspace extends Events<WorkspaceEvents> {
   /** Reopens the tabs of the previous session. */
   restore(): void {
     try {
-      const { paths, active } = JSON.parse(localStorage.getItem(STORAGE_KEY) ?? '{}')
-      for (const path of paths ?? []) if (this.app.vault.get(path)) this.openFile(path)
+      const { tabs, active } = JSON.parse(localStorage.getItem(STORAGE_KEY) ?? '{}')
+      for (const { path, title } of tabs ?? []) {
+        if (path.startsWith(VIEW_PREFIX) || this.app.vault.get(path)) this.open(path, title, true)
+      }
       const leaf = this.leaves.find((l) => l.path === active)
       if (leaf) this.setActive(leaf)
     } catch {
@@ -158,7 +176,9 @@ export class Workspace extends Events<WorkspaceEvents> {
   }
 
   private viewTypeFor(path: string): string {
-    return this.extensions.get(extname(path)) ?? FALLBACK
+    if (!path.startsWith(VIEW_PREFIX)) return this.extensions.get(extname(path)) ?? FALLBACK
+    const type = path.slice(VIEW_PREFIX.length)
+    return this.views.has(type) ? type : FALLBACK
   }
 
   private remountStale(): void {
@@ -196,7 +216,7 @@ export class Workspace extends Events<WorkspaceEvents> {
   private changed(): void {
     this.trigger('layout-change')
     try {
-      const state = { paths: this.leaves.map((l) => l.path), active: this.active?.path }
+      const state = { tabs: this.leaves.map(({ path, title }) => ({ path, title })), active: this.active?.path }
       localStorage.setItem(STORAGE_KEY, JSON.stringify(state))
     } catch {
       // Storage can be unavailable (private window); tabs just won't be remembered.

@@ -4,6 +4,7 @@ import type { MarkdownConfig } from '@lezer/markdown'
 import type { App } from './app'
 import type { Command } from './commands'
 import type { CodeBlockProcessor, PreviewRenderer } from './editor/live-preview'
+import type { EmbedRenderer } from './embeds'
 import type { Off } from './events'
 import type { PanelDef } from './panels'
 import type { SettingDef } from './settings'
@@ -86,7 +87,15 @@ export abstract class Plugin {
     this.register(this.app.livePreview.addCodeBlockProcessor(lang, processor))
   }
 
-  /** Makes files with the given extensions open in this view. */
+  /** Draws `![[file]]` embeds of files with the given extensions. */
+  registerEmbed(extensions: string[], renderer: EmbedRenderer): void {
+    this.register(this.app.embeds.register(extensions, renderer))
+  }
+
+  /**
+   * Makes files with the given extensions open in this view. With no extensions
+   * the view shows no file and is opened with `workspace.openView`.
+   */
   registerView(type: string, creator: ViewCreator, extensions: string[]): void {
     this.register(this.app.workspace.registerView(type, creator, extensions))
   }

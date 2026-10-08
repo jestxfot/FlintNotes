@@ -9,3 +9,18 @@
   opacity: 0.6;
   text-decoration-style: dashed;
 }
+
+.cm-editor .lp-embed-title {
+  display: block;
+  width: 100%;
+  padding: 5px 14px;
+  border-bottom: 1px solid var(--border);
+  background: var(--bg-alt);
+  color: var(--text-muted);
+  font: 600 12.5px var(--font-ui);
+  text-align: left;
+}
+
+.cm-editor .lp-embed-title:hover {
+  color: var(--accent);
+}

@@ -1,0 +1,19 @@
+.image-view {
+  display: flex;
+  min-height: 100%;
+  padding: 24px;
+}
+
+.image-view img {
+  max-width: 100%;
+  max-height: calc(100vh - 140px);
+  margin: auto;
+  object-fit: contain;
+  cursor: zoom-in;
+}
+
+.image-view.actual-size img {
+  max-width: none;
+  max-height: none;
+  cursor: zoom-out;
+}

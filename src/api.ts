@@ -18,7 +18,10 @@ export type {
   RenderContext,
 } from './core/editor/live-preview'
 export { ImageWidget } from './core/editor/live-preview/elements/images'
-export { filePath } from './core/editor/state'
+export { EmbedWidget } from './core/editor/live-preview/embed'
+export { createPreview, type Preview } from './core/editor/preview'
+export { embedDepth, filePath, staticPreview } from './core/editor/state'
+export type { EmbedContext, EmbedRenderer } from './core/embeds'
 export { Events, type Off } from './core/events'
 export { openLink, resolvePath } from './core/links'
 export { parseMarkdown, type AffectedLinks, type CachedMetadata, type HeadingRef, type LinkRef } from './core/metadata'

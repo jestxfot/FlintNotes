@@ -1,6 +1,18 @@
-import { cm, errorMessage, filePath, ImageWidget, path, type App, type PreviewRenderer } from '../../api'
+import {
+  cm,
+  embedDepth,
+  EmbedWidget,
+  errorMessage,
+  filePath,
+  ImageWidget,
+  path,
+  type App,
+  type PreviewRenderer,
+} from '../../api'
 
 const IMAGE = /\.(png|jpe?g|gif|webp|svg|bmp|avif)$/i
+// Notes may embed notes that embed notes; past this depth an embed stays a link.
+const MAX_EMBED_DEPTH = 3
 
 /** Opens the note a wikilink points to, creating it first if it does not exist. */
 async function follow(app: App, link: string, source: string): Promise<void> {
@@ -23,7 +35,8 @@ async function follow(app: App, link: string, source: string): Promise<void> {
 
 /**
  * `[[Note|alias]]` shows only its text; a link to a missing note is dimmed and
- * creates the note when clicked. `![[picture.png|300]]` shows the picture.
+ * creates the note when clicked. `![[picture.png|300]]` shows the picture, and
+ * `![[file]]` of any type some plugin can embed (notes, PDF, ...) shows the file.
  */
 export const wikilinkRenderer = (app: App): PreviewRenderer => {
   const target = (event: MouseEvent) =>
@@ -52,12 +65,24 @@ export const wikilinkRenderer = (app: App): PreviewRenderer => {
         else ctx.replace(node.from, node.to, widget)
         return
       }
+      const depth = ctx.state.facet(embedDepth)
+      const renderer = embed && dest && depth < MAX_EMBED_DEPTH ? app.embeds.get(dest) : undefined
+      if (renderer && dest) {
+        const subpath = link.includes('#') ? link.slice(link.indexOf('#')) : ''
+        const widget = new EmbedWidget(renderer, { app, path: dest, subpath, alias, sourcePath: ctx.path, depth })
+        if (active) ctx.widget(node.to, widget)
+        else ctx.replace(node.from, node.to, widget)
+        return
+      }
       if (active) return
       ctx.hide(node.from, open)
       ctx.hide(close, node.to)
-      const textFrom = alias ? open + pipe + 1 : open
+      // In a link the text after `|` is what to show; in an embed it is a size, so the name stays.
+      const textFrom = alias && !embed ? open + pipe + 1 : open
+      const textTo = alias && embed ? open + pipe : close
       ctx.hide(open, textFrom)
-      ctx.mark(textFrom, close, {
+      ctx.hide(textTo, close)
+      ctx.mark(textFrom, textTo, {
         class: dest ? 'lp-wikilink' : 'lp-wikilink lp-wikilink-missing',
         attributes: { 'data-target': link.trim() },
       })

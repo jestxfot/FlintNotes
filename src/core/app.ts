@@ -3,6 +3,7 @@ import { EditorExtensions } from './editor/extensions'
 import { LivePreview } from './editor/live-preview'
 import { MarkdownSyntax } from './editor/markdown'
 import { createMarkdownView } from './editor/markdown-view'
+import { Embeds } from './embeds'
 import { Events } from './events'
 import { MetadataCache } from './metadata'
 import { notice } from './notice'
@@ -60,6 +61,7 @@ export class App {
   readonly editor = new EditorExtensions()
   readonly markdown = new MarkdownSyntax(this.editor)
   readonly livePreview = new LivePreview(this)
+  readonly embeds = new Embeds()
   readonly statusBar = new StatusBar()
   readonly panels = new Panels()
   readonly workspace = new Workspace(this)
@@ -81,6 +83,7 @@ export class App {
     // Reading every note takes a while in a big vault; the app starts meanwhile.
     this.metadata.init()
     this.livePreview.init()
+    this.embeds.on('change', () => this.livePreview.refresh())
     this.commands.add({
       id: 'core:toggle-editor-mode',
       name: 'Переключить Live Preview и исходный текст',
