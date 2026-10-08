@@ -30,3 +30,12 @@ export const normalize = (path: string) => {
   }
   return out.join('/')
 }
+
+/** Path that leads to `to` from the folder `fromDir`, e.g. `../Other/Note.md`. */
+export const relative = (fromDir: string, to: string) => {
+  const from = fromDir ? fromDir.split('/') : []
+  const target = to.split('/')
+  let shared = 0
+  while (shared < from.length && shared < target.length - 1 && from[shared] === target[shared]) shared++
+  return [...from.slice(shared).map(() => '..'), ...target.slice(shared)].join('/')
+}

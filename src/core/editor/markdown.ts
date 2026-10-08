@@ -1,5 +1,8 @@
 import { markdown, markdownLanguage } from '@codemirror/lang-markdown'
+import { Compartment, type Extension } from '@codemirror/state'
 import type { MarkdownConfig } from '@lezer/markdown'
+import type { Off } from '../events'
+import type { EditorExtensions } from './extensions'
 
 /**
  * YAML frontmatter: a block between `---` lines at the very top of a note.
@@ -29,5 +32,36 @@ const frontmatter: MarkdownConfig = {
   ],
 }
 
-/** The Markdown language of the editor: GitHub flavour plus FlintNotes syntax. */
-export const markdownLanguageSupport = () => markdown({ base: markdownLanguage, extensions: [frontmatter] })
+/**
+ * The Markdown language of the editor: GitHub flavour, frontmatter, and
+ * whatever syntax plugins add (wikilinks, tags). Adding syntax re-parses the
+ * open editors.
+ */
+export class MarkdownSyntax {
+  private configs: MarkdownConfig[] = [frontmatter]
+  private compartment = new Compartment()
+
+  constructor(private editors: EditorExtensions) {}
+
+  /** Include this in the state of every Markdown editor. */
+  get extension(): Extension {
+    return this.compartment.of(this.language())
+  }
+
+  add(config: MarkdownConfig): Off {
+    this.configs.push(config)
+    this.apply()
+    return () => {
+      this.configs.splice(this.configs.indexOf(config), 1)
+      this.apply()
+    }
+  }
+
+  private language(): Extension {
+    return markdown({ base: markdownLanguage, extensions: [...this.configs], completeHTMLTags: false })
+  }
+
+  private apply(): void {
+    this.editors.each((editor) => editor.dispatch({ effects: this.compartment.reconfigure(this.language()) }))
+  }
+}

@@ -1,20 +1,25 @@
 <script lang="ts">
-  import { onMount } from 'svelte'
+  import { mount, onMount, unmount } from 'svelte'
+  import { formatHotkey, type Command } from '../core/commands'
   import { errorMessage } from '../core/notice'
   import { basename, extname, stripExt } from '../core/path'
   import { app } from '../instance'
-  import CommandPalette from './CommandPalette.svelte'
   import FileTree from './FileTree.svelte'
   import { watch } from './reactive.svelte'
   import SettingsModal from './SettingsModal.svelte'
+  import Sidebar from './Sidebar.svelte'
+  import SuggestModal from './SuggestModal.svelte'
+  import type { SuggestOptions } from '../core/suggest'
 
   let settingsOpen = $state(false)
-  let paletteOpen = $state(false)
-  let sidebarOpen = $state(true)
+  let suggest = $state.raw<SuggestOptions<any> | null>(null)
+  let leftOpen = $state(true)
+  let rightOpen = $state(true)
 
   const { workspace, settings } = app
   const tabs = watch(workspace, ['layout-change'], () => workspace.leaves.map(({ id, path }) => ({ id, path })))
   const activeId = watch(workspace, ['active-change'], () => workspace.active?.id ?? null)
+  const hasRightPanels = watch(app.panels, ['change'], () => app.panels.list('right').length > 0)
   const theme = watch(settings, ['change'], () => settings.get<string>('core', 'theme'))
   const fontSize = watch(settings, ['change'], () => settings.get<number>('core', 'fontSize'))
   const readableWidth = watch(settings, ['change'], () => settings.get<boolean>('core', 'readableWidth'))
@@ -43,6 +48,20 @@
     }
   }
 
+  function openPalette() {
+    const commands = app.commands.list().sort((a, b) => a.name.localeCompare(b.name))
+    app.suggest<Command>({
+      placeholder: 'Команда…',
+      items: (query) => {
+        const words = query.toLowerCase().split(/\s+/).filter(Boolean)
+        return commands.filter((c) => words.every((word) => c.name.toLowerCase().includes(word)))
+      },
+      label: (command) => command.name,
+      detail: (command) => command.hotkey && formatHotkey(command.hotkey),
+      onChoose: (command) => command.callback(),
+    })
+  }
+
   /** Places an element owned by the core inside this component's markup. */
   function host(node: HTMLElement, child: HTMLElement) {
     node.append(child)
@@ -51,11 +70,25 @@
 
   onMount(() => {
     const offs = [
+      app.ui.on('suggest', (options) => (suggest = options)),
+      app.panels.on('reveal', (id) => {
+        if (app.panels.list('left').some((p) => p.def.id === id)) leftOpen = true
+        else rightOpen = true
+      }),
+      app.panels.add({
+        id: 'files',
+        title: 'Файлы',
+        side: 'left',
+        mount: (target) => {
+          const tree = mount(FileTree, { target })
+          return () => void unmount(tree)
+        },
+      }),
       app.commands.add({
         id: 'core:command-palette',
         name: 'Палитра команд',
         hotkey: 'Mod+P',
-        callback: () => (paletteOpen = true),
+        callback: openPalette,
       }),
       app.commands.add({
         id: 'core:settings',
@@ -65,9 +98,15 @@
       }),
       app.commands.add({
         id: 'core:toggle-sidebar',
-        name: 'Показать или скрыть боковую панель',
+        name: 'Показать или скрыть левую панель',
         hotkey: 'Mod+Backslash',
-        callback: () => (sidebarOpen = !sidebarOpen),
+        callback: () => (leftOpen = !leftOpen),
+      }),
+      app.commands.add({
+        id: 'core:toggle-right-sidebar',
+        name: 'Показать или скрыть правую панель',
+        hotkey: 'Mod+Shift+Backslash',
+        callback: () => (rightOpen = !rightOpen),
       }),
       app.commands.add({ id: 'core:new-note', name: 'Новая заметка', hotkey: 'Alt+N', callback: newNote }),
       app.commands.add({
@@ -80,12 +119,12 @@
         id: 'core:save',
         name: 'Сохранить сейчас',
         hotkey: 'Mod+S',
-        callback: () => workspace.flushAll(),
+        callback: () => void workspace.flushAll(),
       }),
     ]
     // Capture phase: app shortcuts take priority over the focused editor's keymap.
     const onKey = (event: KeyboardEvent) => void app.commands.handleKey(event)
-    const onHide = () => document.visibilityState === 'hidden' && workspace.flushAll(true)
+    const onHide = () => document.visibilityState === 'hidden' && void workspace.flushAll(true)
     window.addEventListener('keydown', onKey, true)
     document.addEventListener('visibilitychange', onHide)
     return () => {
@@ -97,11 +136,12 @@
 </script>
 
 <div class="app">
-  {#if sidebarOpen}
-    <aside class="sidebar">
-      <FileTree />
-      <button class="sidebar-footer" onclick={() => (settingsOpen = true)}>Настройки</button>
-    </aside>
+  {#if leftOpen}
+    <Sidebar side="left">
+      {#snippet footer()}
+        <button class="sidebar-footer" onclick={() => (settingsOpen = true)}>Настройки</button>
+      {/snippet}
+    </Sidebar>
   {/if}
 
   <main>
@@ -132,35 +172,32 @@
         <div class="empty">
           <p>Откройте заметку в боковой панели</p>
           <button onclick={newNote}>Новая заметка <kbd>Alt+N</kbd></button>
-          <button onclick={() => (paletteOpen = true)}>Палитра команд <kbd>Ctrl+P</kbd></button>
+          <button onclick={openPalette}>Палитра команд <kbd>Ctrl+P</kbd></button>
         </div>
       {/if}
     </div>
 
     <div use:host={app.statusBar.el}></div>
   </main>
+
+  {#if rightOpen && hasRightPanels.current}
+    <Sidebar side="right" />
+  {/if}
 </div>
 
 {#if settingsOpen}
   <SettingsModal onclose={() => (settingsOpen = false)} />
 {/if}
-{#if paletteOpen}
-  <CommandPalette onclose={() => (paletteOpen = false)} />
+{#if suggest}
+  {#key suggest}
+    <SuggestModal options={suggest} onclose={() => (suggest = null)} />
+  {/key}
 {/if}
 
 <style>
   .app {
     display: flex;
     height: 100%;
-  }
-
-  .sidebar {
-    display: flex;
-    flex-direction: column;
-    flex: 0 0 260px;
-    min-width: 0;
-    border-right: 1px solid var(--border);
-    background: var(--bg-alt);
   }
 
   .sidebar-footer {

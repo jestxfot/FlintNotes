@@ -1,8 +1,11 @@
-import type { Extension } from '@codemirror/state'
+import type { CompletionSource } from '@codemirror/autocomplete'
+import { EditorState, type Extension } from '@codemirror/state'
+import type { MarkdownConfig } from '@lezer/markdown'
 import type { App } from './app'
 import type { Command } from './commands'
 import type { CodeBlockProcessor, PreviewRenderer } from './editor/live-preview'
 import type { Off } from './events'
+import type { PanelDef } from './panels'
 import type { SettingDef } from './settings'
 import type { ViewCreator } from './workspace'
 
@@ -53,6 +56,21 @@ export abstract class Plugin {
   /** Adds a CodeMirror extension to every Markdown editor, open ones included. */
   registerEditorExtension(extension: Extension): void {
     this.register(this.app.editor.add(extension))
+  }
+
+  /** Adds syntax to the Markdown parser, e.g. `[[wikilinks]]`. */
+  registerMarkdownSyntax(config: MarkdownConfig): void {
+    this.register(this.app.markdown.add(config))
+  }
+
+  /** Offers completions while typing in the editor. */
+  registerCompletionSource(source: CompletionSource): void {
+    this.registerEditorExtension(EditorState.languageData.of(() => [{ autocomplete: source }]))
+  }
+
+  /** Adds a panel to the left or right sidebar. */
+  addPanel(panel: PanelDef): void {
+    this.register(this.app.panels.add(panel))
   }
 
   /** Teaches Live Preview to draw a Markdown element. */

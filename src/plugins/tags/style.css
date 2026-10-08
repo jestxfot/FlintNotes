@@ -1,0 +1,8 @@
+.cm-editor .lp-tag {
+  padding: 1px 7px;
+  border-radius: 10px;
+  background: var(--bg-hover);
+  color: var(--accent);
+  font-size: 0.9em;
+  cursor: pointer;
+}

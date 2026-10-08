@@ -84,6 +84,10 @@ select {
   color: inherit;
 }
 
+[hidden] {
+  display: none !important;
+}
+
 button {
   background: none;
   border: none;

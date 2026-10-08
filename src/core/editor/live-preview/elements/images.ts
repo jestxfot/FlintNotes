@@ -3,7 +3,8 @@ import type { PreviewRenderer } from '..'
 import type { App } from '../../../app'
 import { resolvePath } from '../../../links'
 
-class ImageWidget extends WidgetType {
+/** A picture in the text. `below` puts it on its own row under the source that stays visible. */
+export class ImageWidget extends WidgetType {
   constructor(
     private src: string,
     private alt: string,

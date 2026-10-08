@@ -1,3 +1,4 @@
+import { autocompletion, completionKeymap } from '@codemirror/autocomplete'
 import { defaultKeymap, history, historyKeymap, indentWithTab } from '@codemirror/commands'
 import { HighlightStyle, indentOnInput, syntaxHighlighting } from '@codemirror/language'
 import { search, searchKeymap } from '@codemirror/search'
@@ -6,7 +7,6 @@ import { drawSelection, dropCursor, EditorView, keymap } from '@codemirror/view'
 import { tags as t } from '@lezer/highlight'
 import type { App } from '../app'
 import { errorMessage } from '../notice'
-import { markdownLanguageSupport } from './markdown'
 import { filePath } from './state'
 import type { FileView, ViewContext } from '../workspace'
 
@@ -29,6 +29,19 @@ const theme = EditorView.theme({
     backgroundColor: 'var(--selection)',
   },
   '.cm-gutters': { backgroundColor: 'transparent', border: 'none', color: 'var(--text-faint)' },
+  '.cm-tooltip': {
+    border: '1px solid var(--border)',
+    borderRadius: '8px',
+    backgroundColor: 'var(--bg)',
+    color: 'var(--text)',
+    boxShadow: 'var(--shadow)',
+    overflow: 'hidden',
+  },
+  '.cm-tooltip.cm-tooltip-autocomplete > ul': { fontFamily: 'var(--font-ui)', fontSize: '14px', maxHeight: '18em' },
+  '.cm-tooltip.cm-tooltip-autocomplete > ul > li': { padding: '4px 10px' },
+  '.cm-tooltip-autocomplete ul li[aria-selected]': { backgroundColor: 'var(--bg-hover)', color: 'var(--text)' },
+  '.cm-completionDetail': { marginLeft: '12px', color: 'var(--text-faint)', fontStyle: 'normal' },
+  '.cm-completionMatchedText': { textDecoration: 'none', color: 'var(--accent)' },
   '.cm-panels': { backgroundColor: 'var(--bg-alt)', color: 'var(--text)', borderColor: 'var(--border)' },
 })
 
@@ -75,10 +88,11 @@ export class MarkdownView implements FileView {
           dropCursor(),
           indentOnInput(),
           EditorView.lineWrapping,
-          markdownLanguageSupport(),
+          this.app.markdown.extension,
+          autocompletion({ icons: false }),
           syntaxHighlighting(highlight),
           search(),
-          keymap.of([...defaultKeymap, ...historyKeymap, ...searchKeymap, indentWithTab]),
+          keymap.of([...completionKeymap, ...defaultKeymap, ...historyKeymap, ...searchKeymap, indentWithTab]),
           theme,
           this.pathConfig.of(filePath.of(this.path)),
           this.app.livePreview.extension,
@@ -141,6 +155,13 @@ export class MarkdownView implements FileView {
   onRename(path: string): void {
     this.path = path
     this.editor.dispatch({ effects: this.pathConfig.reconfigure(filePath.of(path)) })
+  }
+
+  revealLine(line: number): void {
+    const { doc } = this.editor.state
+    const pos = doc.line(Math.min(Math.max(line + 1, 1), doc.lines)).from
+    this.editor.dispatch({ selection: { anchor: pos }, effects: EditorView.scrollIntoView(pos, { y: 'center' }) })
+    this.editor.focus()
   }
 
   focus(): void {

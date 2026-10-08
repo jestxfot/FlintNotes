@@ -11,6 +11,8 @@ export interface FileView {
   /** The file changed on disk. */
   onExternalChange?(): void
   onRename?(path: string): void
+  /** Scroll to a zero-based line and put the cursor there. */
+  revealLine?(line: number): void
   /** Write unsaved changes now. `unloading` means the page is closing. */
   flush?(unloading?: boolean): void | Promise<void>
   focus?(): void
@@ -99,11 +101,15 @@ export class Workspace extends Events<WorkspaceEvents> {
     }
   }
 
-  /** Opens the file in a tab, or switches to its tab. `focus: false` leaves the keyboard focus alone. */
-  openFile(path: string, { focus = true } = {}): void {
+  /**
+   * Opens the file in a tab, or switches to its tab. `focus: false` leaves the
+   * keyboard focus alone; `line` scrolls to a zero-based line.
+   */
+  openFile(path: string, { focus = true, line }: { focus?: boolean; line?: number } = {}): void {
     const existing = this.leaves.find((leaf) => leaf.path === path)
     if (existing) {
       this.setActive(existing)
+      if (line !== undefined) existing.view?.revealLine?.(line)
       return
     }
     const el = document.createElement('div')
@@ -112,7 +118,7 @@ export class Workspace extends Events<WorkspaceEvents> {
     const leaf: Leaf = { id: this.nextId++, path, viewType: '', el, view: null }
     this.leaves.push(leaf)
     this.setActive(leaf)
-    void this.mount(leaf, focus)
+    void this.mount(leaf, focus).then(() => line !== undefined && leaf.view?.revealLine?.(line))
   }
 
   setActive(leaf: Leaf | null): void {
@@ -135,8 +141,8 @@ export class Workspace extends Events<WorkspaceEvents> {
   }
 
   /** Writes unsaved changes of every tab. */
-  flushAll(unloading = false): void {
-    for (const leaf of this.leaves) void leaf.view?.flush?.(unloading)
+  async flushAll(unloading = false): Promise<void> {
+    await Promise.all(this.leaves.map((leaf) => leaf.view?.flush?.(unloading)))
   }
 
   /** Reopens the tabs of the previous session. */

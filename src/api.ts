@@ -2,6 +2,7 @@
  * Public API. Built-in plugins import from here; plugins loaded from the vault
  * get the same object as the global `flint`.
  */
+import * as autocomplete from '@codemirror/autocomplete'
 import * as commands from '@codemirror/commands'
 import * as language from '@codemirror/language'
 import * as state from '@codemirror/state'
@@ -16,14 +17,18 @@ export type {
   PreviewRenderer,
   RenderContext,
 } from './core/editor/live-preview'
+export { ImageWidget } from './core/editor/live-preview/elements/images'
 export { filePath } from './core/editor/state'
 export { Events, type Off } from './core/events'
 export { openLink, resolvePath } from './core/links'
+export { parseMarkdown, type AffectedLinks, type CachedMetadata, type HeadingRef, type LinkRef } from './core/metadata'
 export { errorMessage, notice } from './core/notice'
+export type { PanelDef } from './core/panels'
 export * as path from './core/path'
 export { Plugin, type PluginManifest } from './core/plugin'
 export type { BuiltinManifest } from './core/plugin-manager'
 export type { SettingDef } from './core/settings'
+export type { SuggestOptions } from './core/suggest'
 export type { VaultEntry } from './core/vault'
 export type { FileView, Leaf, ViewContext, ViewCreator } from './core/workspace'
 
@@ -32,4 +37,7 @@ export type { FileView, Leaf, ViewContext, ViewCreator } from './core/workspace'
  * bundling their own copy: CodeMirror extensions only work with the instance
  * that created the editor.
  */
-export const cm = { commands, language, state, view }
+export const cm = { autocomplete, commands, language, state, view }
+
+/** For panels written in Svelte: re-reads a value when the named events fire. */
+export { watch } from './ui/reactive.svelte'

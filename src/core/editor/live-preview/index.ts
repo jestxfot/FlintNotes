@@ -1,5 +1,5 @@
 import { syntaxTree } from '@codemirror/language'
-import { Compartment, StateField, type EditorState, type Extension, type Line, type Range } from '@codemirror/state'
+import { Compartment, StateEffect, StateField, type EditorState, type Extension, type Line, type Range } from '@codemirror/state'
 import { Decoration, EditorView, ViewPlugin, WidgetType, type DecorationSet, type ViewUpdate } from '@codemirror/view'
 import type { SyntaxNode, SyntaxNodeRef } from '@lezer/common'
 import type { App } from '../../app'
@@ -47,6 +47,9 @@ export interface CodeBlockInstance {
 export type CodeBlockProcessor = (source: string, el: HTMLElement, ctx: CodeBlockContext) => void | CodeBlockInstance
 
 const hidden = Decoration.replace({})
+
+/** Asks the inline layer to redraw although the text did not change. */
+const refresh = StateEffect.define<null>()
 
 /** Collects the decorations of one rendering pass and answers questions about the cursor. */
 export class RenderContext {
@@ -271,6 +274,11 @@ export class LivePreview {
     }
   }
 
+  /** Redraws the elements, for renderers whose output depends on more than the text. */
+  refresh(): void {
+    this.app.editor.each((editor) => editor.dispatch({ effects: refresh.of(null) }))
+  }
+
   /** The block and its processor if `node` is a code block currently shown as UI. */
   blockAt(state: EditorState, node: SyntaxNode): { block: CodeBlock; processor: CodeBlockProcessor } | null {
     if (!this.processors.size) return null
@@ -371,7 +379,8 @@ export class LivePreview {
             update.docChanged ||
             update.viewportChanged ||
             update.selectionSet ||
-            treeChanged(update.startState, update.state)
+            treeChanged(update.startState, update.state) ||
+            update.transactions.some((tr) => tr.effects.some((effect) => effect.is(refresh)))
           ) {
             this.decorations = buildInline(update.view)
           }
