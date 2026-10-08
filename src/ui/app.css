@@ -159,3 +159,22 @@ button {
   color: var(--text);
   box-shadow: var(--shadow);
 }
+
+/* Inline Markdown drawn outside the editor (`renderInline`). */
+.inline-link {
+  color: var(--accent);
+  text-underline-offset: 2px;
+}
+
+.inline-tag {
+  padding: 0 6px;
+  border-radius: 10px;
+  background: var(--bg-hover);
+  color: var(--accent);
+  font-size: 0.9em;
+}
+
+code {
+  font-family: var(--font-mono);
+  font-size: 0.9em;
+}

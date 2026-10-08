@@ -38,6 +38,7 @@ const toEntry = (abs: string, stat: Stats): VaultEntry => ({
   kind: stat.isDirectory() ? 'folder' : 'file',
   size: stat.isDirectory() ? 0 : stat.size,
   mtime: stat.mtimeMs,
+  ctime: stat.birthtimeMs,
 })
 
 /** Resolves a vault-relative path, refusing anything that escapes the vault. */

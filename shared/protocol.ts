@@ -6,6 +6,8 @@ export interface VaultEntry {
   kind: 'file' | 'folder'
   size: number
   mtime: number
+  /** When the file was created. */
+  ctime: number
 }
 
 export type RemoteEvent = { type: 'upsert'; entry: VaultEntry } | { type: 'delete'; path: string }

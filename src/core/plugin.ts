@@ -87,6 +87,11 @@ export abstract class Plugin {
     this.register(this.app.livePreview.addCodeBlockProcessor(lang, processor))
   }
 
+  /** Renders a block-level syntax element (e.g. `Table`) as UI; see `CodeBlockProcessor`. */
+  registerBlockRenderer(nodeName: string, processor: CodeBlockProcessor): void {
+    this.register(this.app.livePreview.addBlockRenderer(nodeName, processor))
+  }
+
   /** Draws `![[file]]` embeds of files with the given extensions. */
   registerEmbed(extensions: string[], renderer: EmbedRenderer): void {
     this.register(this.app.embeds.register(extensions, renderer))

@@ -40,9 +40,10 @@ export interface CodeBlockInstance {
 }
 
 /**
- * Renders a fenced code block of some language as UI inside `el`. The block's
- * text stays the source of truth: the UI is rebuilt from it and writes changes
- * back through `ctx.setSource`.
+ * Renders a block of the note as UI inside `el`: a fenced code block of some
+ * language, or a whole syntax element such as a table. The block's text stays
+ * the source of truth: the UI is rebuilt from it and writes changes back
+ * through `ctx.setSource`.
  */
 export type CodeBlockProcessor = (source: string, el: HTMLElement, ctx: CodeBlockContext) => void | CodeBlockInstance
 
@@ -238,6 +239,7 @@ class BlockWidget extends WidgetType {
 export class LivePreview {
   private renderers: PreviewRenderer[] = []
   private processors = new Map<string, CodeBlockProcessor>()
+  private blockRenderers = new Map<string, CodeBlockProcessor>()
   private compartment = new Compartment()
   private enabled = true
 
@@ -277,6 +279,19 @@ export class LivePreview {
     }
   }
 
+  /**
+   * Renders every block-level syntax element of the given kind (e.g. `Table`)
+   * as UI. The processor receives the element's full text and `lang: ''`.
+   */
+  addBlockRenderer(nodeName: string, processor: CodeBlockProcessor): Off {
+    this.blockRenderers.set(nodeName, processor)
+    this.reconfigure()
+    return () => {
+      if (this.blockRenderers.get(nodeName) === processor) this.blockRenderers.delete(nodeName)
+      this.reconfigure()
+    }
+  }
+
   /** Redraws the elements, for renderers whose output depends on more than the text. */
   refresh(): void {
     this.app.editor.each((editor) => editor.dispatch({ effects: refresh.of(null) }))
@@ -284,14 +299,21 @@ export class LivePreview {
 
   /** The block and its processor if `node` is a code block currently shown as UI. */
   blockAt(state: EditorState, node: SyntaxNode): { block: CodeBlock; processor: CodeBlockProcessor } | null {
-    if (!this.processors.size) return null
-    const block = readCodeBlock(state, node)
-    const processor = block && this.processors.get(block.lang)
-    if (!processor) return null
-    if (state.facet(staticPreview)) return { block, processor }
-    // The cursor anywhere on the block's lines switches it back to source.
     const from = state.doc.lineAt(node.from).from
     const to = state.doc.lineAt(node.to).to
+    let block: CodeBlock | null
+    let processor: CodeBlockProcessor | undefined
+    if (node.name === 'FencedCode') {
+      block = readCodeBlock(state, node)
+      processor = block ? this.processors.get(block.lang) : undefined
+    } else {
+      // Only elements that own their lines; one nested in a list or quote stays text.
+      block = node.from === from ? { lang: '', source: state.sliceDoc(from, to), from, to, empty: false } : null
+      processor = this.blockRenderers.get(node.name)
+    }
+    if (!block || !processor) return null
+    if (state.facet(staticPreview)) return { block, processor }
+    // The cursor anywhere on the block's lines switches it back to source.
     if (state.selection.ranges.some((range) => range.from <= to && range.to >= from)) return null
     return { block, processor }
   }
@@ -299,8 +321,12 @@ export class LivePreview {
   /** Replaces the text of the code block rendered into `el`. */
   writeBlock(view: EditorView, el: HTMLElement, source: string): void {
     let node: SyntaxNode | null = syntaxTree(view.state).resolveInner(view.posAtDOM(el), 1)
-    while (node && node.name !== 'FencedCode') node = node.parent
-    const block = node && readCodeBlock(view.state, node)
+    while (node && node.name !== 'FencedCode' && !this.blockRenderers.has(node.name)) node = node.parent
+    if (!node) return
+    const block =
+      node.name === 'FencedCode'
+        ? readCodeBlock(view.state, node)
+        : { from: view.state.doc.lineAt(node.from).from, to: view.state.doc.lineAt(node.to).to, empty: false }
     if (!block) return
     view.dispatch({ changes: { from: block.from, to: block.to, insert: block.empty ? `\n${source}` : source } })
   }
@@ -349,12 +375,12 @@ export class LivePreview {
     }
 
     const buildBlocks = (state: EditorState): DecorationSet => {
-      if (!this.processors.size) return Decoration.none
+      if (!this.processors.size && !this.blockRenderers.size) return Decoration.none
       const ranges: Range<Decoration>[] = []
       const path = state.facet(filePath)
       syntaxTree(state).iterate({
         enter: (node) => {
-          if (node.name !== 'FencedCode') return CONTAINERS.has(node.name)
+          if (node.name !== 'FencedCode' && !this.blockRenderers.has(node.name)) return CONTAINERS.has(node.name)
           const found = this.blockAt(state, node.node)
           if (found) {
             const { block, processor } = found
