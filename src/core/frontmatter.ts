@@ -28,7 +28,9 @@ export async function setProperties(app: App, path: string, changes: Record<stri
     else doc.set(key, toYaml(value))
   }
   const body = match ? text.slice(match[0].length) : text
-  const yaml = doc.contents && doc.toString().trim() !== '{}' ? doc.toString() : ''
+  // Without this the library pads untouched lists: `[a, b]` would become `[ a, b ]`.
+  const written = doc.toString({ flowCollectionPadding: false })
+  const yaml = doc.contents && written.trim() !== '{}' ? written : ''
   const block = yaml ? `---\n${yaml.endsWith('\n') ? yaml : `${yaml}\n`}---\n`.replace(/\n/g, eol) : ''
   await app.vault.write(path, block + body)
 }

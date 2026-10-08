@@ -1,0 +1,368 @@
+.base {
+  font-family: var(--font-ui);
+  font-size: 14px;
+}
+
+.base-toolbar {
+  display: flex;
+  align-items: center;
+  gap: 6px;
+  padding: 2px 0 8px;
+}
+
+.base-tabs {
+  display: flex;
+  flex: 1;
+  flex-wrap: wrap;
+  gap: 2px;
+  min-width: 0;
+}
+
+.base-toolbar button,
+.base-add-view {
+  padding: 3px 10px;
+  border: 1px solid transparent;
+  border-radius: 6px;
+  background: none;
+  color: var(--text-muted);
+  cursor: pointer;
+}
+
+.base-add-view {
+  width: 34px;
+  padding: 3px 4px;
+  appearance: none;
+  text-align: center;
+}
+
+.base-toolbar button:hover,
+.base-add-view:hover,
+.base-toolbar button.active {
+  background: var(--bg-hover);
+  color: var(--text);
+}
+
+.base-count {
+  color: var(--text-faint);
+  font-size: 12.5px;
+  white-space: nowrap;
+}
+
+.base-body {
+  max-height: 70vh;
+  overflow: auto;
+}
+
+.base-file .base-body {
+  max-height: none;
+}
+
+.base-table {
+  width: 100%;
+  border-collapse: collapse;
+}
+
+.base-table th,
+.base-table td {
+  padding: 5px 10px;
+  border-bottom: 1px solid var(--border);
+  text-align: left;
+  vertical-align: top;
+}
+
+.base-table thead th {
+  position: sticky;
+  top: 0;
+  background: var(--bg);
+  color: var(--text-muted);
+  font-size: 12.5px;
+  font-weight: 600;
+  white-space: nowrap;
+  cursor: pointer;
+  user-select: none;
+}
+
+.base-sort {
+  margin-left: 5px;
+  color: var(--accent);
+  font-size: 10px;
+}
+
+.base-table td.editable {
+  cursor: text;
+}
+
+.base-table td.editable:hover {
+  background: var(--bg-alt);
+}
+
+.base-table tfoot td {
+  border-bottom: none;
+  color: var(--text-muted);
+  font-weight: 600;
+}
+
+.base-summary {
+  margin-right: 6px;
+  color: var(--text-faint);
+  font-size: 11px;
+  font-weight: 400;
+  text-transform: uppercase;
+}
+
+.base-group th,
+.base-group-title {
+  margin: 0;
+  padding: 10px 10px 4px;
+  color: var(--text-muted);
+  font-size: 12px;
+  font-weight: 600;
+  letter-spacing: 0.03em;
+  text-transform: uppercase;
+}
+
+.base-group th span,
+.base-group-title span {
+  margin-left: 6px;
+  color: var(--text-faint);
+}
+
+.base-input {
+  width: 100%;
+  min-width: 90px;
+  padding: 2px 6px;
+  border: 1px solid var(--accent);
+  border-radius: 4px;
+  background: var(--bg);
+  outline: none;
+}
+
+.base input[type='checkbox'] {
+  accent-color: var(--accent);
+}
+
+.base-cards {
+  display: grid;
+  grid-template-columns: repeat(auto-fill, minmax(200px, 1fr));
+  gap: 10px;
+  padding: 2px;
+}
+
+.base-card {
+  display: flex;
+  flex-direction: column;
+  gap: 4px;
+  padding: 10px 12px;
+  border: 1px solid var(--border);
+  border-radius: 8px;
+  background: var(--bg);
+  overflow: hidden;
+}
+
+.base-card.dragging {
+  opacity: 0.4;
+}
+
+.base-cover {
+  width: calc(100% + 24px);
+  max-width: none;
+  height: 110px;
+  margin: -10px -12px 4px;
+  object-fit: cover;
+}
+
+.base-card-title {
+  color: var(--text);
+  font-weight: 600;
+  text-decoration: none;
+  overflow-wrap: anywhere;
+}
+
+.base-card-title:hover {
+  color: var(--accent);
+}
+
+.base-field {
+  color: var(--text);
+  font-size: 13px;
+  overflow-wrap: anywhere;
+}
+
+.base-field > span:first-child {
+  margin-right: 6px;
+  color: var(--text-faint);
+}
+
+.base-list {
+  margin: 0;
+  padding: 0 0 0 20px;
+}
+
+.base-list li {
+  padding: 2px 0;
+}
+
+.base-list-field {
+  margin-left: 10px;
+  color: var(--text-muted);
+  font-size: 13px;
+}
+
+.base-board {
+  display: flex;
+  align-items: flex-start;
+  gap: 10px;
+  padding-bottom: 6px;
+}
+
+.base-column {
+  display: flex;
+  flex: 0 0 240px;
+  flex-direction: column;
+  gap: 8px;
+  min-height: 80px;
+  padding: 0 8px 8px;
+  border-radius: 8px;
+  background: var(--bg-alt);
+}
+
+.base-column .base-group-title {
+  padding: 10px 2px 2px;
+}
+
+.base-column.drop-target {
+  outline: 2px dashed var(--accent);
+  outline-offset: -2px;
+}
+
+.base-column .base-card[draggable='true'] {
+  cursor: grab;
+}
+
+.base-settings {
+  margin-bottom: 10px;
+  padding: 12px 14px;
+  border: 1px solid var(--border);
+  border-radius: 8px;
+  background: var(--bg-alt);
+}
+
+.base-settings-row {
+  display: flex;
+  flex-wrap: wrap;
+  gap: 10px 16px;
+  margin-bottom: 10px;
+}
+
+.base-setting {
+  display: flex;
+  align-items: center;
+  gap: 6px;
+  color: var(--text-muted);
+  font-size: 13px;
+}
+
+.base-settings input[type='text'],
+.base-settings input[type='number'],
+.base-settings select {
+  padding: 3px 7px;
+  border: 1px solid var(--border);
+  border-radius: 5px;
+  background: var(--bg);
+}
+
+.base-settings input[type='number'] {
+  width: 70px;
+}
+
+.base-settings-title {
+  margin: 4px 0 6px;
+  color: var(--text-muted);
+  font-size: 12px;
+  font-weight: 600;
+  text-transform: uppercase;
+}
+
+.base-checks {
+  display: flex;
+  flex-wrap: wrap;
+  gap: 6px 16px;
+  margin-bottom: 10px;
+}
+
+.base-check {
+  display: flex;
+  align-items: center;
+  gap: 5px;
+  font-size: 13px;
+}
+
+.base-delete {
+  padding: 4px 10px;
+  border: 1px solid var(--border);
+  border-radius: 6px;
+  color: #d0342c;
+}
+
+.base-hint {
+  margin: 10px 0 0;
+  color: var(--text-faint);
+  font-size: 12.5px;
+}
+
+.base-error {
+  margin-bottom: 8px;
+  padding: 8px 12px;
+  border-radius: 6px;
+  background: var(--bg-alt);
+  color: #d0342c;
+  font-size: 13px;
+}
+
+.base-empty {
+  padding: 18px 4px;
+  color: var(--text-muted);
+}
+
+/* A `.base` file opened in a tab */
+.base-file {
+  display: flex;
+  flex-direction: column;
+  max-width: 1100px;
+  min-height: 100%;
+  margin: 0 auto;
+  padding: 20px 28px;
+}
+
+.base-file-head {
+  display: flex;
+  justify-content: flex-end;
+  margin-bottom: 4px;
+}
+
+.base-file-head button {
+  padding: 3px 10px;
+  border-radius: 6px;
+  color: var(--text-muted);
+  font-size: 13px;
+}
+
+.base-file-head button:hover {
+  background: var(--bg-hover);
+}
+
+.base-file textarea {
+  flex: 1;
+  min-height: 60vh;
+  padding: 12px 14px;
+  border: 1px solid var(--border);
+  border-radius: 8px;
+  background: var(--bg-alt);
+  color: var(--text);
+  font: 13px/1.5 var(--font-mono);
+  resize: vertical;
+}
+
+.lp-embed .base {
+  padding: 8px 12px;
+}
