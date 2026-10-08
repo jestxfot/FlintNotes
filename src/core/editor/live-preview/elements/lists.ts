@@ -30,7 +30,11 @@ class CheckboxWidget extends WidgetType {
     box.onclick = (event) => {
       event.preventDefault()
       const inside = view.posAtDOM(box) + 1
-      view.dispatch({ changes: { from: inside, to: inside + 1, insert: this.checked ? ' ' : 'x' } })
+      // The user event lets plugins react to a task being ticked (e.g. to stamp the date).
+      view.dispatch({
+        changes: { from: inside, to: inside + 1, insert: this.checked ? ' ' : 'x' },
+        userEvent: 'input.task',
+      })
     }
     return box
   }

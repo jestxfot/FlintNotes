@@ -1,0 +1,224 @@
+/* A ```tasks block */
+.tasks-block {
+  font-family: var(--font-ui);
+}
+
+.tasks-block ul {
+  margin: 0;
+  padding: 0;
+  list-style: none;
+}
+
+.tasks-block h4 {
+  margin: 12px 0 4px;
+  color: var(--text-muted);
+  font-size: 0.82em;
+  font-weight: 600;
+  letter-spacing: 0.03em;
+  text-transform: uppercase;
+}
+
+.tasks-block h4:first-child {
+  margin-top: 2px;
+}
+
+.tasks-block h4 span {
+  margin-left: 6px;
+  color: var(--text-faint);
+}
+
+.task-row {
+  display: flex;
+  align-items: baseline;
+  gap: 8px;
+  padding: 3px 0;
+}
+
+.task-row input {
+  flex: none;
+  width: 1em;
+  height: 1em;
+  margin: 0;
+  accent-color: var(--accent);
+  cursor: pointer;
+  transform: translateY(0.12em);
+}
+
+.task-text {
+  flex: 1;
+  min-width: 0;
+  overflow-wrap: anywhere;
+}
+
+.task-row.done .task-text {
+  color: var(--text-faint);
+  text-decoration: line-through;
+}
+
+.task-chip {
+  flex: none;
+  color: var(--text-muted);
+  font-size: 0.82em;
+  white-space: nowrap;
+}
+
+.task-chip.overdue {
+  color: #d0342c;
+  font-weight: 600;
+}
+
+.task-source,
+.task-edit {
+  flex: none;
+  color: var(--text-faint);
+  font-size: 0.82em;
+  text-decoration: none;
+}
+
+.task-source {
+  max-width: 30%;
+  overflow: hidden;
+  text-overflow: ellipsis;
+  white-space: nowrap;
+}
+
+.task-edit {
+  opacity: 0;
+}
+
+.task-row:hover .task-edit,
+.task-edit:focus-visible {
+  opacity: 1;
+}
+
+.task-source:hover,
+.task-edit:hover {
+  color: var(--accent);
+}
+
+.tasks-count {
+  margin-top: 6px;
+  color: var(--text-faint);
+  font-size: 0.82em;
+}
+
+.tasks-error {
+  margin-bottom: 6px;
+  padding: 6px 10px;
+  border-radius: 6px;
+  background: var(--bg-alt);
+  color: #d0342c;
+  font-size: 0.85em;
+}
+
+/* The reminder that takes over the whole screen */
+.task-alert {
+  width: 100vw;
+  max-width: none;
+  height: 100vh;
+  max-height: none;
+  margin: 0;
+  padding: 0;
+  border: none;
+  background: var(--accent);
+  color: var(--accent-text);
+  animation: task-alert-pulse 1.6s ease-in-out infinite alternate;
+}
+
+.task-alert[open] {
+  display: flex;
+}
+
+@keyframes task-alert-pulse {
+  from {
+    filter: brightness(1);
+  }
+  to {
+    filter: brightness(1.12);
+  }
+}
+
+@media (prefers-reduced-motion: reduce) {
+  .task-alert {
+    animation: none;
+  }
+}
+
+.alert-body {
+  display: flex;
+  flex-direction: column;
+  align-items: center;
+  width: min(900px, 100%);
+  max-height: 100%;
+  margin: auto;
+  padding: 32px 24px;
+  overflow-y: auto;
+}
+
+.alert-bell {
+  font-size: 72px;
+  line-height: 1;
+}
+
+.task-alert h1 {
+  margin: 12px 0 24px;
+  font-size: 34px;
+}
+
+.alert-list {
+  display: flex;
+  flex-direction: column;
+  gap: 14px;
+  width: 100%;
+}
+
+.alert-task {
+  padding: 20px 24px;
+  border-radius: 14px;
+  background: var(--bg);
+  color: var(--text);
+  box-shadow: 0 8px 30px rgb(0 0 0 / 0.25);
+}
+
+.alert-text {
+  font-size: 26px;
+  font-weight: 650;
+  line-height: 1.3;
+  overflow-wrap: anywhere;
+}
+
+.alert-when {
+  margin: 6px 0 16px;
+  color: var(--text-muted);
+}
+
+.alert-actions,
+.alert-footer {
+  display: flex;
+  flex-wrap: wrap;
+  gap: 8px;
+}
+
+.alert-footer {
+  margin-top: 20px;
+}
+
+.task-alert button {
+  padding: 9px 16px;
+  border: 1px solid var(--border);
+  border-radius: 8px;
+  background: var(--bg);
+  color: var(--text);
+  font-size: 15px;
+}
+
+.task-alert button:hover {
+  background: var(--bg-hover);
+}
+
+.task-alert button.primary {
+  border-color: var(--accent);
+  background: var(--accent);
+  color: var(--accent-text);
+  font-weight: 600;
+}
