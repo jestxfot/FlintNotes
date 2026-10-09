@@ -6,6 +6,8 @@ interface SettingBase {
   key: string
   name: string
   desc?: string
+  /** The page of the settings screen it goes on, for sections that have several (the core's). */
+  group?: string
 }
 
 /** Declarative description of one setting; the settings screen renders it. */

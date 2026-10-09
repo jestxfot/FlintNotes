@@ -2,6 +2,7 @@ import {
   forceCollide,
   forceLink,
   forceManyBody,
+  forceRadial,
   forceSimulation,
   forceX,
   forceY,
@@ -10,6 +11,8 @@ import {
   type SimulationNodeDatum,
 } from 'd3-force'
 import { path as paths, type App, type FileView, type Off } from '../../api'
+import { buildPanel } from './panel'
+import { compileQuery, cssColor, DEFAULTS, type GraphSettings } from './settings'
 
 export interface GraphNode extends SimulationNodeDatum {
   /** Vault path, or `?name` for a note that is linked to but does not exist. */
@@ -17,18 +20,20 @@ export interface GraphNode extends SimulationNodeDatum {
   label: string
   exists: boolean
   degree: number
+  /** Top-level folder of the note, which decides its colour when no colour group matches. */
+  group: string
+  /** The colour of the first colour group the note matches. */
+  color?: string
 }
 
 type GraphLink = SimulationLinkDatum<GraphNode>
 
-export interface GraphOptions {
-  unresolved: boolean
-  orphans: boolean
-  attachments: boolean
-}
-
-const radius = (node: GraphNode) => 3.5 + Math.sqrt(node.degree) * 1.6
+// A hub grows with its links, but only up to a point: a note with a thousand links must not cover its neighbours.
+const baseRadius = (node: GraphNode) => 3 + Math.min(20, Math.sqrt(node.degree) * 1.3)
+const PALETTE = ['blue', 'green', 'orange', 'purple', 'cyan', 'pink', 'yellow', 'red']
 const DRAG_THRESHOLD = 4
+const FORCES = new Set<keyof GraphSettings>(['centerStrength', 'repelStrength', 'linkStrength', 'linkDistance', 'nodeSizeMultiplier'])
+const FILTERS = new Set<keyof GraphSettings>(['showTags', 'showAttachments', 'hideUnresolved', 'showOrphans', 'colorFolders'])
 
 /** The graph tab: notes as dots, links as lines, laid out by a force simulation. */
 export class GraphView implements FileView {
@@ -41,24 +46,29 @@ export class GraphView implements FileView {
   // Pan and zoom: screen = graph * k + (x, y), measured from the canvas centre.
   private view = { x: 0, y: 0, k: 1 }
   private hovered: GraphNode | null = null
+  private legend = document.createElement('div')
+  private groupColors = new Map<string, string>()
   // The graph keeps itself framed until the user pans, zooms or drags.
   private autoFit = true
   private cleanups: Off[] = []
+  private typing: ReturnType<typeof setTimeout> | undefined
 
   constructor(
     private app: App,
     container: HTMLElement,
-    private options: () => GraphOptions,
+    private settings: GraphSettings,
+    /** Called when the user changed a setting in the panel. */
+    private onChange: () => void,
   ) {
     this.el.className = 'graph-view'
     this.el.append(this.canvas)
     container.append(this.el)
 
+    this.legend.className = 'graph-legend'
+    this.el.append(this.legend)
+    // The forces themselves depend on the notes and the settings; `rebuild` sets them.
     this.simulation = forceSimulation<GraphNode, GraphLink>()
-      .force('charge', forceManyBody<GraphNode>().strength(-120).distanceMax(500))
-      .force('x', forceX<GraphNode>().strength(0.04))
-      .force('y', forceY<GraphNode>().strength(0.04))
-      .force('collide', forceCollide<GraphNode>((node) => radius(node) + 4))
+      .velocityDecay(0.5)
       .on('tick', () => {
         if (this.autoFit) this.fit()
         this.draw()
@@ -72,8 +82,28 @@ export class GraphView implements FileView {
       app.workspace.on('active-change', () => this.draw()),
     )
     this.bindPointer()
+    this.cleanups.push(buildPanel(this.el, this.settings, (key) => this.changed(key), () => this.simulation.alpha(1).restart()))
     this.rebuild()
   }
+
+  private radius(node: GraphNode): number {
+    return baseRadius(node) * this.settings.nodeSizeMultiplier
+  }
+
+  /** A setting was changed in the panel: redo as little as it takes. */
+  private changed(key: keyof GraphSettings): void {
+    this.onChange()
+    if (key === 'search' || key === 'colorGroups') {
+      // Typed text: wait for a pause before laying the graph out again.
+      clearTimeout(this.typing)
+      this.typing = setTimeout(() => this.rebuild(), 250)
+    } else if (FORCES.has(key)) {
+      this.applyForces()
+      this.simulation.alpha(0.5).restart()
+    } else if (FILTERS.has(key)) this.rebuild()
+    else this.draw()
+  }
+
 
   /** Where a note's dot is on the page, or `null` if it is not in the graph. */
   positionOf(id: string): { x: number; y: number } | null {
@@ -86,17 +116,49 @@ export class GraphView implements FileView {
     }
   }
 
+  /** Sets the layout's forces from the settings and the size of the graph. */
+  private applyForces(): void {
+    // Obsidian's numbers, turned into multipliers of this layout's own defaults.
+    const gravity = this.settings.centerStrength / DEFAULTS.centerStrength
+    const repel = Math.max(0.05, this.settings.repelStrength / DEFAULTS.repelStrength)
+    const linkLength = this.settings.linkDistance / DEFAULTS.linkDistance
+    const { linkStrength } = this.settings
+    const big = this.nodes.length > 1500
+    const linked = this.nodes.filter((n) => n.degree > 0).length
+    // Roughly how far out the linked notes reach; notes without links settle in a ring beyond that.
+    const reach = 26 * Math.sqrt(linked + 1) * Math.sqrt(repel) * linkLength
+    const ends = (link: GraphLink) => [(link.source as GraphNode).degree, (link.target as GraphNode).degree]
+    this.simulation
+      // Big notes push harder, so hubs keep clear space around them instead of sinking into a pile.
+      .force('charge', forceManyBody<GraphNode>().strength((n) => -(30 + this.radius(n) ** 2 * 1.6) * repel).distanceMax(big ? 800 : 1200).theta(big ? 1.4 : 1.1))
+      .force(
+        'link',
+        forceLink<GraphNode, GraphLink>(this.links)
+          // The more links a hub has, the longer and the looser they are: its notes need
+          // room to spread around it, and would be packed into a ball by short, stiff links.
+          .distance((link) => Math.min(170, 30 + 4 * Math.sqrt(Math.max(...ends(link)))) * linkLength)
+          .strength((link) => Math.min(0.7, Math.max(0.05, 0.9 / Math.sqrt(Math.max(...ends(link))))) * linkStrength),
+      )
+      .force('x', forceX<GraphNode>().strength((n) => (n.degree ? 0.035 * gravity : 0)))
+      .force('y', forceY<GraphNode>().strength((n) => (n.degree ? 0.035 * gravity : 0)))
+      .force('ring', forceRadial<GraphNode>(reach + 120).strength((n) => (n.degree ? 0 : 0.06)))
+      .force('collide', forceCollide<GraphNode>((n) => this.radius(n) + 4).strength(0.8))
+      // A big vault settles in a couple of hundred steps instead of simmering for a minute.
+      .alphaDecay(big ? 0.05 : this.nodes.length > 600 ? 0.035 : 0.0228)
+  }
+
   /** Reads the notes and links again; dots that remain keep their place. */
   rebuild(): void {
     const { metadata } = this.app
-    const { unresolved, orphans, attachments } = this.options()
+    const { showAttachments: attachments, hideUnresolved, showOrphans: orphans, showTags, search, colorGroups, colorFolders: colors } = this.settings
+    const unresolved = !hideUnresolved
     const previous = new Map(this.nodes.map((node) => [node.id, node]))
     const nodes = new Map<string, GraphNode>()
     const node = (id: string, label: string, exists: boolean) => {
       let found = nodes.get(id)
       if (!found) {
-        found = previous.get(id) ?? { id, label, exists, degree: 0 }
-        Object.assign(found, { label, exists, degree: 0 })
+        found = previous.get(id) ?? { id, label, exists, degree: 0, group: '' }
+        Object.assign(found, { label, exists, degree: 0, group: exists && id.includes('/') ? id.slice(0, id.indexOf('/')) : '' })
         nodes.set(id, found)
       }
       return found
@@ -123,7 +185,36 @@ export class GraphView implements FileView {
       }
     }
 
-    this.nodes = [...nodes.values()].filter((n) => orphans || n.degree > 0)
+    if (showTags) {
+      for (const note of metadata.notes()) {
+        for (const tag of metadata.get(note)?.tags ?? []) connect(node(note, title(note), true), Object.assign(node(`#${tag.toLowerCase()}`, `#${tag}`, true), { group: '' }))
+      }
+    }
+
+    // The search leaves only matching notes; colour groups paint the notes that match them.
+    const subject = (n: GraphNode) => ({ path: n.id.toLowerCase(), name: n.label.toLowerCase(), tags: (metadata.get(n.id)?.tags ?? []).map((tag) => tag.toLowerCase()) })
+    const wanted = search.trim() ? compileQuery(search) : null
+    const groups = colorGroups.filter((group) => group.query.trim()).map((group) => ({ test: compileQuery(group.query), color: cssColor(group.color) }))
+    const kept = new Set<GraphNode>()
+    for (const n of nodes.values()) {
+      const about = wanted || groups.length ? subject(n) : null
+      if (wanted && !wanted(about!)) continue
+      kept.add(n)
+      n.color = about ? groups.find((group) => group.test(about))?.color : undefined
+    }
+    const shown = links.filter((link) => kept.has(link.source as GraphNode) && kept.has(link.target as GraphNode))
+    if (wanted) {
+      // Links to notes that were filtered out no longer count.
+      for (const n of kept) n.degree = 0
+      for (const link of shown) {
+        ;(link.source as GraphNode).degree++
+        ;(link.target as GraphNode).degree++
+      }
+    }
+    links.length = 0
+    links.push(...shown)
+
+    this.nodes = [...kept].filter((n) => orphans || n.degree > 0)
     this.links = links
     this.neighbours = new Map()
     for (const { source, target } of links as { source: GraphNode; target: GraphNode }[]) {
@@ -132,8 +223,22 @@ export class GraphView implements FileView {
         this.neighbours.set(a, set.add(b))
       }
     }
+    // The largest folders get colours of their own; the rest share the neutral one.
+    const sizes = new Map<string, number>()
+    for (const n of this.nodes) if (n.group) sizes.set(n.group, (sizes.get(n.group) ?? 0) + 1)
+    const largest = [...sizes].sort((a, b) => b[1] - a[1]).slice(0, PALETTE.length)
+    this.groupColors = new Map(colors && largest.length > 1 ? largest.map(([group], i) => [group, `--color-${PALETTE[i]}`]) : [])
+    this.legend.replaceChildren(
+      ...[...this.groupColors].map(([group, variable]) => {
+        const item = document.createElement('span')
+        item.textContent = group
+        item.style.setProperty('--dot', `var(${variable})`)
+        return item
+      }),
+    )
+
     this.simulation.nodes(this.nodes)
-    this.simulation.force('link', forceLink<GraphNode, GraphLink>(this.links).distance(60).strength(0.5))
+    this.applyForces()
     // A gentle nudge when the graph merely changed, a full layout the first time.
     this.simulation.alpha(previous.size ? 0.3 : 1).restart()
   }
@@ -181,32 +286,82 @@ export class GraphView implements FileView {
     ctx.clearRect(0, 0, canvas.width, canvas.height)
     ctx.setTransform(ratio * view.k, 0, 0, ratio * view.k, canvas.width / 2 + view.x * ratio, canvas.height / 2 + view.y * ratio)
 
-    ctx.lineWidth = 1 / view.k
-    for (const { source, target } of this.links as { source: GraphNode; target: GraphNode }[]) {
-      const on = hovered && (source === hovered || target === hovered)
-      ctx.strokeStyle = on ? color('--accent') : color('--border')
-      ctx.globalAlpha = hovered && !on ? 0.25 : 1
+    // Thousands of lines and dots are drawn as a few big shapes, one per look:
+    // one by one they would take most of every frame while the graph settles.
+    type Ends = { source: GraphNode; target: GraphNode }
+    // Arrowheads are drawn when one is close enough to tell them apart.
+    const arrows = this.settings.showArrow && view.k > 0.35
+    const strokes = new Map<string, Ends[]>()
+    for (const link of this.links as Ends[]) {
+      const on = hovered && (link.source === hovered || link.target === hovered)
+      // The hundreds of links of a hub would paint over everything; each of them is drawn fainter.
+      const busy = Math.max(link.source.degree, link.target.degree)
+      const alpha = hovered ? (on ? 1 : 0.15) : busy > 150 ? 0.18 : busy > 40 ? 0.45 : 1
+      const key = `${on ? '--accent' : '--border'}|${alpha}`
+      const list = strokes.get(key)
+      if (list) list.push(link)
+      else strokes.set(key, [link])
+    }
+    ctx.lineWidth = this.settings.lineSizeMultiplier / view.k
+    for (const [key, list] of strokes) {
+      const [variable, alpha] = key.split('|')
+      ctx.strokeStyle = color(variable)
+      ctx.globalAlpha = Number(alpha)
       ctx.beginPath()
-      ctx.moveTo(source.x!, source.y!)
-      ctx.lineTo(target.x!, target.y!)
+      for (const { source, target } of list) {
+        ctx.moveTo(source.x!, source.y!)
+        ctx.lineTo(target.x!, target.y!)
+        if (!arrows) continue
+        // A small arrowhead at the edge of the dot the link points to.
+        const angle = Math.atan2(target.y! - source.y!, target.x! - source.x!)
+        const tip = this.radius(target) + 1
+        const [x, y] = [target.x! - Math.cos(angle) * tip, target.y! - Math.sin(angle) * tip]
+        const size = 5 / Math.max(view.k, 0.6)
+        ctx.moveTo(x - Math.cos(angle - 0.45) * size, y - Math.sin(angle - 0.45) * size)
+        ctx.lineTo(x, y)
+        ctx.lineTo(x - Math.cos(angle + 0.45) * size, y - Math.sin(angle + 0.45) * size)
+      }
       ctx.stroke()
     }
 
-    // Labels appear once there is room for them, and always around the pointer.
-    const labels = view.k > 0.8 || this.nodes.length <= 40
-    ctx.font = `${12 / view.k}px ${color('--font-ui') || 'sans-serif'}`
-    ctx.textAlign = 'center'
-    ctx.textBaseline = 'top'
+    const fills = new Map<string, GraphNode[]>()
     for (const node of this.nodes) {
-      const on = lit(node)
-      ctx.globalAlpha = on ? (node.exists ? 1 : 0.5) : 0.15
-      ctx.fillStyle = node === hovered || node.id === activePath ? color('--accent') : color('--text-muted')
+      const alpha = lit(node) ? (node.exists ? 1 : 0.5) : 0.15
+      const variable = node === hovered || node.id === activePath ? '--accent' : (node.color ?? this.groupColors.get(node.group) ?? '--text-muted')
+      const key = `${variable}|${alpha}`
+      const list = fills.get(key)
+      if (list) list.push(node)
+      else fills.set(key, [node])
+    }
+    for (const [key, list] of fills) {
+      const [variable, alpha] = key.split('|')
+      ctx.fillStyle = variable.startsWith('--') ? color(variable) : variable
+      ctx.globalAlpha = Number(alpha)
       ctx.beginPath()
-      ctx.arc(node.x!, node.y!, radius(node), 0, Math.PI * 2)
+      for (const node of list) {
+        ctx.moveTo(node.x! + this.radius(node), node.y!)
+        ctx.arc(node.x!, node.y!, this.radius(node), 0, Math.PI * 2)
+      }
       ctx.fill()
-      if (on && (labels || hovered)) {
-        ctx.fillStyle = color('--text')
-        ctx.fillText(node.label, node.x!, node.y! + radius(node) + 3 / view.k)
+    }
+
+    // Labels appear once there is room for them, and always around the pointer.
+    // The slider moves the zoom at which names appear: to the right they show from further away.
+    const labels = view.k > 0.8 * 2 ** -this.settings.textFadeMultiplier || this.nodes.length <= 40
+    if (labels || hovered) {
+      ctx.font = `${12 / view.k}px ${color('--font-ui') || 'sans-serif'}`
+      ctx.textAlign = 'center'
+      ctx.textBaseline = 'top'
+      ctx.fillStyle = color('--text')
+      // Only what is on screen: text is the slowest thing to draw.
+      const halfW = canvas.width / ratio / 2 / view.k
+      const halfH = canvas.height / ratio / 2 / view.k
+      const [cx, cy] = [-view.x / view.k, -view.y / view.k]
+      for (const node of this.nodes) {
+        if (!lit(node) || (!labels && node !== hovered && !near?.has(node))) continue
+        if (Math.abs(node.x! - cx) > halfW || Math.abs(node.y! - cy) > halfH) continue
+        ctx.globalAlpha = node.exists ? 1 : 0.5
+        ctx.fillText(node.label, node.x!, node.y! + this.radius(node) + 3 / view.k)
       }
     }
     ctx.globalAlpha = 1
@@ -221,7 +376,7 @@ export class GraphView implements FileView {
     let bestDistance = Infinity
     for (const node of this.nodes) {
       const distance = Math.hypot(node.x! - x, node.y! - y)
-      if (distance <= radius(node) + 4 / this.view.k && distance < bestDistance) [best, bestDistance] = [node, distance]
+      if (distance <= this.radius(node) + 4 / this.view.k && distance < bestDistance) [best, bestDistance] = [node, distance]
     }
     return best
   }

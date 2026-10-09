@@ -1,38 +1,51 @@
+/* Properties sit on the page itself, as in Obsidian: a heading and plain rows, no box around them. */
 .props {
   display: flex;
   flex-direction: column;
-  gap: 2px;
-  padding: 8px 10px;
-  border-radius: 8px;
-  background: var(--bg-alt);
-  font: 14px var(--font-ui);
+  gap: 1px;
+  padding: 0 0 6px;
+  font: 0.94em var(--font-text);
+}
+
+.props-heading {
+  padding: 2px 0 8px;
+  font-size: 1.05em;
+  font-weight: 600;
 }
 
 .props-row {
   display: flex;
   align-items: center;
   gap: 6px;
+  min-height: 30px;
+  border: 1px solid transparent;
+  border-radius: 6px;
+}
+
+/* The row being edited is outlined as a whole. */
+.props-row:hover {
+  background: color-mix(in srgb, var(--bg-hover) 45%, transparent);
+}
+
+.props-row:focus-within {
+  border-color: var(--text-faint);
 }
 
 .props input,
 .props select {
-  padding: 3px 7px;
-  border: 1px solid transparent;
+  padding: 3px 6px;
+  border: none;
   border-radius: 5px;
+  outline: none;
   background: none;
 }
 
-.props input:hover,
-.props select:hover,
-.props input:focus,
-.props select:focus {
-  border-color: var(--border);
-  background: var(--bg);
-  outline: none;
+.props input::placeholder {
+  color: var(--text-faint);
 }
 
 .props-name {
-  flex: 0 0 150px;
+  flex: 0 0 160px;
   min-width: 0;
   color: var(--text-muted);
 }
@@ -63,8 +76,9 @@
 
 .props-icon {
   flex: none;
+  margin-left: 4px;
   color: var(--text-muted);
-  font-size: 15px;
+  font-size: 16px;
 }
 
 /* A tag among the properties looks like a tag in the text. */
@@ -77,10 +91,10 @@
   display: inline-flex;
   align-items: center;
   gap: 3px;
-  padding: 1px 4px 1px 8px;
-  border-radius: 10px;
+  padding: 1px 5px 1px 10px;
+  border-radius: 2em;
   background: var(--bg-hover);
-  font-size: 13px;
+  font-size: 0.93em;
 }
 
 .props-chip button,
@@ -121,11 +135,10 @@
 
 .props-add {
   align-self: flex-start;
-  margin-top: 2px;
-  padding: 3px 8px;
+  margin-top: 6px;
+  padding: 4px 8px;
   border-radius: 5px;
   color: var(--text-muted);
-  font-size: 13px;
 }
 
 .props-add:hover {

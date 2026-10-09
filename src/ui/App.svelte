@@ -95,7 +95,10 @@
         return commands.filter((c) => words.every((word) => c.name.toLowerCase().includes(word)))
       },
       label: (command) => command.name,
-      detail: (command) => command.hotkey && formatHotkey(command.hotkey),
+      detail: (command) => {
+        const hotkey = app.commands.hotkeyOf(command)
+        return hotkey && formatHotkey(hotkey)
+      },
       onChoose: (command) => command.callback(),
     })
   }
@@ -306,14 +309,15 @@
     min-width: 0;
   }
 
-  /* The strip of tabs: a darker band in which the open tab is a piece of the page. */
+  /* The strip of tabs, as in Obsidian: a darker band with no lines in it. The
+     open tab is a piece of the page rising into the band, joined to the page
+     by small inward curves; the other tabs are plain text set apart by hairlines. */
   .tabbar {
     display: flex;
     align-items: flex-end;
     gap: 2px;
     height: 40px;
-    padding: 0 6px;
-    border-bottom: 1px solid var(--border);
+    padding: 0 8px;
     background: var(--bg-alt);
   }
 
@@ -322,10 +326,10 @@
     align-items: flex-end;
     flex: 1;
     align-self: stretch;
-    gap: 2px;
     min-width: 0;
-    padding-top: 6px;
+    padding: 6px 8px 0;
     overflow-x: auto;
+    overflow-y: hidden;
     scrollbar-width: none;
   }
 
@@ -336,22 +340,68 @@
     flex: 0 1 200px;
     align-self: stretch;
     min-width: 90px;
-    border: 1px solid transparent;
-    border-bottom: none;
     border-radius: 8px 8px 0 0;
     color: var(--text-muted);
   }
 
-  .tab:hover {
+  /* A hairline between two tabs that are both at rest. */
+  .tab:not(.active) + .tab:not(.active)::before {
+    content: '';
+    position: absolute;
+    left: 0;
+    top: 9px;
+    bottom: 9px;
+    width: 1px;
+    background: var(--border);
+  }
+
+  .tab:not(.active):hover {
+    color: var(--text);
+  }
+
+  .tab:not(.active):hover::after {
+    content: '';
+    position: absolute;
+    inset: 3px 3px 4px;
+    z-index: 0;
+    border-radius: 6px;
     background: var(--bg-hover);
   }
 
+  .tab > :global(*) {
+    position: relative;
+    z-index: 1;
+  }
+
   .tab.active {
-    /* Reaches over the strip's bottom line, so the tab and the page are one surface. */
-    margin-bottom: -1px;
-    border-color: var(--border);
     background: var(--bg);
     color: var(--text);
+  }
+
+  /* The curves that join the open tab to the page below it. */
+  .tab.active::before,
+  .tab.active::after {
+    content: '';
+    position: absolute;
+    bottom: 0;
+    width: 8px;
+    height: 8px;
+    pointer-events: none;
+  }
+
+  .tab.active::before {
+    left: -8px;
+    background: radial-gradient(circle at 0 0, transparent 8px, var(--bg) 8.5px);
+  }
+
+  .tab.active::after {
+    right: -8px;
+    background: radial-gradient(circle at 100% 0, transparent 8px, var(--bg) 8.5px);
+  }
+
+  /* The cross shows on the open tab, and on another when the pointer is over it. */
+  .tab:not(.active):not(:hover) .tab-close {
+    visibility: hidden;
   }
 
   .bar-button {

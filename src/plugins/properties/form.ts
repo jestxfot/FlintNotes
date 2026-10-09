@@ -112,7 +112,7 @@ export function propertiesForm(source: string, root: HTMLElement, ctx: CodeBlock
       return row
     })
 
-    const add = el('button', 'props-add', '+ Свойство')
+    const add = el('button', 'props-add', '+ Добавить свойство')
     add.onclick = () => {
       let name = 'свойство'
       for (let i = 2; doc.has(name); i++) name = `свойство ${i}`
@@ -121,7 +121,7 @@ export function propertiesForm(source: string, root: HTMLElement, ctx: CodeBlock
       const inputs = root.querySelectorAll<HTMLInputElement>('.props-name')
       inputs[inputs.length - 1]?.select()
     }
-    root.replaceChildren(...rows, add)
+    root.replaceChildren(el('div', 'props-heading', 'Свойства'), ...rows, add)
   }
 
   /** The control for one value, chosen by its type. */
@@ -141,6 +141,7 @@ export function propertiesForm(source: string, root: HTMLElement, ctx: CodeBlock
     const input = el('input', 'props-value')
     input.type = kind === 'date' ? 'date' : kind === 'number' ? 'number' : 'text'
     if (kind === 'number') input.step = 'any'
+    input.placeholder = 'Нет значения'
     input.value = value === null || value === undefined ? '' : typeof value === 'object' ? JSON.stringify(value) : String(value)
     // Nested data cannot be edited as one line of text; it stays readable here and editable in the source.
     input.readOnly = typeof value === 'object' && value !== null
@@ -167,7 +168,7 @@ export function propertiesForm(source: string, root: HTMLElement, ctx: CodeBlock
       remove.onclick = () => set(items.filter((_, index) => index !== i))
     })
     const input = box.appendChild(el('input'))
-    input.placeholder = items.length ? '' : 'Добавить…'
+    input.placeholder = items.length ? '' : 'Нет значения'
     const add = () => {
       const fresh = input.value.split(',').map((item) => item.trim().replace(key === 'tags' ? /^#/ : /^$/, '')).filter(Boolean)
       if (fresh.length) set([...items, ...fresh])

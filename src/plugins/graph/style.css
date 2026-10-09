@@ -14,3 +14,217 @@
 .graph-view.over-node canvas {
   cursor: pointer;
 }
+
+/* Which colour stands for which folder. */
+.graph-legend {
+  position: absolute;
+  left: 12px;
+  bottom: 12px;
+  display: flex;
+  flex-direction: column;
+  gap: 3px;
+  padding: 8px 10px;
+  border: 1px solid var(--border);
+  border-radius: 8px;
+  background: color-mix(in srgb, var(--bg-alt) 85%, transparent);
+  color: var(--text-muted);
+  font-size: 12px;
+  pointer-events: none;
+}
+
+.graph-legend:empty {
+  display: none;
+}
+
+.graph-legend span::before {
+  content: '';
+  display: inline-block;
+  width: 8px;
+  height: 8px;
+  margin-right: 7px;
+  border-radius: 50%;
+  background: var(--dot);
+}
+
+/* The settings panel, as in Obsidian: a column of foldable sections in the corner. */
+.graph-open {
+  position: absolute;
+  top: 10px;
+  right: 12px;
+  width: 30px;
+  height: 30px;
+  border: 1px solid var(--border);
+  border-radius: 6px;
+  background: var(--bg-alt);
+  color: var(--text-muted);
+  font-size: 15px;
+}
+
+.graph-open:hover {
+  color: var(--text);
+}
+
+.graph-panel {
+  position: absolute;
+  top: 10px;
+  right: 12px;
+  width: 240px;
+  max-height: calc(100% - 20px);
+  overflow-y: auto;
+  border: 1px solid var(--border);
+  border-radius: 8px;
+  background: var(--bg-alt);
+  box-shadow: var(--shadow);
+  font-size: 13px;
+}
+
+.graph-section {
+  padding: 8px 12px 10px;
+}
+
+.graph-section + .graph-section {
+  border-top: 1px solid var(--border);
+}
+
+.graph-section-head {
+  display: flex;
+  align-items: center;
+  gap: 2px;
+}
+
+.graph-section-title {
+  flex: 1;
+  padding: 2px 0;
+  font-weight: 600;
+  text-align: left;
+}
+
+.graph-section-title::before {
+  content: '›';
+  display: inline-block;
+  width: 14px;
+  color: var(--text-faint);
+  rotate: 90deg;
+  transition: rotate 0.1s;
+}
+
+.graph-section-title.folded::before {
+  rotate: 0deg;
+}
+
+.graph-section-body {
+  display: flex;
+  flex-direction: column;
+  gap: 8px;
+  padding-top: 8px;
+}
+
+.graph-tool {
+  width: 24px;
+  height: 24px;
+  border-radius: 5px;
+  color: var(--text-muted);
+  font-size: 15px;
+}
+
+.graph-tool:hover,
+.graph-button:hover {
+  background: var(--bg-hover);
+  color: var(--text);
+}
+
+.graph-search,
+.graph-group input:not([type='color']) {
+  width: 100%;
+  min-width: 0;
+  padding: 5px 8px;
+  border: 1px solid var(--border);
+  border-radius: 5px;
+  background: var(--bg);
+}
+
+.graph-row {
+  display: flex;
+  align-items: center;
+  justify-content: space-between;
+  gap: 8px;
+}
+
+.graph-row .switch {
+  appearance: none;
+  position: relative;
+  flex: 0 0 34px;
+  height: 20px;
+  margin: 0;
+  border-radius: 10px;
+  background: var(--border);
+  cursor: pointer;
+  transition: background 0.15s;
+}
+
+.graph-row .switch::after {
+  content: '';
+  position: absolute;
+  top: 3px;
+  left: 3px;
+  width: 14px;
+  height: 14px;
+  border-radius: 50%;
+  background: #fff;
+  transition: transform 0.15s;
+}
+
+.graph-row .switch:checked {
+  background: var(--accent);
+}
+
+.graph-row .switch:checked::after {
+  transform: translateX(14px);
+}
+
+.graph-slider {
+  display: flex;
+  flex-direction: column;
+  gap: 4px;
+}
+
+.graph-slider-line {
+  display: flex;
+  align-items: center;
+  gap: 8px;
+}
+
+.graph-slider-value {
+  flex: 0 0 34px;
+  color: var(--text-muted);
+  font-variant-numeric: tabular-nums;
+}
+
+.graph-slider input {
+  flex: 1;
+  min-width: 0;
+  accent-color: var(--accent);
+}
+
+.graph-button {
+  padding: 5px 10px;
+  border: 1px solid var(--border);
+  border-radius: 5px;
+  background: var(--bg);
+}
+
+.graph-group {
+  display: flex;
+  align-items: center;
+  gap: 6px;
+}
+
+.graph-group input[type='color'] {
+  flex: none;
+  width: 26px;
+  height: 24px;
+  padding: 0;
+  border: none;
+  background: none;
+  cursor: pointer;
+}

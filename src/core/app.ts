@@ -26,7 +26,7 @@ const coreSettings: SettingsSection = {
   title: 'Основные',
   defs: [
     {
-      key: 'theme',
+      key: 'theme', group: 'Оформление',
       name: 'Тема',
       type: 'select',
       default: 'system',
@@ -37,7 +37,7 @@ const coreSettings: SettingsSection = {
       ],
     },
     {
-      key: 'editorMode',
+      key: 'editorMode', group: 'Редактор',
       name: 'Режим редактора',
       desc: 'Live Preview показывает оформление прямо в тексте и раскрывает разметку под курсором',
       type: 'select',
@@ -47,9 +47,9 @@ const coreSettings: SettingsSection = {
         { value: 'source', label: 'Исходный текст' },
       ],
     },
-    { key: 'fontSize', name: 'Размер шрифта', desc: 'Меняется и колёсиком мыши с зажатым Ctrl', type: 'number', default: 16, min: 10, max: 32, step: 1 },
+    { key: 'fontSize', group: 'Оформление', name: 'Размер шрифта', desc: 'Меняется и колёсиком мыши с зажатым Ctrl', type: 'number', default: 16, min: 10, max: 32, step: 1 },
     {
-      key: 'obsidianConfig',
+      key: 'obsidianConfig', group: 'Файлы и ссылки',
       name: 'Папка настроек Obsidian',
       desc: 'Откуда плагины берут настройки Obsidian (шаблоны, ежедневные заметки). Пусто — папка с app.json, в которой Obsidian работал последним; иначе её имя, например .obsidian',
       type: 'text',
@@ -57,15 +57,15 @@ const coreSettings: SettingsSection = {
       placeholder: 'сама',
     },
     {
-      key: 'reuseTab',
+      key: 'reuseTab', group: 'Файлы и ссылки',
       name: 'Открывать заметки в текущей вкладке',
       desc: 'Заметка открывается на месте текущей; с зажатым Ctrl — в новой вкладке. Если выключить, каждая заметка открывается в своей вкладке',
       type: 'toggle',
       default: true,
     },
-    { key: 'inlineTitle', name: 'Название заметки над текстом', desc: 'Правка названия переименовывает заметку', type: 'toggle', default: true },
+    { key: 'inlineTitle', group: 'Оформление', name: 'Название заметки над текстом', desc: 'Правка названия переименовывает заметку', type: 'toggle', default: true },
     {
-      key: 'readableWidth',
+      key: 'readableWidth', group: 'Оформление',
       name: 'Удобная ширина строки',
       desc: 'Ограничивает ширину текста в редакторе',
       type: 'toggle',
@@ -130,5 +130,6 @@ export class App {
     })
     this.workspace.registerView('markdown', createMarkdownView, ['md'])
     this.docked.init()
+    this.commands.setCustomHotkeys(this.settings.get<Record<string, string>>('core', 'hotkeys') ?? {})
   }
 }

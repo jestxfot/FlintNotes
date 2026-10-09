@@ -9,7 +9,7 @@
   // Every command that has a shortcut, including those added by enabled plugins.
   const hotkeys = app.commands
     .list()
-    .filter((command) => command.hotkey)
+    .filter((command) => app.commands.hotkeyOf(command))
     .sort((a, b) => a.name.localeCompare(b.name))
 
   const SYNTAX: [string, string][] = [
@@ -36,7 +36,7 @@
   <h3>Горячие клавиши</h3>
   <div class="grid">
     {#each hotkeys as command (command.id)}
-      <kbd>{formatHotkey(command.hotkey!)}</kbd><span>{command.name}</span>
+      <kbd>{formatHotkey(app.commands.hotkeyOf(command)!)}</kbd><span>{command.name}</span>
     {/each}
   </div>
 
