@@ -17,6 +17,12 @@ try {
   // Plugins load after that, so what they add comes second.
   flushSync()
   await app.plugins.init()
+  // Tabs come back last: opened earlier, they would show raw Markdown until the
+  // plugins that draw links, tables and properties had loaded.
+  app.workspace.restore()
+  // Reading every note for the index is the heaviest part of starting up. It
+  // begins only now, so it cannot delay the notes the user is waiting to see.
+  app.metadata.load()
 } catch (err) {
   target.innerHTML = '<div class="fatal"></div>'
   target.firstElementChild!.textContent = `Не удалось подключиться к серверу FlintNotes: ${errorMessage(err)}`

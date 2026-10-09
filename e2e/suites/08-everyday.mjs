@@ -140,4 +140,19 @@ export async function run(t) {
   await t.row('Inner').dragTo(page.locator('.tree'), { targetPosition: { x: 100, y: 500 } })
   await wait(900)
   ok('dragging to the empty area moves it to the top', exists('Inner.md') && !exists('Folder/Inner.md'))
+
+  // Tabs used to come back before the plugins had loaded, showing raw Markdown for a moment.
+  await page.addInitScript(() => {
+    window.__rawSeen = false
+    const watch = () => {
+      const content = document.querySelector('.leaf:not([hidden]) .cm-content')
+      if (content && /^status:/m.test(content.innerText)) window.__rawSeen = true
+      requestAnimationFrame(watch)
+    }
+    watch()
+  })
+  await page.reload()
+  await page.waitForSelector(`${leaf} .props`)
+  await wait(1500)
+  ok('a restored note is never shown as raw Markdown first', !(await page.evaluate(() => window.__rawSeen)) && (await t.activeTab()) === 'Notes')
 }

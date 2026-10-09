@@ -29,7 +29,10 @@ export class MarkdownView implements FileView {
   ) {}
 
   async load(): Promise<this> {
-    this.saved = await this.app.vault.read(this.path)
+    // The index already holds the text of every note, so a note opens without
+    // waiting for the server; the file is then compared with the disk.
+    const indexed = this.app.metadata.text(this.path)
+    this.saved = indexed ?? (await this.app.vault.read(this.path))
     this.eol = this.saved.includes('\r\n') ? '\r\n' : '\n'
     this.editor = new EditorView({
       parent: this.containerEl,
@@ -57,6 +60,7 @@ export class MarkdownView implements FileView {
     })
     this.app.editor.attach(this.editor)
     this.skipFrontmatter()
+    if (indexed !== undefined) void this.onExternalChange()
     return this
   }
 

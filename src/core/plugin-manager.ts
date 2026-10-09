@@ -35,6 +35,19 @@ export class PluginManager extends Events<{ change: [] }> {
     super()
   }
 
+  /**
+   * Starts fetching the code of the built-in plugins that are enabled, without
+   * waiting for it. Called as early as the settings are known, so the code
+   * arrives while the rest of the app is still starting.
+   */
+  preload(): void {
+    for (const id of this.app.settings.get<string[] | undefined>('core', 'enabledPlugins') ?? []) {
+      const file = Object.keys(loaders).find((key) => folderOf(key) === id)
+      // A failure here is reported when the plugin is actually enabled.
+      if (file) void loaders[file]!().catch(() => {})
+    }
+  }
+
   /** Finds all plugins and enables the ones that were on in the previous session. */
   async init(): Promise<void> {
     for (const [file, manifest] of Object.entries(manifests)) {

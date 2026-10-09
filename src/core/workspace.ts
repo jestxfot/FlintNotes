@@ -66,6 +66,9 @@ export class Workspace extends Events<WorkspaceEvents> {
   leaves: Leaf[] = []
   active: Leaf | null = null
 
+  /** The tab whose content is on screen; lags behind `active` while that one loads. */
+  private shown: Leaf | null = null
+  private mounting = new Set<Leaf>()
   private views = new Map<string, ViewCreator>()
   private extensions = new Map<string, string>()
   private nextId = 1
@@ -139,7 +142,7 @@ export class Workspace extends Events<WorkspaceEvents> {
 
   setActive(leaf: Leaf | null): void {
     this.active = leaf
-    for (const l of this.leaves) l.el.hidden = l !== leaf
+    this.show()
     leaf?.view?.focus?.()
     this.changed()
     this.trigger('active-change', leaf)
@@ -187,6 +190,17 @@ export class Workspace extends Events<WorkspaceEvents> {
     }
   }
 
+  /**
+   * Puts the active tab on screen. While it is still loading, the tab that was
+   * shown before stays, so switching never flashes an empty page.
+   */
+  private show(): void {
+    const { active, shown } = this
+    const waiting = active && this.mounting.has(active) && shown && shown !== active && this.leaves.includes(shown)
+    this.shown = waiting ? shown : active
+    for (const leaf of this.leaves) leaf.el.hidden = leaf !== this.shown
+  }
+
   private async mount(leaf: Leaf, focus = false): Promise<void> {
     leaf.view?.destroy()
     leaf.view = null
@@ -194,12 +208,17 @@ export class Workspace extends Events<WorkspaceEvents> {
     const type = (leaf.viewType = this.viewTypeFor(leaf.path))
     const creator = this.views.get(type) ?? unsupportedView
     let view: FileView
+    this.mounting.add(leaf)
+    this.show()
     try {
       view = await creator({ app: this.app, path: leaf.path, containerEl: leaf.el })
     } catch (err) {
       leaf.el.innerHTML = '<div class="leaf-message"></div>'
       leaf.el.firstElementChild!.textContent = `Не удалось открыть файл: ${errorMessage(err)}`
       return
+    } finally {
+      this.mounting.delete(leaf)
+      this.show()
     }
     // The tab may have been closed or switched to another view while this one loaded.
     if (!this.leaves.includes(leaf) || leaf.viewType !== type || leaf.view) {

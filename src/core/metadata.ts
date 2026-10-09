@@ -170,7 +170,8 @@ export class MetadataCache extends Events<MetadataEvents> {
   /** Source note -> link text that matches no file -> number of links. */
   unresolvedLinks = new Map<string, Map<string, number>>()
   /** Resolves once every note has been read for the first time. */
-  ready: Promise<void> = Promise.resolve()
+  readonly ready: Promise<void>
+  private markReady!: () => void
 
   private cache = new Map<string, CachedMetadata>()
   private texts = new Map<string, string>()
@@ -184,8 +185,10 @@ export class MetadataCache extends Events<MetadataEvents> {
 
   constructor(private vault: Vault) {
     super()
+    this.ready = new Promise((resolve) => (this.markReady = resolve))
   }
 
+  /** Starts following the vault. Links by name resolve from here on; contents come with `load`. */
   init(): void {
     const { vault } = this
     vault.on('create', (entry) => (isNote(entry) ? void this.index(entry.path) : this.rebuild()))
@@ -197,7 +200,11 @@ export class MetadataCache extends Events<MetadataEvents> {
     })
     vault.on('rename', (entry, oldPath) => this.onRename(entry, oldPath))
     this.rebuild()
-    this.ready = this.indexAll()
+  }
+
+  /** Reads every note. Called once the first screen is up, so it does not hold that up. */
+  load(): void {
+    void this.indexAll().then(this.markReady)
   }
 
   get(path: string): CachedMetadata | undefined {
@@ -260,11 +267,22 @@ export class MetadataCache extends Events<MetadataEvents> {
   }
 
   private async indexAll(): Promise<void> {
-    const queue = this.vault.files().filter(isNote)
-    const worker = async () => {
-      for (let entry = queue.pop(); entry; entry = queue.pop()) await this.index(entry.path)
+    try {
+      await this.vault.readNotes((path, text) => {
+        // A note read on its own meanwhile (it was just edited) is newer than the stream.
+        if (this.versions.has(path) || !this.vault.get(path)) return
+        this.texts.set(path, text)
+        this.cache.set(path, parseMarkdown(text))
+        this.trigger('changed', path)
+      })
+    } catch (err) {
+      console.error('Reading all notes at once failed; reading them one by one', err)
+      const queue = this.vault.files().filter((entry) => isNote(entry) && !this.cache.has(entry.path))
+      const worker = async () => {
+        for (let entry = queue.pop(); entry; entry = queue.pop()) await this.index(entry.path)
+      }
+      await Promise.all(Array.from({ length: 8 }, worker))
     }
-    await Promise.all(Array.from({ length: 8 }, worker))
     this.loading = false
     this.rebuild()
   }

@@ -66,6 +66,32 @@ export class Vault extends Events<VaultEvents> {
     return (await request(url('file', path))).arrayBuffer()
   }
 
+  /** Reads the text of every note in one request, calling `each` as they arrive. */
+  async readNotes(each: (path: string, text: string) => void): Promise<void> {
+    const reader = (await request('/api/notes')).body!.getReader()
+    const decoder = new TextDecoder()
+    let rest = ''
+    let sliceStart = performance.now()
+    for (;;) {
+      const { done, value } = await reader.read()
+      const lines = (rest + decoder.decode(value, { stream: !done })).split('\n')
+      // The last piece is a line still being received.
+      rest = lines.pop() ?? ''
+      for (const line of lines) {
+        if (!line) continue
+        const note = JSON.parse(line)
+        each(note.path, note.text)
+        // Megabytes of notes can arrive at once. Pausing every few milliseconds
+        // lets the page answer clicks and typing while they are processed.
+        if (performance.now() - sliceStart > 8) {
+          await new Promise((resume) => setTimeout(resume))
+          sliceStart = performance.now()
+        }
+      }
+      if (done) break
+    }
+  }
+
   /** Reads a file that may not exist, such as a config file under `.flint`. */
   async readOptional(path: string): Promise<string | null> {
     const res = await request(`${url('file', path)}&optional=1`)

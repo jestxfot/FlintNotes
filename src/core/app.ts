@@ -77,10 +77,10 @@ export class App {
 
   /** Starts the core. Plugins are started separately, once the UI is in place. */
   async init(): Promise<void> {
-    await this.vault.load()
-    await this.settings.load()
+    // The file list and the settings do not depend on each other; plugin code is
+    // requested as soon as the settings say which plugins are on.
+    await Promise.all([this.vault.load(), this.settings.load().then(() => this.plugins.preload())])
     this.settings.addSection(coreSettings)
-    // Reading every note takes a while in a big vault; the app starts meanwhile.
     this.metadata.init()
     this.livePreview.init()
     this.embeds.on('change', () => this.livePreview.refresh())
@@ -94,6 +94,5 @@ export class App {
       },
     })
     this.workspace.registerView('markdown', createMarkdownView, ['md'])
-    this.workspace.restore()
   }
 }

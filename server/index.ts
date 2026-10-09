@@ -3,7 +3,7 @@ import { serveStatic } from '@hono/node-server/serve-static'
 import chokidar from 'chokidar'
 import { Hono, type Context } from 'hono'
 import { HTTPException } from 'hono/http-exception'
-import { streamSSE } from 'hono/streaming'
+import { stream, streamSSE } from 'hono/streaming'
 import { spawn } from 'node:child_process'
 import { existsSync, type Stats } from 'node:fs'
 import fs from 'node:fs/promises'
@@ -102,6 +102,26 @@ api.use(async (c, next) => {
 api.get('/vault', (c) => c.json({ name: path.basename(root) }))
 
 api.get('/tree', async (c) => c.json(await walk(root)))
+
+// Every note's text in one response, one JSON object per line. The app reads
+// this once at start to build its index; a request per note would be far slower.
+api.get('/notes', async (c) => {
+  const notes = (await walk(root)).filter((entry) => entry.kind === 'file' && entry.path.toLowerCase().endsWith('.md'))
+  c.header('content-type', 'application/x-ndjson; charset=utf-8')
+  c.header('cache-control', 'no-store')
+  return stream(c, async (out) => {
+    for (let i = 0; i < notes.length; i += 32) {
+      const lines = await Promise.all(
+        notes.slice(i, i + 32).map(async ({ path: file }) => {
+          // A note deleted since the listing is simply left out.
+          const text = await fs.readFile(path.join(root, file), 'utf8').catch(() => null)
+          return text === null ? '' : `${JSON.stringify({ path: file, text })}\n`
+        }),
+      )
+      await out.write(lines.join(''))
+    }
+  })
+})
 
 api.get('/file', async (c) => {
   const abs = target(c)
