@@ -22,6 +22,12 @@ export interface GraphSettings {
   showArrow: boolean
   /** -3..3: how far one must zoom in before names appear. */
   textFadeMultiplier: number
+  /** Not in Obsidian: which names are shown — chosen so they do not overlap, all of them, or only around the pointer. */
+  labelMode: 'smart' | 'all' | 'hover'
+  /** Not in Obsidian: 0.6..2.5, size of the names. */
+  labelSize: number
+  /** Not in Obsidian: 10..600, how many names at most. */
+  labelLimit: number
   /** 0.1..5 */
   nodeSizeMultiplier: number
   /** 0.1..5 */
@@ -34,6 +40,8 @@ export interface GraphSettings {
   linkStrength: number
   /** 30..500 */
   linkDistance: number
+  /** Not in Obsidian: where the layout is worked out — by the graphics card for big graphs, always, or never. */
+  gpuLayout: 'auto' | 'on' | 'off'
   /** Which sections of the panel are folded, and whether the panel is closed. */
   'collapse-filter': boolean
   'collapse-color-groups': boolean
@@ -52,12 +60,16 @@ export const DEFAULTS: GraphSettings = {
   colorFolders: true,
   showArrow: false,
   textFadeMultiplier: 0,
+  labelMode: 'smart',
+  labelSize: 1,
+  labelLimit: 160,
   nodeSizeMultiplier: 1,
   lineSizeMultiplier: 1,
   centerStrength: 0.52,
   repelStrength: 10,
   linkStrength: 1,
   linkDistance: 250,
+  gpuLayout: 'auto',
   'collapse-filter': false,
   'collapse-color-groups': false,
   'collapse-display': false,

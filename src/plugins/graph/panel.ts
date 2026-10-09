@@ -132,7 +132,18 @@ export function buildPanel(host: HTMLElement, settings: GraphSettings, changed: 
     // ---- display
     const display = section('Отображение', 'collapse-display')
     toggle(display, 'Направление связей', 'showArrow')
+    const names = el(display, 'label', 'graph-row')
+    el(names, 'span', '', 'Подписи')
+    const mode = el(names, 'select', 'graph-select')
+    for (const [value, label] of [['smart', 'умные, без наложений'], ['all', 'все'], ['hover', 'только под указателем']]) {
+      const option = el(mode, 'option', '', label)
+      option.value = value
+      option.selected = settings.labelMode === value
+    }
+    mode.onchange = () => set('labelMode', mode.value as GraphSettings['labelMode'])
     slider(display, 'Порог исчезания текста', 'textFadeMultiplier', -3, 3, 0.1)
+    slider(display, 'Размер текста', 'labelSize', 0.6, 2.5, 0.05)
+    slider(display, 'Подписей не больше', 'labelLimit', 10, 600, 10)
     slider(display, 'Размер узла', 'nodeSizeMultiplier', 0.1, 5, 0.01)
     slider(display, 'Толщина линий', 'lineSizeMultiplier', 0.1, 5, 0.01)
     el(display, 'button', 'graph-button', 'Запустить анимацию').onclick = animate
@@ -143,6 +154,15 @@ export function buildPanel(host: HTMLElement, settings: GraphSettings, changed: 
     slider(forces, 'Сила отталкивания', 'repelStrength', 0, 20, 0.1)
     slider(forces, 'Сила связи', 'linkStrength', 0, 1, 0.01)
     slider(forces, 'Расстояние между узлами', 'linkDistance', 30, 500, 1)
+    const where = el(forces, 'label', 'graph-row')
+    el(where, 'span', '', 'Расчёт раскладки')
+    const gpu = el(where, 'select', 'graph-select')
+    for (const [value, label] of [['auto', 'авто'], ['on', 'видеокарта'], ['off', 'процессор']]) {
+      const option = el(gpu, 'option', '', label)
+      option.value = value
+      option.selected = settings.gpuLayout === value
+    }
+    gpu.onchange = () => set('gpuLayout', gpu.value as GraphSettings['gpuLayout'])
   }
 
   open.onclick = () => {

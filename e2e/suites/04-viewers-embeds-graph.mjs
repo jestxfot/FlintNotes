@@ -75,13 +75,30 @@ export async function run(t) {
   })
   ok('graph has the notes and a ghost, no attachments', JSON.stringify(state.nodes) === JSON.stringify(['?ghost', 'A.md', 'B.md', 'C.md']) && state.width > 0 && state.height > 0, JSON.stringify(state))
   const painted = await graph(() => {
+    // The picture is drawn by the graphics card; it is read back right after a draw, before the frame is handed over.
+    const view = app.workspace.active.view
     const canvas = document.querySelector('.graph-view canvas')
-    const data = canvas.getContext('2d').getImageData(0, 0, canvas.width, canvas.height).data
+    const gl = canvas.getContext('webgl2')
+    view.draw()
     let pixels = 0
-    for (let i = 3; i < data.length; i += 4) if (data[i]) pixels++
+    if (gl) {
+      const data = new Uint8Array(canvas.width * canvas.height * 4)
+      gl.readPixels(0, 0, canvas.width, canvas.height, gl.RGBA, gl.UNSIGNED_BYTE, data)
+      for (let i = 3; i < data.length; i += 4) if (data[i]) pixels++
+    } else {
+      const data = canvas.getContext('2d').getImageData(0, 0, canvas.width, canvas.height).data
+      for (let i = 3; i < data.length; i += 4) if (data[i]) pixels++
+    }
+    const names = document.querySelector('.graph-view .graph-labels')
+    const text = names.getContext('2d').getImageData(0, 0, names.width, names.height).data
+    let labelled = 0
+    for (let i = 3; i < text.length; i += 4) if (text[i]) labelled++
+    window.__graph = { webgl: !!gl, labelled }
     return pixels
   })
   ok('graph is drawn', painted > 200, painted)
+  const how = await graph(() => window.__graph)
+  ok('lines and dots are drawn by the graphics card, names over them', how.webgl && how.labelled > 100, JSON.stringify(how))
   const position = await graph(() => app.workspace.active.view.positionOf('C.md'))
   await page.mouse.move(position.x, position.y)
   await wait(100)
@@ -149,6 +166,19 @@ export async function run(t) {
   await wait(1500)
   const saved = JSON.parse(read('.flint/workspace.json')).graph
   ok("settings are kept under Obsidian's names", saved?.hideUnresolved === true && saved.nodeSizeMultiplier === 2 && saved.colorGroups[0].query === 'file:c' && typeof saved.colorGroups[0].color.rgb === 'number' && saved.close === false, JSON.stringify(saved))
+  // The layout can be worked out by the graphics card; for a big graph it is by default.
+  await panel.locator('.graph-search').fill('')
+  await wait(600)
+  const spots = () => graph(() => app.workspace.active.view.nodes.map((n) => [Math.round(n.x), Math.round(n.y)]))
+  await panel.locator('.graph-row', { hasText: 'Расчёт раскладки' }).locator('select').selectOption('on')
+  await wait(2500)
+  const onCard = await graph(() => ({ gpu: app.workspace.active.view.onGpu, spots: app.workspace.active.view.nodes.map((n) => [n.x, n.y]) }))
+  const apart = onCard.spots.every(([x, y], i) => Number.isFinite(x) && Number.isFinite(y) && onCard.spots.every(([x2, y2], j) => i === j || Math.hypot(x - x2, y - y2) > 8))
+  ok('the graphics card lays the graph out: every note has a place of its own', onCard.gpu && apart, JSON.stringify(onCard))
+  const settled = await spots()
+  await wait(1500)
+  ok('and the layout comes to rest', JSON.stringify(await spots()) === JSON.stringify(settled), JSON.stringify(settled))
+  await panel.locator('.graph-row', { hasText: 'Расчёт раскладки' }).locator('select').selectOption('auto')
   await panel.locator('.graph-tool[title="Закрыть"]').click()
   ok('the panel closes to a button', (await panel.isHidden()) && (await page.locator('.graph-open').isVisible()))
 }
