@@ -1,5 +1,5 @@
 import { mount, unmount } from 'svelte'
-import { cm, errorMessage, Plugin } from '../../api'
+import { cm, errorMessage, Plugin, type PreviewRenderer } from '../../api'
 import { today } from './dates'
 import { Reminders } from './reminders'
 import { tasksProcessor } from './render'
@@ -16,6 +16,9 @@ import {
   type TaskFields,
 } from './task'
 import TaskDialog from './TaskDialog.svelte'
+
+// A date field, a priority, a repeat rule or a reminder, as written in a task line.
+const FIELD = /[📅⏳🛫➕✅❌]\uFE0F?\s*\d{4}-\d{2}-\d{2}|[🔺⏫🔼🔽⏬]\uFE0F?|🔁\uFE0F?\s*[^📅⏳🛫➕✅❌🔺⏫🔼🔽⏬⏰🆔⛔🏁#]+|⏰\uFE0F?\s*(?:\d{4}-\d{2}-\d{2}[ T]?)?(?:\d{1,2}:\d{2})?/gu
 
 export default class Tasks extends Plugin {
   onload() {
@@ -111,6 +114,20 @@ export default class Tasks extends Plugin {
     }
 
     this.registerCodeBlockProcessor('tasks', tasksProcessor(store, editTask))
+
+    /** In the editor a task's dates, priority and repeat rule are set apart from its text. */
+    const fields: PreviewRenderer = {
+      name: 'task-fields',
+      nodes: ['Task'],
+      render(node, ctx) {
+        const text = ctx.text(node.from, node.to)
+        for (const m of text.matchAll(FIELD)) {
+          const overdue = m[0].startsWith('📅') && !/^\[[xX-]\]/.test(text) && m[0].slice(-10) < today()
+          ctx.mark(node.from + m.index, node.from + m.index + m[0].length, { class: overdue ? 'lp-task-field overdue' : 'lp-task-field' })
+        }
+      },
+    }
+    this.registerPreviewRenderer(fields)
 
     // Ticking a task's checkbox in the editor completes it like everywhere else:
     // the done date is stamped and a repeating task gets its next occurrence.

@@ -47,6 +47,14 @@ const highlight = HighlightStyle.define([
   { tag: t.monospace, fontFamily: 'var(--font-mono)', fontSize: '0.9em' },
   { tag: t.quote, color: 'var(--text-muted)' },
   { tag: [t.processingInstruction, t.meta, t.contentSeparator], color: 'var(--text-faint)' },
+  // Code inside fenced blocks.
+  { tag: [t.keyword, t.operatorKeyword, t.modifier, t.controlKeyword], color: 'var(--syn-keyword)' },
+  { tag: [t.string, t.special(t.string), t.regexp], color: 'var(--syn-string)' },
+  { tag: [t.number, t.bool, t.null, t.atom], color: 'var(--syn-number)' },
+  { tag: [t.comment, t.lineComment, t.blockComment], color: 'var(--syn-comment)', fontStyle: 'italic' },
+  { tag: [t.function(t.variableName), t.function(t.propertyName)], color: 'var(--syn-function)' },
+  { tag: [t.typeName, t.className, t.namespace, t.tagName], color: 'var(--syn-type)' },
+  { tag: [t.propertyName, t.attributeName], color: 'var(--syn-property)' },
 ])
 
 /** Fonts, colors and Markdown highlighting shared by the editor and read-only previews. */

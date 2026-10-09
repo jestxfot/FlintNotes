@@ -1,0 +1,133 @@
+.props {
+  display: flex;
+  flex-direction: column;
+  gap: 2px;
+  padding: 8px 10px;
+  border-radius: 8px;
+  background: var(--bg-alt);
+  font: 14px var(--font-ui);
+}
+
+.props-row {
+  display: flex;
+  align-items: center;
+  gap: 6px;
+}
+
+.props input,
+.props select {
+  padding: 3px 7px;
+  border: 1px solid transparent;
+  border-radius: 5px;
+  background: none;
+}
+
+.props input:hover,
+.props select:hover,
+.props input:focus,
+.props select:focus {
+  border-color: var(--border);
+  background: var(--bg);
+  outline: none;
+}
+
+.props-name {
+  flex: 0 0 150px;
+  min-width: 0;
+  color: var(--text-muted);
+}
+
+.props-value {
+  flex: 1;
+  min-width: 0;
+}
+
+.props input[type='checkbox'].props-value {
+  flex: none;
+  margin: 0 auto 0 7px;
+  accent-color: var(--accent);
+}
+
+.props-list {
+  display: flex;
+  flex-wrap: wrap;
+  align-items: center;
+  gap: 4px;
+  padding: 1px 0;
+}
+
+.props-list input {
+  flex: 1;
+  min-width: 80px;
+}
+
+.props-chip {
+  display: inline-flex;
+  align-items: center;
+  gap: 3px;
+  padding: 1px 4px 1px 8px;
+  border-radius: 10px;
+  background: var(--bg-hover);
+  font-size: 13px;
+}
+
+.props-chip button,
+.props-remove {
+  color: var(--text-faint);
+  line-height: 1;
+}
+
+.props-chip button:hover,
+.props-remove:hover {
+  color: #d0342c;
+}
+
+.props-type {
+  flex: none;
+  color: var(--text-faint);
+  font-size: 12px;
+}
+
+/* Type and delete controls stay out of the way until the row is used. */
+.props-type,
+.props-remove {
+  opacity: 0;
+}
+
+.props-row:hover .props-type,
+.props-row:hover .props-remove,
+.props-row:focus-within .props-type,
+.props-row:focus-within .props-remove {
+  opacity: 1;
+}
+
+.props-remove {
+  flex: none;
+  width: 22px;
+  font-size: 16px;
+}
+
+.props-add {
+  align-self: flex-start;
+  margin-top: 2px;
+  padding: 3px 8px;
+  border-radius: 5px;
+  color: var(--text-muted);
+  font-size: 13px;
+}
+
+.props-add:hover {
+  background: var(--bg-hover);
+  color: var(--text);
+}
+
+.props-raw {
+  margin: 0;
+  font: 13px var(--font-mono);
+  white-space: pre-wrap;
+}
+
+.props-error {
+  color: #d0342c;
+  font-size: 13px;
+}

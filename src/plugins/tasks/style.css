@@ -222,3 +222,17 @@
   color: var(--accent-text);
   font-weight: 600;
 }
+
+/* A task's fields in the editor */
+.cm-editor .lp-task-field {
+  padding: 0 5px;
+  border-radius: 4px;
+  background: var(--bg-alt);
+  color: var(--text-muted);
+  font-size: 0.85em;
+  white-space: nowrap;
+}
+
+.cm-editor .lp-task-field.overdue {
+  color: #d0342c;
+}

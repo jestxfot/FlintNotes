@@ -1,5 +1,7 @@
 import { markdown, markdownLanguage } from '@codemirror/lang-markdown'
+import { languages } from '@codemirror/language-data'
 import { Compartment, type Extension } from '@codemirror/state'
+import { tags as t } from '@lezer/highlight'
 import type { MarkdownConfig } from '@lezer/markdown'
 import type { Off } from '../events'
 import type { EditorExtensions } from './extensions'
@@ -32,13 +34,35 @@ const frontmatter: MarkdownConfig = {
   ],
 }
 
+const EQUALS = 61
+
+/** `==highlighted text==`, as in Obsidian. The text may not start or end with a space. */
+const highlight: MarkdownConfig = {
+  defineNodes: [{ name: 'Highlight' }, { name: 'HighlightMark', style: t.processingInstruction }],
+  parseInline: [
+    {
+      name: 'Highlight',
+      parse(cx, next, pos) {
+        if (next !== EQUALS || cx.char(pos + 1) !== EQUALS) return -1
+        const rest = cx.slice(pos + 2, cx.end)
+        const length = rest.indexOf('==')
+        const inner = rest.slice(0, length)
+        if (length <= 0 || inner.includes('\n') || inner !== inner.trim()) return -1
+        const close = pos + 2 + length
+        const marks = [cx.elt('HighlightMark', pos, pos + 2), cx.elt('HighlightMark', close, close + 2)]
+        return cx.addElement(cx.elt('Highlight', pos, close + 2, marks))
+      },
+    },
+  ],
+}
+
 /**
  * The Markdown language of the editor: GitHub flavour, frontmatter, and
  * whatever syntax plugins add (wikilinks, tags). Adding syntax re-parses the
  * open editors.
  */
 export class MarkdownSyntax {
-  private configs: MarkdownConfig[] = [frontmatter]
+  private configs: MarkdownConfig[] = [frontmatter, highlight]
   private compartment = new Compartment()
 
   constructor(private editors: EditorExtensions) {}
@@ -58,7 +82,13 @@ export class MarkdownSyntax {
   }
 
   private language(): Extension {
-    return markdown({ base: markdownLanguage, extensions: [...this.configs], completeHTMLTags: false })
+    return markdown({
+      base: markdownLanguage,
+      extensions: [...this.configs],
+      // Code in ```js, ```python, ... is highlighted; each language's parser is fetched when first used.
+      codeLanguages: languages,
+      completeHTMLTags: false,
+    })
   }
 
   private apply(): void {

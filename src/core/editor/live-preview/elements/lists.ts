@@ -60,11 +60,21 @@ export const lists: PreviewRenderer = {
       return
     }
     const task = node.node.nextSibling?.name === 'Task' ? node.node.nextSibling : null
+    const bulleted = node.matchContext(['BulletList', 'ListItem'])
+
+    // Wrapped lines of an item line up with its text, not with its marker.
+    const line = ctx.state.doc.lineAt(node.from)
+    const indent = ctx.text(line.from, node.from)
+    if (!indent.trim()) {
+      const marker = task ? ctx.em * 1.15 + ctx.measure(' ') : ctx.measure(bulleted ? '• ' : `${ctx.text(node.from, node.to)} `)
+      const width = Math.round((ctx.measure(indent) + marker) * 10) / 10
+      ctx.line(node.from, 'lp-list-line', `text-indent:-${width}px;padding-left:${width}px`)
+    }
     if (task) {
       // The checkbox stands in for the bullet, so `- ` disappears with it.
       const marker = task.firstChild
       if (marker && !ctx.isActive(node.from, marker.to)) ctx.hide(node.from, marker.from)
-    } else if (!node.matchContext(['BulletList', 'ListItem'])) {
+    } else if (!bulleted) {
       ctx.mark(node.from, node.to, { class: 'lp-list-number' })
     } else if (!ctx.isActive(node.from, node.to)) {
       ctx.replace(node.from, node.to, bullet)

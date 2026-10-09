@@ -56,7 +56,20 @@ export class MarkdownView implements FileView {
       }),
     })
     this.app.editor.attach(this.editor)
+    this.skipFrontmatter()
     return this
+  }
+
+  /** Puts the cursor on the first line after the properties block, where the note's text begins. */
+  private skipFrontmatter(): void {
+    const { doc } = this.editor.state
+    if (doc.line(1).text.trimEnd() !== '---') return
+    for (let n = 2; n < doc.lines; n++) {
+      if (/^(---|\.\.\.)\s*$/.test(doc.line(n).text)) {
+        this.editor.dispatch({ selection: { anchor: doc.line(n + 1).from } })
+        return
+      }
+    }
   }
 
   /** Document text with the file's own line endings, so CRLF files stay CRLF. */

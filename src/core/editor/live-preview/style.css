@@ -177,3 +177,49 @@
   max-width: none;
   padding: 8px 14px 10px;
 }
+
+.cm-editor .lp-highlight {
+  padding: 1px 0;
+  border-radius: 3px;
+  background: var(--mark);
+}
+
+/* Callouts: `> [!note] Title`. */
+.cm-editor .cm-line.lp-callout {
+  --callout: #3a6fd0;
+  padding: 0 14px;
+  border-left: 3px solid var(--callout);
+  background: color-mix(in srgb, var(--callout) 9%, transparent);
+}
+
+.cm-editor .cm-line.lp-callout-good {
+  --callout: #3d9a50;
+}
+
+.cm-editor .cm-line.lp-callout-warn {
+  --callout: #c98a0c;
+}
+
+.cm-editor .cm-line.lp-callout-bad {
+  --callout: #d0342c;
+}
+
+.cm-editor .cm-line.lp-callout-other {
+  --callout: #8e55c7;
+}
+
+.cm-editor .cm-line.lp-callout-quiet {
+  --callout: var(--text-faint);
+}
+
+.cm-editor .cm-line.lp-callout-title {
+  padding-top: 4px;
+  border-radius: 0 6px 0 0;
+  color: var(--callout);
+  font-weight: 650;
+}
+
+.cm-editor .cm-line.lp-callout-last {
+  padding-bottom: 4px;
+  border-bottom-right-radius: 6px;
+}

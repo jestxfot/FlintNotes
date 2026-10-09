@@ -141,6 +141,48 @@
     } else if (event.key === 'Escape') renaming = null
   }
 
+  // ---- moving by drag and drop ----
+
+  let dragged = $state<string | null>(null)
+  let dropTarget = $state<string | null>(null)
+
+  /** The folder a drop on this entry goes into; `null` if the dragged item cannot go there. */
+  function destination(entry: VaultEntry | null): string | null {
+    if (dragged === null) return null
+    const folder = folderFor(entry)
+    // Not onto itself, not into its own subfolders, and not where it already is.
+    if (folder === dragged || folder.startsWith(`${dragged}/`) || folder === dirname(dragged)) return null
+    return folder
+  }
+
+  function dragOver(event: DragEvent, entry: VaultEntry | null) {
+    const folder = destination(entry)
+    if (folder === null) return
+    event.preventDefault()
+    event.stopPropagation()
+    dropTarget = folder
+  }
+
+  async function drop(event: DragEvent, entry: VaultEntry | null) {
+    const from = dragged
+    const folder = destination(entry)
+    dragged = dropTarget = null
+    if (from === null || folder === null) return
+    event.preventDefault()
+    event.stopPropagation()
+    const to = join(folder, basename(from))
+    if (vault.get(to)) {
+      app.notice(`В папке «${folder || vault.name}» уже есть «${basename(from)}»`)
+      return
+    }
+    try {
+      await vault.rename(from, to)
+      if (folder) expanded.add(folder)
+    } catch (err) {
+      app.notice(`Не удалось переместить: ${errorMessage(err)}`)
+    }
+  }
+
   async function trash(entry: VaultEntry) {
     if (!confirm(`Переместить «${basename(entry.path)}» в корзину?`)) return
     try {
@@ -189,7 +231,16 @@
       <button
         class="row"
         class:active={entry.path === activePath.current}
+        class:drop-target={isFolder && dropTarget === entry.path}
         style:padding-left="{8 + depth * 14}px"
+        draggable="true"
+        ondragstart={(event) => {
+          dragged = entry.path
+          event.dataTransfer?.setData('text/plain', entry.path)
+        }}
+        ondragend={() => (dragged = dropTarget = null)}
+        ondragover={(event) => dragOver(event, entry)}
+        ondrop={(event) => drop(event, entry)}
         aria-expanded={isFolder ? expanded.has(entry.path) : undefined}
         onclick={() => click(entry)}
         oncontextmenu={(event) => openMenu(event, entry)}
@@ -204,7 +255,17 @@
   {/each}
 {/snippet}
 
-<div class="tree" role="tree" tabindex="-1" oncontextmenu={(event) => openMenu(event, null)}>
+<!-- Dropping on the empty part of the tree moves the item to the top level. -->
+<div
+  class="tree"
+  class:drop-target={dropTarget === ''}
+  role="tree"
+  tabindex="-1"
+  oncontextmenu={(event) => openMenu(event, null)}
+  ondragover={(event) => dragOver(event, null)}
+  ondragleave={() => (dropTarget = null)}
+  ondrop={(event) => drop(event, null)}
+>
   {@render rows(tree, 0)}
 </div>
 
@@ -279,6 +340,12 @@
   .row:hover {
     background: var(--bg-hover);
     color: var(--text);
+  }
+
+  .row.drop-target,
+  .tree.drop-target {
+    outline: 2px dashed var(--accent);
+    outline-offset: -2px;
   }
 
   .row.active {

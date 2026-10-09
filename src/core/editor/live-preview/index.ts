@@ -49,6 +49,9 @@ export type CodeBlockProcessor = (source: string, el: HTMLElement, ctx: CodeBloc
 
 const hidden = Decoration.replace({})
 
+const ruler = document.createElement('canvas').getContext('2d')
+const widths = new Map<string, number>()
+
 /** Asks the inline layer to redraw although the text did not change. */
 const refresh = StateEffect.define<null>()
 
@@ -63,6 +66,9 @@ export class RenderContext {
     readonly state: EditorState,
     private viewport: { from: number; to: number },
     private preview: LivePreview,
+    /** The editor's text font as a CSS `font` value, and its size in pixels. */
+    private font: string,
+    readonly em: number,
   ) {
     this.path = state.facet(filePath)
     this.static = state.facet(staticPreview)
@@ -104,9 +110,21 @@ export class RenderContext {
     if (from < to) this.ranges.push(Decoration.mark(spec).range(from, to))
   }
 
-  /** Adds a CSS class to the whole line containing `pos`. */
-  line(pos: number, className: string): void {
-    this.ranges.push(Decoration.line({ class: className }).range(this.state.doc.lineAt(pos).from))
+  /** Adds a CSS class, and optionally inline styles, to the whole line containing `pos`. */
+  line(pos: number, className: string, style?: string): void {
+    const spec = { class: className, attributes: style ? { style } : undefined }
+    this.ranges.push(Decoration.line(spec).range(this.state.doc.lineAt(pos).from))
+  }
+
+  /** Width in pixels that `text` takes in the editor's font. */
+  measure(text: string): number {
+    const key = `${this.font}\n${text}`
+    let width = widths.get(key)
+    if (width === undefined && ruler) {
+      ruler.font = this.font
+      widths.set(key, (width = ruler.measureText(text).width))
+    }
+    return width ?? text.length * this.em * 0.5
   }
 
   /** Calls `fn` for each line of the range that is on screen. */
@@ -345,7 +363,9 @@ export class LivePreview {
     }
 
     const buildInline = (view: EditorView): DecorationSet => {
-      const ctx = new RenderContext(view.state, view.viewport, this)
+      const style = getComputedStyle(view.contentDOM)
+      const font = `${style.fontStyle} ${style.fontWeight} ${style.fontSize} ${style.fontFamily}`
+      const ctx = new RenderContext(view.state, view.viewport, this, font, parseFloat(style.fontSize))
       const seen = new Set<string>()
       const tree = syntaxTree(view.state)
       for (const { from, to } of view.visibleRanges) {
