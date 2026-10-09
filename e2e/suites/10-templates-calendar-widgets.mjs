@@ -49,7 +49,8 @@ export const viewport = { width: 1400, height: 1000 }
 export const vault = {
   plugins: ['templates', 'calendar', 'tasks', 'bases', 'links'],
   // Reminders would cover the screen; they have a suite of their own.
-  settings: { tasks: { remindDue: false } },
+  // New notes are filled by the rules without a question; the question has checks of its own elsewhere.
+  settings: { tasks: { remindDue: false }, templates: { ask: false } },
   files: Object.fromEntries([
     obsidian('app.json', { openBehavior: 'daily' }),
     obsidian('workspace.json', {}),

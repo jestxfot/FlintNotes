@@ -61,4 +61,19 @@ export async function run(t) {
   await page.waitForSelector('.tree .row')
   await wait(1200)
   ok('and it stays undocked', (await t.count('.docked-body')) === 0)
+
+  // ---- a new note asks which template to use
+  await page.evaluate(() => app.settings.set('templates', 'onCreate', true))
+  await page.evaluate(() => app.commands.run('core:new-note'))
+  const chooser = page.locator('dialog:has(input[placeholder^="Шаблон для"])')
+  await chooser.waitFor()
+  ok('a new note opens the list of templates', (await t.flat(chooser)).includes('Note') && (await t.flat(chooser)).includes('Без шаблона'), await t.flat(chooser))
+  await page.keyboard.press('Enter')
+  await wait(1500)
+  ok('the chosen template fills the note', read('Без названия.md').startsWith('# Без названия'), read('Без названия.md'))
+  await page.evaluate(() => app.commands.run('core:new-note'))
+  await chooser.waitFor()
+  await page.keyboard.press('Escape')
+  await wait(800)
+  ok('Esc leaves the new note empty', read('Без названия 1.md') === '')
 }

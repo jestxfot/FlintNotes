@@ -57,6 +57,13 @@ export default class Templates extends Plugin {
         default: true,
       },
       {
+        key: 'ask',
+        name: 'Спрашивать шаблон для новой заметки',
+        desc: 'Новая заметка (кнопка «+», команда, переход по ссылке на несуществующую заметку) открывает список шаблонов; первым стоит шаблон по правилам. Esc оставляет заметку пустой',
+        type: 'toggle',
+        default: true,
+      },
+      {
         key: 'rules',
         name: 'Правила для новых заметок',
         desc: 'По правилу в строке: «папка = шаблон». Чем выше правило, тем оно главнее. «/» значит любая заметка (общий шаблон, ставьте его последним), «re:выражение» проверяет путь регулярным выражением',
@@ -402,11 +409,28 @@ export default class Templates extends Plugin {
     const inFolder = (folder: string) => !!folder && (`${entry.path}/`.startsWith(`${folder}/`))
     if (inFolder(this.folder) || lines(this.getSetting<string>('excluded')).map(paths.normalize).some(inFolder)) return
     const name = templateFor(parseRules(this.getSetting<string>('rules')), entry.path)
-    const template = name ? this.resolve(name) : null
-    if (!template) {
-      if (name) app.notice(`Шаблон «${name}» из правил не найден`)
+    const ruled = name ? this.resolve(name) : null
+    if (name && !ruled) app.notice(`Шаблон «${name}» из правил не найден`)
+    const all = this.list()
+    if (!this.getSetting<boolean>('ask') || !all.length) {
+      if (ruled) this.fill(entry, ruled)
       return
     }
+    // The user chooses: the template the rules name comes first, so Enter is "as usual".
+    const choices: (string | null)[] = [...(ruled ? [ruled] : []), ...all.filter((path) => path !== ruled), null]
+    const label = (path: string | null) => (path === null ? 'Без шаблона' : paths.stripExt(path.slice(this.folder.length + 1)))
+    app.suggest<string | null>({
+      placeholder: `Шаблон для «${paths.stripExt(paths.basename(entry.path))}»…`,
+      items: (query) => choices.filter((path) => label(path).toLowerCase().includes(query.trim().toLowerCase())),
+      label,
+      detail: (path) => (path !== null && path === ruled ? 'по правилам' : undefined),
+      onChoose: (path) => path && this.fill(entry, path),
+    })
+  }
+
+  /** Fills a note that has just been created from a template. */
+  private fill(entry: VaultEntry, template: string): void {
+    const { app } = this
     this.guard(template, async () => {
       const hooks: Run['hooks'] = []
       const made = await this.run(await app.vault.read(template), { template, target: entry.path, mode: 'CreateNewFromTemplate', hooks })
