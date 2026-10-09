@@ -76,6 +76,11 @@ export class Moment {
     return this.format()
   }
 
+  /** Accepted for compatibility with moment.js; names are always Russian here. */
+  locale(_name?: string): this {
+    return this
+  }
+
   year(): number {
     return this.d.getFullYear()
   }

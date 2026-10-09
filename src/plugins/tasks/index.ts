@@ -1,5 +1,5 @@
 import { mount, unmount } from 'svelte'
-import { cm, errorMessage, Plugin, type PreviewRenderer } from '../../api'
+import { cm, errorMessage, Plugin, type CodeBlockContext, type PreviewRenderer } from '../../api'
 import { today } from './dates'
 import { Reminders } from './reminders'
 import { tasksProcessor } from './render'
@@ -33,6 +33,13 @@ export default class Tasks extends Plugin {
         desc: 'Сюда попадает задача, созданная командой, когда не открыта ни одна заметка',
         type: 'text',
         default: 'Задачи.md',
+      },
+      {
+        key: 'panelQuery',
+        name: 'Запрос для виджета задач',
+        desc: 'Те же инструкции, что в блоке ```tasks',
+        type: 'lines',
+        default: 'not done\ngroup by when\nsort by due\nsort by priority',
       },
       {
         key: 'remindDue',
@@ -113,7 +120,29 @@ export default class Tasks extends Plugin {
       }
     }
 
-    this.registerCodeBlockProcessor('tasks', tasksProcessor(store, editTask))
+    const render = tasksProcessor(store, editTask)
+    this.registerCodeBlockProcessor('tasks', render)
+
+    // The same list as a widget: every task of the vault, by the query from the settings.
+    this.addPanel({
+      id: 'tasks',
+      title: 'Задачи',
+      side: 'right',
+      icon: 'M2.5 4.5l1.5 1.5 2.5-3M2.5 10.5l1.5 1.5 2.5-3M9 5h5M9 11h5',
+      mount: (target) => {
+        const list = target.appendChild(document.createElement('div'))
+        list.className = 'tasks-panel'
+        const context: CodeBlockContext = { app, path: '', lang: 'tasks', setSource: () => {} }
+        const view = render(this.getSetting<string>('panelQuery'), list, context)
+        const off = app.settings.on('change', (scope, key) => {
+          if (scope === this.manifest.id && key === 'panelQuery') view?.update?.(this.getSetting<string>('panelQuery'))
+        })
+        return () => {
+          off()
+          view?.destroy?.()
+        }
+      },
+    })
 
     /** In the editor a task's dates, priority and repeat rule are set apart from its text. */
     const fields: PreviewRenderer = {

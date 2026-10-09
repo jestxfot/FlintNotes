@@ -1,4 +1,4 @@
-import { expr, fileRef, path as paths, type App } from '../../api'
+import { expr, fileRef, moment, path as paths, type App, type Moment } from '../../api'
 import { parseDateSpec, shortDate, today } from './dates'
 import { isCancelled, isDone, isOpen, PRIORITIES, type DateField, type Task } from './task'
 
@@ -73,6 +73,82 @@ function scope(app: App, task: Task): expr.Scope {
   }
   return { get: (name) => (Object.hasOwn(values, name) ? values[name]() : undefined) }
 }
+
+/** A task's date as Obsidian Tasks exposes it to `filter by function`: `task.due.moment`. */
+const taskDate = (value?: string) => {
+  const date: Moment | null = value ? moment(value) : null
+  return {
+    moment: date,
+    formatAsDate: (fallback = '') => value ?? fallback,
+    formatAsDateAndTime: (fallback = '') => value ?? fallback,
+    toISOString: () => date?.toISOString() ?? '',
+    get category() {
+      const today = moment().startOf('day')
+      if (!date) return { name: 'Undated', sortOrder: 4, groupText: '%%4%% Undated' }
+      const diff = date.diff(today, 'days')
+      const name = diff < 0 ? 'Overdue' : diff === 0 ? 'Today' : 'Future'
+      const sortOrder = diff < 0 ? 1 : diff === 0 ? 2 : 3
+      return { name, sortOrder, groupText: `%%${sortOrder}%% ${name}` }
+    },
+  }
+}
+
+const STATUS_TYPES: Record<string, string> = { ' ': 'TODO', x: 'DONE', X: 'DONE', '-': 'CANCELLED', '/': 'IN_PROGRESS' }
+
+/**
+ * The `task` object that `filter by function`, `group by function` and
+ * `sort by function` see, shaped like the one in Obsidian Tasks so queries
+ * written there work here: `task.file.path`, `task.due.moment`, `task.tags`, ...
+ */
+function scriptTask(app: App, task: Task) {
+  const folder = paths.dirname(task.path)
+  const meta = app.metadata.get(task.path)
+  const type = STATUS_TYPES[task.status] ?? 'TODO'
+  return {
+    description: task.description,
+    descriptionWithoutTags: task.description.replace(/(^|\s)#[\p{L}\p{N}_/-]+/gu, '').trim(),
+    status: { symbol: task.status, type, name: type, isCompleted: () => type === 'DONE' },
+    isDone: type === 'DONE' || type === 'CANCELLED',
+    priorityName: PRIORITIES[task.priority].name.replace(/^./, (c) => c.toUpperCase()),
+    priorityNumber: task.priority,
+    tags: task.tags.map((tag) => `#${tag}`),
+    due: taskDate(task.due),
+    scheduled: taskDate(task.scheduled),
+    start: taskDate(task.start),
+    created: taskDate(task.created),
+    done: taskDate(task.done),
+    cancelled: taskDate(task.cancelled),
+    happens: taskDate(task.due ?? task.scheduled ?? task.start),
+    isRecurring: !!task.recurrence,
+    recurrenceRule: task.recurrence ?? '',
+    heading: task.heading ?? null,
+    hasHeading: !!task.heading,
+    originalMarkdown: task.raw,
+    lineNumber: task.line,
+    file: {
+      path: task.path,
+      // Obsidian Tasks writes folders with a slash at the end, and queries rely on it.
+      folder: folder ? `${folder}/` : '/',
+      root: folder ? `${folder.split('/')[0]}/` : '/',
+      filename: paths.basename(task.path),
+      filenameWithoutExtension: paths.stripExt(paths.basename(task.path)),
+      tags: (meta?.tags ?? []).map((tag) => `#${tag}`),
+      frontmatter: meta?.frontmatter ?? {},
+      hasProperty: (name: string) => !!meta?.frontmatter && name in meta.frontmatter,
+      property: (name: string) => meta?.frontmatter?.[name] ?? null,
+    },
+  }
+}
+
+/** Compiles the JavaScript after `... by function`: an expression, or statements with `return`. */
+function compileFunction(app: App, source: string): (task: Task) => unknown {
+  const body = /\breturn\b/.test(source) ? source : `return (${source}\n)`
+  const fn = new Function('task', body) as (task: unknown) => unknown
+  return (task) => fn(scriptTask(app, task))
+}
+
+/** The comment marks `%%…%%` order groups without showing: "%%1%% Сегодня" sorts first, reads "Сегодня". */
+const visible = (name: string) => name.replace(/%%.*?%%/g, '').trim()
 
 const TEXT_FIELDS: Record<string, (task: Task) => string> = {
   path: (task) => task.path,
@@ -215,6 +291,20 @@ const GROUP_KEYS: Record<string, () => Grouper> = {
   folder: () => ({ names: (task) => [paths.dirname(task.path) || '/'], reverse: false }),
   heading: () => ({ names: (task) => [task.heading ?? 'Без заголовка'], reverse: false }),
   tags: () => ({ names: (task) => (task.tags.length ? task.tags.map((tag) => `#${tag}`) : ['Без тегов']), reverse: false }),
+  // How soon the task is due: the usual sections of a to-do list.
+  when: () => {
+    const names = ['Просрочено', 'Сегодня', 'Завтра', 'Дальше', 'Без срока']
+    return {
+      names: (task) => {
+        if (!task.due) return [names[4]]
+        const day = today()
+        const tomorrow = moment(day).add(1, 'day').format('YYYY-MM-DD')
+        return [task.due < day ? names[0] : task.due === day ? names[1] : task.due === tomorrow ? names[2] : names[3]]
+      },
+      order: (name) => names.indexOf(name),
+      reverse: false,
+    }
+  },
   recurring: () => ({ names: (task) => [task.recurrence ? 'Повторяющиеся' : 'Разовые'], reverse: false }),
 }
 
@@ -232,7 +322,8 @@ export function parseQuery(app: App, source: string): Query {
   const query: Query = { filters: [], sorts: [], groups: [], hide: new Set(), errors: [] }
   const byExpr = (text: string, task: Task) => expr.evaluate(text, scope(app, task))
 
-  for (const raw of source.split(/\r?\n/)) {
+  // A backslash at the end of a line continues the instruction on the next one.
+  for (const raw of source.replace(/\\\r?\n\s*/g, ' ').split(/\r?\n/)) {
     const line = raw.trim()
     if (!line || line.startsWith('#')) continue
     const lower = line.toLowerCase()
@@ -243,7 +334,16 @@ export function parseQuery(app: App, source: string): Query {
         if (m[1] === 'hide') query.hide.add(m[2])
         else query.hide.delete(m[2])
       } else if (/^(short|full) mode$|^explain$/.test(lower)) continue
-      else if ((m = /^where (.+)$/i.exec(line))) {
+      else if ((m = /^filter by function (.+)$/is.exec(line))) {
+        const test = compileFunction(app, m[1])
+        query.filters.push((task) => !!test(task))
+      } else if ((m = /^sort by function (reverse )?(.+)$/is.exec(line))) {
+        query.sorts.push({ value: compileFunction(app, m[2]), reverse: !!m[1] })
+      } else if ((m = /^group by function (reverse )?(.+)$/is.exec(line))) {
+        const name = compileFunction(app, m[2])
+        // A function may put a task into several groups by returning a list; "" means no group at this level.
+        query.groups.push({ names: (task) => [name(task)].flat().map((value) => String(value ?? '')), reverse: !!m[1] })
+      } else if ((m = /^where (.+)$/i.exec(line))) {
         const source = m[1]
         expr.parse(source)
         query.filters.push((task) => expr.truthy(byExpr(source, task)))
@@ -321,7 +421,7 @@ export function runQuery(tasks: Task[], query: Query): { groups: ResultGroup[]; 
       const names = guard(() => grouper.names(task), ['Ошибка'])
       combos = combos.flatMap((combo) =>
         names.map((name) => ({
-          name: combo.name ? `${combo.name} › ${name}` : name,
+          name: combo.name && name ? `${combo.name} › ${name}` : combo.name || name,
           keys: [...combo.keys, grouper.order ? grouper.order(name) : name],
         })),
       )
@@ -346,6 +446,8 @@ export function runQuery(tasks: Task[], query: Query): { groups: ResultGroup[]; 
 function groupTitle(name: string): string {
   return name
     .split(' › ')
+    .map(visible)
+    .filter(Boolean)
     .map((part) => {
       if (!/^\d{4}-\d{2}-\d{2}$/.test(part)) return part
       const note = part === today() ? ' · сегодня' : part < today() ? ' · просрочено' : ''

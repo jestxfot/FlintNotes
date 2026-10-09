@@ -225,6 +225,8 @@ export class Reminders {
     dialog.querySelector('h1')!.textContent = due.length > 1 ? `Напоминания: ${due.length}` : 'Напоминание'
 
     if (!this.flash) {
+      // The tab's title follows the open note, so it is remembered when the flashing starts.
+      this.title = document.title
       let on = false
       this.flash = setInterval(() => {
         on = !on

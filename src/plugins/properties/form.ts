@@ -145,7 +145,8 @@ export function propertiesForm(source: string, root: HTMLElement, ctx: CodeBlock
   const listEditor = (key: string, items: unknown[], set: (next: unknown) => void): HTMLElement => {
     const box = el('div', 'props-value props-list')
     items.forEach((item, i) => {
-      const chip = box.appendChild(el('span', 'props-chip', (key === 'tags' ? '#' : '') + String(item)))
+      // A tag may be written with or without its `#`; it is shown with exactly one.
+      const chip = box.appendChild(el('span', 'props-chip', key === 'tags' ? `#${String(item).replace(/^#/, '')}` : String(item)))
       const remove = chip.appendChild(el('button', '', '×'))
       remove.title = 'Убрать'
       remove.onclick = () => set(items.filter((_, index) => index !== i))

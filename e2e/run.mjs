@@ -11,6 +11,7 @@ import { chromium } from 'playwright'
 import { buildVault, ROOT, tools } from './helpers.mjs'
 
 const filters = process.argv.slice(2)
+const LIMIT = 150_000
 const suites = fs
   .readdirSync(path.join(ROOT, 'e2e/suites'))
   .filter((file) => file.endsWith('.mjs') && (!filters.length || filters.some((f) => file.includes(f))))
@@ -68,10 +69,16 @@ for (const [index, file] of suites.entries()) {
   try {
     await suite.afterStart?.(t)
     await page.goto(t.url)
-    await suite.run(t)
+    // A suite that hangs (a wait that never ends) is cut off and reports how far it got.
+    const limit = new Promise((_, reject) => setTimeout(() => reject(new Error(`Suite did not finish in ${LIMIT / 1000} s`)), LIMIT))
+    await Promise.race([suite.run(t), limit])
     t.ok('no console errors', errors.length === 0, errors.join(' | '))
   } catch (error) {
-    t.ok('suite ran to the end', false, String(error).split('\n')[0])
+    // What the page was saying helps more than the timeout itself.
+    const notices = await page.locator('.notice').allInnerTexts().catch(() => [])
+    const screen = (await page.locator('body').innerText().catch(() => '')).replace(/\s+/g, ' ').slice(0, 300)
+    const context = [...errors.map((e) => `console: ${e}`), ...notices.map((n) => `notice: ${n}`), `screen: ${screen}`].join('\n')
+    t.ok('suite ran to the end', false, `${String(error).split('\n')[0]}\n${context}`)
   }
   await page.close()
   server.kill()
@@ -82,6 +89,7 @@ for (const [index, file] of suites.entries()) {
   total += results.length
   failures += failed.length
   console.log(`${failed.length ? '✗' : '✓'} ${file}: ${results.length - failed.length}/${results.length}`)
+  if (failed.some((result) => result.name === 'suite ran to the end')) console.log(`    last check reached: ${results.filter((r) => r.pass).at(-1)?.name ?? 'none'}`)
   for (const { name, extra } of failed) console.log(`    FAIL ${name}${extra ? `\n         ${extra.replace(/\n/g, '\n         ')}` : ''}`)
 }
 

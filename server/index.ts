@@ -135,7 +135,24 @@ api.use(async (c, next) => {
   await next()
 })
 
-api.get('/vault', (c) => c.json({ name: path.basename(root), path: root }))
+/**
+ * Obsidian keeps its settings in a dot-folder of the vault (`.obsidian`, or
+ * another name the user chose). Plugins read them to work the same way as
+ * Obsidian does on the same notes. The most recently used folder comes first.
+ */
+async function obsidianConfigs(): Promise<string[]> {
+  const dirs = (await fs.readdir(root, { withFileTypes: true })).filter((d) => d.isDirectory() && d.name.startsWith('.'))
+  const found = await Promise.all(
+    dirs.map(async (d) => {
+      const app = await fs.stat(path.join(root, d.name, 'app.json')).catch(() => null)
+      const used = await fs.stat(path.join(root, d.name, 'workspace.json')).catch(() => null)
+      return app ? { name: d.name, used: (used ?? app).mtimeMs } : null
+    }),
+  )
+  return found.filter((f) => f !== null).sort((a, b) => b.used - a.used).map((f) => f.name)
+}
+
+api.get('/vault', async (c) => c.json({ name: path.basename(root), path: root, obsidianConfigs: await obsidianConfigs() }))
 
 const vaultInfo = (dir: string): VaultInfo => ({ path: dir, name: path.basename(dir), current: dir === root, exists: existsSync(dir) })
 
@@ -247,6 +264,27 @@ api.delete('/file', async (c) => {
   }
   await fs.mkdir(path.dirname(dest), { recursive: true })
   await fs.rename(abs, dest)
+  return c.body(null, 204)
+})
+
+// Shows a file or folder in the system's file manager (Explorer, Finder, ...).
+api.post('/reveal', async (c) => {
+  const abs = resolveInVault(c.req.query('path') ?? '', true)
+  if (!existsSync(abs)) throw new HTTPException(404, { message: 'File not found' })
+  const [command, args, options] =
+    process.platform === 'win32'
+      ? // Explorer wants `/select,"path"` exactly so; Node's own quoting would break it.
+        ['explorer.exe', abs === root ? [`"${abs}"`] : [`/select,"${abs}"`], { windowsVerbatimArguments: true }]
+      : process.platform === 'darwin'
+        ? ['open', abs === root ? [abs] : ['-R', abs], {}]
+        : ['xdg-open', [abs === root ? abs : path.dirname(abs)], {}]
+  await new Promise<void>((resolve, reject) => {
+    const child = spawn(command as string, args as string[], { stdio: 'ignore', detached: true, ...(options as object) })
+    child.on('error', () => reject(new HTTPException(500, { message: 'Не удалось открыть файловый менеджер' })))
+    // Explorer reports failure even when it opens the window, so starting is all that is checked.
+    child.on('spawn', () => resolve())
+    child.unref()
+  })
   return c.body(null, 204)
 })
 

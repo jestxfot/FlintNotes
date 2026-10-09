@@ -71,9 +71,12 @@ export class Panels extends Events<PanelEvents> {
     const entry = { def, key: this.nextKey++ }
     this.entries.set(def.id, entry)
     if (!this.locate(def.id)) {
-      // New to the layout: it joins the first block of its own side.
+      // New to the layout. A compact widget (a calendar) starts as a block of
+      // its own at the top; the others join the first full-height block.
       const side = this.layout[def.side]
-      if (side.length) side[0].tabs.push(def.id)
+      const full = side.find((group) => !group.tabs.some((id) => this.entries.get(id)?.def.compact))
+      if (def.compact) side.unshift({ tabs: [def.id] })
+      else if (full) full.tabs.push(def.id)
       else side.push({ tabs: [def.id] })
     }
     this.trigger('change')

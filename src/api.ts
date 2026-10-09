@@ -38,6 +38,7 @@ export type { BuiltinManifest } from './core/plugin-manager'
 export type { SettingDef } from './core/settings'
 export type { SuggestOptions } from './core/suggest'
 export { plural } from './core/text'
+export { expandVariables } from './core/variables'
 export type { VaultEntry, VaultInfo } from './core/vault'
 export type { FileView, Leaf, ViewContext, ViewCreator } from './core/workspace'
 

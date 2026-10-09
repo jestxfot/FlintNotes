@@ -24,13 +24,14 @@ views:
 `
 
 /** A base kept in its own `.base` file, shown in a tab or embedded in a note. */
-async function fileBase(app: App, path: string, el: HTMLElement, initialView?: string) {
+async function fileBase(app: App, path: string, el: HTMLElement, initialView?: string, embeddedIn = path) {
   const text = await app.vault.read(path)
   const base = mountBase(
     el,
     {
       app,
-      sourcePath: path,
+      // In an embedded base `this` is the note it is embedded in, as in Obsidian.
+      sourcePath: embeddedIn,
       initialView,
       setSource: (source) =>
         void app.vault.write(path, `${source}\n`).catch((err) => app.notice(`Не удалось сохранить базу: ${errorMessage(err)}`)),
@@ -88,7 +89,7 @@ export default class Bases extends Plugin {
     this.registerEmbed(['base'], (el, ctx) => {
       let destroyed = false
       let destroy = () => {}
-      void fileBase(app, ctx.path, el, ctx.subpath.slice(1) || undefined)
+      void fileBase(app, ctx.path, el, ctx.subpath.slice(1) || undefined, ctx.sourcePath)
         .then((base) => (destroyed ? base.destroy() : (destroy = base.destroy)))
         .catch((err) => (el.textContent = `Не удалось открыть базу: ${errorMessage(err)}`))
       return () => {

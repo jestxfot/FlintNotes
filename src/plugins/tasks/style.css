@@ -236,3 +236,32 @@
 .cm-editor .lp-task-field.overdue {
   color: #d0342c;
 }
+
+/* The tasks widget in a sidebar */
+.tasks-panel {
+  flex: 1;
+  padding: 8px 10px 12px;
+  overflow-y: auto;
+  font-size: 13.5px;
+}
+
+/* A sidebar is narrow: the task's text gets a line to itself, dates and the note go below it. */
+.tasks-panel .task-row {
+  flex-wrap: wrap;
+  row-gap: 0;
+}
+
+.tasks-panel .task-text {
+  flex: 1 1 calc(100% - 28px);
+}
+
+.tasks-panel .task-chip:first-of-type,
+.tasks-panel .task-text + .task-edit,
+.tasks-panel .task-text + .task-source {
+  margin-left: 22px;
+}
+
+.tasks-panel .task-source {
+  max-width: 60%;
+  margin-left: auto;
+}

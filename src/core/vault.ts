@@ -8,6 +8,8 @@ type VaultEvents = {
   create: [entry: VaultEntry]
   modify: [entry: VaultEntry]
   delete: [entry: VaultEntry]
+  /** A file was created by this app just now (not by another program or by sync). */
+  'created-here': [entry: VaultEntry]
   rename: [entry: VaultEntry, oldPath: string]
 }
 
@@ -30,12 +32,15 @@ export class Vault extends Events<VaultEvents> {
   name = ''
   /** Absolute path of the vault's folder on disk. */
   path = ''
+  /** Obsidian's settings folders found in the vault (`.obsidian`, ...), the most recently used first. */
+  obsidianConfigs: string[] = []
   private entries = new Map<string, VaultEntry>()
 
   async load(): Promise<void> {
     const info = await (await request('/api/vault')).json()
     this.name = info.name
     this.path = info.path
+    this.obsidianConfigs = info.obsidianConfigs ?? []
     await this.sync()
     const source = new EventSource('/api/events')
     let connected = false
@@ -93,6 +98,11 @@ export class Vault extends Events<VaultEvents> {
     return (await request(url('file', path))).arrayBuffer()
   }
 
+  /** Shows a file or folder in the system's file manager; `''` is the vault's own folder. */
+  async reveal(path: string): Promise<void> {
+    await request(url('reveal', path), { method: 'POST' })
+  }
+
   /** Reads the text of every note in one request, calling `each` as they arrive. */
   async readNotes(each: (path: string, text: string) => void): Promise<void> {
     const reader = (await request('/api/notes')).body!.getReader()
@@ -136,7 +146,12 @@ export class Vault extends Events<VaultEvents> {
       keepalive: options.keepalive,
     })
     const entry: VaultEntry = await res.json()
-    if (!path.startsWith('.')) this.upsert(entry)
+    if (!path.startsWith('.')) {
+      this.upsert(entry)
+      // The server refuses `create` for a file that exists, so a success means this
+      // app made the file. (The file watcher may already have reported it.)
+      if (options.create) this.trigger('created-here', entry)
+    }
     return entry
   }
 

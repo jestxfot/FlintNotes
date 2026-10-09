@@ -12,7 +12,9 @@ function cover(ctx: ViewContext, row: Row): HTMLElement | null {
   if (!target) return null
   const local = ctx.app.metadata.resolve(target, row.path)
   const src = /^https?:/i.test(target) ? target : local ? ctx.app.vault.url(local) : ''
-  return src ? h('img', { class: 'base-cover', src, alt: '', loading: 'lazy' }) : null
+  const ratio = Number(ctx.view.imageAspectRatio)
+  const style = ratio > 0 ? `height:auto;aspect-ratio:${1 / ratio}` : undefined
+  return src ? h('img', { class: 'base-cover', src, alt: '', loading: 'lazy', style }) : null
 }
 
 /** One note as a card: title, then its properties. Shared with the board view. */
@@ -43,6 +45,6 @@ export const cards: ViewRenderer = (ctx) =>
     { class: 'base-cards-wrap' },
     ...ctx.result.groups.flatMap((group) => [
       isGrouped(ctx) ? h('h4', { class: 'base-group-title' }, groupTitle(ctx, group), h('span', {}, String(group.rows.length))) : null,
-      h('div', { class: 'base-cards' }, ...group.rows.map((row) => card(ctx, row))),
+      h('div', { class: 'base-cards', style: Number(ctx.view.cardSize) > 0 ? `grid-template-columns:repeat(auto-fill,minmax(${Number(ctx.view.cardSize)}px,1fr))` : undefined }, ...group.rows.map((row) => card(ctx, row))),
     ]),
   )

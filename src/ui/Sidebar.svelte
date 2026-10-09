@@ -100,8 +100,10 @@
               draggable="true"
               onclick={() => app.panels.reveal(def.id)}
               ondragstart={(event) => {
-                drag.panel = def.id
                 event.dataTransfer?.setData('text/plain', def.id)
+                // Showing the drop places moves things on the page, and Chrome cancels a
+                // drag whose surroundings change while it is starting. So: a moment later.
+                setTimeout(() => (drag.panel = def.id))
               }}
               ondragend={() => {
                 drag.panel = null

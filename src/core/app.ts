@@ -9,6 +9,7 @@ import { MetadataCache } from './metadata'
 import { notice } from './notice'
 import { Panels } from './panels'
 import { PluginManager } from './plugin-manager'
+import { Router } from './router'
 import { Services } from './services'
 import { VaultState } from './state'
 import { Settings, type SettingsSection } from './settings'
@@ -70,6 +71,7 @@ export class App {
   readonly workspace = new Workspace(this)
   readonly plugins = new PluginManager(this)
   readonly services = new Services()
+  readonly router = new Router(this)
   readonly notice = notice
   /** Requests handled by the UI layer. */
   readonly ui = new Events<{ suggest: [options: SuggestOptions<any>] }>()

@@ -29,8 +29,11 @@ export class VaultState {
   }
 
   set(key: string, value: unknown): void {
-    if (JSON.stringify(this.data[key]) === JSON.stringify(value)) return
-    this.data[key] = value
+    const json = JSON.stringify(value)
+    if (JSON.stringify(this.data[key]) === json) return
+    // A copy: the caller may go on changing its own object, and the next
+    // comparison must see that as a change.
+    this.data[key] = JSON.parse(json)
     this.dirty = true
     clearTimeout(this.timer)
     this.timer = setTimeout(() => void this.flush(), 500)

@@ -180,6 +180,14 @@
     }
   }
 
+  async function reveal(entry: VaultEntry | null) {
+    try {
+      await vault.reveal(entry?.path ?? '')
+    } catch (err) {
+      app.notice(errorMessage(err))
+    }
+  }
+
   function selectAll(node: HTMLInputElement) {
     node.focus()
     node.select()
@@ -262,8 +270,9 @@
   <div class="menu" role="menu" style:left="{menu.x}px" style:top="{menu.y}px">
     <button role="menuitem" onclick={() => create('file', folderFor(entry))}>Новая заметка</button>
     <button role="menuitem" onclick={() => create('folder', folderFor(entry))}>Новая папка</button>
+    <hr />
+    <button role="menuitem" onclick={() => reveal(entry)}>Показать в проводнике</button>
     {#if entry}
-      <hr />
       <button role="menuitem" onclick={() => startRename(entry)}>Переименовать</button>
       <button role="menuitem" onclick={() => trash(entry)}>Удалить</button>
     {/if}

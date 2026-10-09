@@ -21,6 +21,10 @@ export interface ViewConfig {
   summaries?: Record<string, string>
   /** Cards: the property holding a picture for the card. */
   image?: string
+  /** Cards: width of a card in pixels. */
+  cardSize?: number
+  /** Cards: height of the picture as a share of its width. */
+  imageAspectRatio?: number
 }
 
 /** A base, as written in YAML. The format follows Obsidian Bases. */
