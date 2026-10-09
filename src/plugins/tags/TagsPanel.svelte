@@ -19,6 +19,11 @@
     if (selected.current) expanded.add(selected.current)
   })
 
+  // svelte-ignore state_referenced_locally
+  const icons = watch(app.icons, ['change'], () => ({}))
+  function tagIcon(node: HTMLElement, icon: string | undefined) {
+    if (icon) node.prepend(app.icons.draw(icon), ' ')
+  }
   const key = (tag: string) => tag.toLowerCase()
   const toggle = (tag: string) => expanded.delete(key(tag)) || expanded.add(key(tag))
   const title = (file: string) => path.stripExt(path.basename(file))
@@ -26,8 +31,11 @@
 
 <div class="tags">
   {#each tags.current as { tag, files } (key(tag))}
-    <button class="tag" class:selected={selected.current === key(tag)} onclick={() => toggle(tag)}>
-      <span class="name">#{tag}</span>
+    {@const look = icons.current && app.icons.look('tag', tag)}
+    <button class="tag" class:selected={selected.current === key(tag)} onclick={() => toggle(tag)} oncontextmenu={(event) => app.menus.show(event, 'tag', tag)}>
+      {#key look?.icon}
+        <span class="name" style:color={app.icons.css(look?.color)} use:tagIcon={look?.icon}>#{tag}</span>
+      {/key}
       <span class="count">{files.length}</span>
     </button>
     {#if expanded.has(key(tag))}

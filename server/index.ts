@@ -3,7 +3,8 @@ import chokidar from 'chokidar'
 import { Hono, type Context } from 'hono'
 import { HTTPException } from 'hono/http-exception'
 import { stream, streamSSE } from 'hono/streaming'
-import { spawn } from 'node:child_process'
+import { exec, execFile, spawn } from 'node:child_process'
+import { lookup } from 'node:dns/promises'
 import { existsSync, type Stats } from 'node:fs'
 import fs from 'node:fs/promises'
 import os from 'node:os'
@@ -19,12 +20,25 @@ const CONFIG = process.env.FLINT_CONFIG ?? path.join(os.homedir(), '.flintnotes.
 interface Config {
   vaults: string[]
   current?: string
+  /** Programs that templates of a vault may run, by vault folder; see `/system-commands`. */
+  systemCommands?: Record<string, SystemCommands>
+}
+
+interface SystemCommands {
+  /** Name -> command line. */
+  commands: Record<string, string>
+  /** Seconds a command may run. */
+  timeout?: number
 }
 
 async function readConfig(): Promise<Config> {
   try {
     const data = JSON.parse(await fs.readFile(CONFIG, 'utf8'))
-    return { vaults: Array.isArray(data.vaults) ? data.vaults.filter((v: unknown) => typeof v === 'string') : [], current: data.current }
+    return {
+      vaults: Array.isArray(data.vaults) ? data.vaults.filter((v: unknown) => typeof v === 'string') : [],
+      current: data.current,
+      systemCommands: data.systemCommands && typeof data.systemCommands === 'object' ? data.systemCommands : undefined,
+    }
   } catch {
     return { vaults: [] }
   }
@@ -105,6 +119,8 @@ async function ensureVault(dir: string): Promise<void> {
 }
 
 async function remember(): Promise<void> {
+  // Commands allowed by hand while the server runs must survive this rewrite.
+  config.systemCommands = (await readConfig()).systemCommands
   config.current = root
   if (!config.vaults.includes(root)) config.vaults.push(root)
   await fs.writeFile(CONFIG, JSON.stringify(config, null, 2)).catch((err) => console.error(`Не удалось записать ${CONFIG}`, err))
@@ -271,21 +287,134 @@ api.delete('/file', async (c) => {
 api.post('/reveal', async (c) => {
   const abs = resolveInVault(c.req.query('path') ?? '', true)
   if (!existsSync(abs)) throw new HTTPException(404, { message: 'File not found' })
-  const [command, args, options] =
-    process.platform === 'win32'
-      ? // Explorer wants `/select,"path"` exactly so; Node's own quoting would break it.
-        ['explorer.exe', abs === root ? [`"${abs}"`] : [`/select,"${abs}"`], { windowsVerbatimArguments: true }]
-      : process.platform === 'darwin'
-        ? ['open', abs === root ? [abs] : ['-R', abs], {}]
-        : ['xdg-open', [abs === root ? abs : path.dirname(abs)], {}]
+  // Explorer wants `/select,"path"` exactly so; Node's own quoting would break it.
+  const explorer = (winPath: string, isRoot: boolean): [string, string[], object] => ['explorer.exe', isRoot ? [`"${winPath}"`] : [`/select,"${winPath}"`], { windowsVerbatimArguments: true }]
+  let launch: [string, string[], object]
+  if (process.platform === 'win32') launch = explorer(abs, abs === root)
+  else if (process.platform === 'darwin') launch = ['open', abs === root ? [abs] : ['-R', abs], {}]
+  else if (process.env.WSL_DISTRO_NAME) {
+    // Under WSL the file manager is Windows Explorer, which needs the path in its Windows form.
+    const winPath = await new Promise<string>((resolve, reject) =>
+      execFile('wslpath', ['-w', abs], (err, out) => (err ? reject(new HTTPException(500, { message: 'Не удалось получить путь Windows (wslpath)' })) : resolve(out.trim()))),
+    )
+    launch = explorer(winPath, abs === root)
+  } else launch = ['xdg-open', [abs === root ? abs : path.dirname(abs)], {}]
+  const [command, args, options] = launch
   await new Promise<void>((resolve, reject) => {
-    const child = spawn(command as string, args as string[], { stdio: 'ignore', detached: true, ...(options as object) })
-    child.on('error', () => reject(new HTTPException(500, { message: 'Не удалось открыть файловый менеджер' })))
+    const child = spawn(command, args, { stdio: 'ignore', ...options })
+    child.on('error', (err) => {
+      console.error(`Показать в проводнике: не удалось запустить ${command}: ${err.message}`)
+      reject(new HTTPException(500, { message: `Не удалось запустить ${command}: ${err.message}` }))
+    })
     // Explorer reports failure even when it opens the window, so starting is all that is checked.
     child.on('spawn', () => resolve())
     child.unref()
   })
+  console.log(`Показать в проводнике: ${command} ${args.join(' ')}`)
   return c.body(null, 204)
+})
+
+// Names of the files in one folder of the vault, hidden folders included: the
+// tree leaves those out, but plugins read Obsidian's own files (its custom icons).
+api.get('/list', async (c) => {
+  const dirents = await fs.readdir(resolveInVault(c.req.query('path') ?? '', true), { withFileTypes: true }).catch(() => [])
+  return c.json(dirents.filter((d) => d.isFile()).map((d) => d.name))
+})
+
+// ---- programs run by templates
+//
+// Templater lets a template call a program of the operating system
+// (`tp.user.name()`). Running programs is far more than the rest of this API
+// can do, and notes may carry scripts that run in the app's page, so nothing
+// that comes over HTTP decides what is run: the allowed command lines are
+// written by hand into this user's config file, outside every vault,
+//
+//   "systemCommands": { "<vault folder>": { "commands": { "name": "command line" }, "timeout": 5 } }
+//
+// and a request can only name one of them. The template's arguments reach the
+// program as environment variables, as in Templater.
+api.get('/system-commands', async (c) => c.json({ file: CONFIG, vault: root, commands: Object.keys((await readConfig()).systemCommands?.[root]?.commands ?? {}) }))
+
+api.post('/exec', async (c) => {
+  const origin = c.req.header('origin')
+  if (!origin || new URL(origin).host !== c.req.header('host')) throw new HTTPException(403, { message: 'Только со страницы самого приложения' })
+  const { name, env } = (await c.req.json()) as { name: string; env?: Record<string, unknown> }
+  // The file is read anew, so a command added by hand works without a restart.
+  const allowed = (await readConfig()).systemCommands?.[root]
+  const command = allowed && Object.hasOwn(allowed.commands ?? {}, name) ? allowed.commands[name] : undefined
+  if (typeof command !== 'string' || !command.trim()) throw new HTTPException(403, { message: `Команда «${name}» не разрешена в ${CONFIG}` })
+  const variables = Object.fromEntries(Object.entries(env ?? {}).map(([key, value]) => [key, typeof value === 'string' ? value : JSON.stringify(value)]))
+  const timeout = Math.min(600, Math.max(1, Number(allowed?.timeout) || 5)) * 1000
+  const output = await new Promise<string>((resolve, reject) => {
+    exec(command, { cwd: root, timeout, env: { ...process.env, ...variables }, windowsHide: true, maxBuffer: 4 * 1024 * 1024 }, (err, stdout, stderr) => {
+      if (err) reject(new HTTPException(500, { message: (stderr || err.message).trim().slice(0, 500) }))
+      else resolve(stdout)
+    })
+  })
+  return c.json({ output: output.trimEnd() })
+})
+
+// ---- what a web page says about itself, for link cards
+const PRIVATE = /^(127\.|10\.|192\.168\.|169\.254\.|172\.(1[6-9]|2\d|3[01])\.|0\.|::1$|f[cd]|fe80)/i
+
+api.get('/unfurl', async (c) => {
+  let url: URL
+  try {
+    url = new URL(c.req.query('url') ?? '')
+  } catch {
+    throw new HTTPException(400, { message: 'Это не адрес страницы' })
+  }
+  if (url.protocol !== 'http:' && url.protocol !== 'https:') throw new HTTPException(400, { message: 'Нужен адрес http или https' })
+  // The server fetches pages of the open web only, never of this machine or the local network.
+  const addresses = await lookup(url.hostname, { all: true }).catch(() => [])
+  if (!addresses.length || addresses.some((a) => PRIVATE.test(a.address))) throw new HTTPException(400, { message: 'Страница недоступна' })
+  let html = ''
+  let final = url.href
+  try {
+    const res = await fetch(url, { signal: AbortSignal.timeout(8000), headers: { 'user-agent': 'Mozilla/5.0 (compatible; FlintNotes link preview)', accept: 'text/html,*/*;q=0.5' } })
+    final = res.url || url.href
+    // The head of the page is enough; a huge page is not read to the end.
+    const reader = res.body?.getReader()
+    const decoder = new TextDecoder()
+    while (reader && html.length < 600_000) {
+      const { done, value } = await reader.read()
+      if (done) break
+      html += decoder.decode(value, { stream: true })
+    }
+    void reader?.cancel().catch(() => {})
+  } catch {
+    throw new HTTPException(502, { message: 'Страница не ответила' })
+  }
+  const decode = (text: string) =>
+    text.replace(/&(#x?[0-9a-f]+|amp|lt|gt|quot|apos|nbsp);/gi, (all, code: string) => {
+      const named: Record<string, string> = { amp: '&', lt: '<', gt: '>', quot: '"', apos: "'", nbsp: ' ' }
+      const lower = code.toLowerCase()
+      if (Object.hasOwn(named, lower)) return named[lower]
+      const point = lower.startsWith('#x') ? parseInt(lower.slice(2), 16) : parseInt(lower.slice(1), 10)
+      return Number.isFinite(point) ? String.fromCodePoint(point) : all
+    })
+  const attr = (tag: string, name: string) => new RegExp(`\\b${name}\\s*=\\s*(?:"([^"]*)"|'([^']*)'|([^\\s>]+))`, 'i').exec(tag)?.slice(1).find((v) => v !== undefined)
+  const meta = new Map<string, string>()
+  for (const [tag] of html.matchAll(/<meta\b[^>]*>/gi)) {
+    const key = (attr(tag, 'property') ?? attr(tag, 'name'))?.toLowerCase()
+    const content = attr(tag, 'content')
+    if (key && content && !meta.has(key)) meta.set(key, decode(content).trim())
+  }
+  const absolute = (href: string | undefined) => {
+    try {
+      return href ? new URL(decode(href), final).href : ''
+    } catch {
+      return ''
+    }
+  }
+  const icons = [...html.matchAll(/<link\b[^>]*>/gi)].map(([tag]) => tag).filter((tag) => /\bicon\b/i.test(attr(tag, 'rel') ?? ''))
+  return c.json({
+    url: url.href,
+    title: meta.get('og:title') ?? meta.get('twitter:title') ?? decode(/<title[^>]*>([\s\S]*?)<\/title>/i.exec(html)?.[1] ?? '').replace(/\s+/g, ' ').trim(),
+    description: (meta.get('og:description') ?? meta.get('description') ?? meta.get('twitter:description') ?? '').replace(/\s+/g, ' '),
+    image: absolute(meta.get('og:image') ?? meta.get('twitter:image')),
+    favicon: absolute(icons.length ? attr(icons[0], 'href') : '/favicon.ico'),
+  })
 })
 
 api.get('/plugins', async (c) => {

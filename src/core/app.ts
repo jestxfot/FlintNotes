@@ -10,6 +10,8 @@ import { notice } from './notice'
 import { Panels } from './panels'
 import { PluginManager } from './plugin-manager'
 import { DockedNotes } from './docked'
+import { Icons } from './icons'
+import { Menus } from './menu'
 import { Router } from './router'
 import { Services } from './services'
 import { VaultState } from './state'
@@ -61,6 +63,7 @@ const coreSettings: SettingsSection = {
       type: 'toggle',
       default: true,
     },
+    { key: 'inlineTitle', name: 'Название заметки над текстом', desc: 'Правка названия переименовывает заметку', type: 'toggle', default: true },
     {
       key: 'readableWidth',
       name: 'Удобная ширина строки',
@@ -89,6 +92,8 @@ export class App {
   readonly services = new Services()
   readonly router = new Router(this)
   readonly docked = new DockedNotes(this)
+  readonly icons = new Icons()
+  readonly menus = new Menus()
   readonly notice = notice
   /** Requests handled by the UI layer. */
   readonly ui = new Events<{ suggest: [options: SuggestOptions<any>] }>()

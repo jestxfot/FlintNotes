@@ -39,6 +39,8 @@ node release/server.mjs "D:/Мои заметки"      # или FlintNotes.bat 
 | ```` ```button ```` | Кнопки | Buttons |
 | ```` ```tabs ```` | Вкладки в заметках | Markdown Tabs |
 | `<% ... %>`, `<%+ ... %>` | Шаблоны | Templater |
+| ```` ```chart ````, `window.renderChart` | Графики | Charts |
+| значки и цвета файлов, папок, тегов, свойств | Значки и цвета | Iconic (тот же `data.json` в папке настроек Obsidian) |
 
 ## Разработка
 

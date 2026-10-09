@@ -17,18 +17,48 @@ export default class Tags extends Plugin {
         ? event.target.closest<HTMLElement>('.lp-tag')?.dataset.tag
         : undefined
 
+    /** The icon a tag was given, drawn in front of it. */
+    class TagIcon extends cm.view.WidgetType {
+      constructor(
+        readonly icon: string,
+        readonly color: string,
+      ) {
+        super()
+      }
+      eq(other: TagIcon) {
+        return other.icon === this.icon && other.color === this.color
+      }
+      toDOM() {
+        const el = app.icons.draw(this.icon)
+        el.classList.add('lp-tag-icon')
+        el.style.color = this.color || 'var(--accent)'
+        return el
+      }
+    }
+    this.register(app.icons.on('change', () => app.livePreview.refresh()))
+
     /** `#tag` is drawn as a pill; clicking it shows the tag's notes in the panel. */
     const renderer: PreviewRenderer = {
       name: 'tags',
       nodes: ['Hashtag'],
       render(node, ctx) {
         if (ctx.isActive(node.from, node.to)) return
+        const tag = ctx.text(node.from + 1, node.to)
+        const look = app.icons.look('tag', tag)
+        const color = app.icons.css(look?.color)
+        if (look?.icon) ctx.widget(node.from, new TagIcon(look.icon, color), -1)
         ctx.mark(node.from, node.to, {
           class: 'lp-tag',
-          attributes: { 'data-tag': ctx.text(node.from + 1, node.to) },
+          attributes: { 'data-tag': tag, ...(color ? { style: `--tag-color: ${color}` } : {}) },
         })
       },
       extension: cm.view.EditorView.domEventHandlers({
+        contextmenu: (event) => {
+          const tag = event.target instanceof Element ? event.target.closest<HTMLElement>('.lp-tag')?.dataset.tag : undefined
+          if (tag === undefined) return false
+          app.menus.show(event, 'tag', tag)
+          return true
+        },
         mousedown: (event) => clicked(event) !== undefined,
         click: (event) => {
           const tag = clicked(event)

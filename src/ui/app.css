@@ -3,79 +3,82 @@
 
 :root {
   --bg: #ffffff;
-  --bg-alt: #f5f4f1;
-  --bg-hover: #eae8e3;
-  --border: #dfdcd5;
-  --text: #24221f;
-  --text-muted: #6a665e;
-  --text-faint: #a39e94;
-  --accent: #c2570c;
+  --bg-alt: #f6f6f6;
+  --bg-hover: #e9e9e9;
+  --border: #e0e0e0;
+  --text: #222222;
+  --text-muted: #5c5c5c;
+  --text-faint: #a0a0a0;
+  --accent: #7852ee;
   --accent-text: #ffffff;
-  --selection: #f4d9c2;
-  --shadow: 0 12px 40px rgb(0 0 0 / 0.18);
-  --syn-keyword: #a626a4;
-  --syn-string: #50813b;
-  --syn-number: #b0600a;
-  --syn-comment: #9a968c;
-  --syn-function: #3a6fd0;
-  --syn-type: #b3771b;
-  --syn-property: #c0453e;
-  --mark: #ffe58a;
+  --selection: #dcd2fb;
+  --shadow: 0 2px 8px rgb(0 0 0 / 0.07), 0 12px 32px rgb(0 0 0 / 0.14);
+  --syn-keyword: #d53984;
+  --syn-string: #08b94e;
+  --syn-number: #7852ee;
+  --syn-comment: #ababab;
+  --syn-function: #e0ac00;
+  --syn-type: #00bfbc;
+  --syn-property: #e93147;
+  --mark: #fff3a3;
+  --tag-bg: rgb(120 82 238 / 0.1);
 
-  --font-ui: system-ui, -apple-system, 'Segoe UI', sans-serif;
-  --font-text: system-ui, -apple-system, 'Segoe UI', sans-serif;
-  --font-mono: ui-monospace, 'Cascadia Code', 'JetBrains Mono', Consolas, monospace;
+  --font-ui: Inter, ui-sans-serif, -apple-system, 'Segoe UI', Roboto, 'Helvetica Neue', sans-serif;
+  --font-text: Inter, ui-sans-serif, -apple-system, 'Segoe UI', Roboto, 'Helvetica Neue', sans-serif;
+  --font-mono: 'Cascadia Code', Menlo, SFMono-Regular, Consolas, 'Roboto Mono', monospace;
   --editor-font-size: 16px;
-  --line-width: 46rem;
+  --line-width: 700px;
 
   color-scheme: light;
 }
 
 @media (prefers-color-scheme: dark) {
   :root:not([data-theme='light']) {
-    --bg: #1c1b1a;
-    --bg-alt: #242321;
-    --bg-hover: #32302d;
-    --border: #383633;
-    --text: #e4e1db;
-    --text-muted: #a19c92;
-    --text-faint: #6c6860;
-    --accent: #f08a3c;
-    --accent-text: #1c1b1a;
-    --selection: #5a3a22;
-    --shadow: 0 12px 40px rgb(0 0 0 / 0.5);
-    --syn-keyword: #c792ea;
-    --syn-string: #a5d38b;
-    --syn-number: #f0a868;
-    --syn-comment: #77736b;
-    --syn-function: #82aaff;
-    --syn-type: #e6c07b;
-    --syn-property: #ef8f8a;
-    --mark: #7a6420;
+    --bg: #1e1e1e;
+    --bg-alt: #262626;
+    --bg-hover: #333333;
+    --border: #363636;
+    --text: #dadada;
+    --text-muted: #b3b3b3;
+    --text-faint: #707070;
+    --accent: #a68af9;
+    --accent-text: #ffffff;
+    --selection: #3f3466;
+    --shadow: 0 2px 8px rgb(0 0 0 / 0.3), 0 12px 32px rgb(0 0 0 / 0.5);
+    --syn-keyword: #fa99cd;
+    --syn-string: #44cf6e;
+    --syn-number: #a882ff;
+    --syn-comment: #666666;
+    --syn-function: #e0de71;
+    --syn-type: #53dfdd;
+    --syn-property: #fb464c;
+    --mark: #66571f;
+    --tag-bg: rgb(138 92 245 / 0.15);
     color-scheme: dark;
   }
 }
 
 :root[data-theme='dark'] {
-  --bg: #1c1b1a;
-  --bg-alt: #242321;
-  --bg-hover: #32302d;
-  --border: #383633;
-  --text: #e4e1db;
-  --text-muted: #a19c92;
-  --text-faint: #6c6860;
-  --accent: #f08a3c;
-  --accent-text: #1c1b1a;
-  --selection: #5a3a22;
-  --shadow: 0 12px 40px rgb(0 0 0 / 0.5);
-  --syn-keyword: #c792ea;
-  --syn-string: #a5d38b;
-  --syn-number: #f0a868;
-  --syn-comment: #77736b;
-  --syn-function: #82aaff;
-  --syn-type: #e6c07b;
-  --syn-property: #ef8f8a;
-  --mark: #7a6420;
+  --bg: #1e1e1e;
+  --bg-alt: #262626;
+  --bg-hover: #333333;
+  --border: #363636;
+  --text: #dadada;
+  --text-muted: #b3b3b3;
+  --text-faint: #707070;
+  --accent: #a68af9;
+  --accent-text: #ffffff;
+  --selection: #3f3466;
+  --shadow: 0 2px 8px rgb(0 0 0 / 0.3), 0 12px 32px rgb(0 0 0 / 0.5);
+  --syn-keyword: #fa99cd;
+  --syn-string: #44cf6e;
+  --syn-number: #a882ff;
+  --syn-comment: #666666;
+  --syn-function: #e0de71;
+  --syn-type: #53dfdd;
+  --syn-property: #fb464c;
+  --mark: #66571f;
+  --tag-bg: rgb(138 92 245 / 0.15);
   color-scheme: dark;
 }
 
@@ -97,7 +100,7 @@ body,
 body {
   background: var(--bg);
   color: var(--text);
-  font: 14px/1.4 var(--font-ui);
+  font: 13px/1.4 var(--font-ui);
   overflow: hidden;
 }
 
@@ -142,16 +145,26 @@ button {
   color: var(--text-muted);
 }
 
+/* The status bar floats over the bottom right corner of the note, as in Obsidian. */
 .status-bar {
+  position: absolute;
+  right: 0;
+  bottom: 0;
+  z-index: 3;
   display: flex;
-  justify-content: flex-end;
-  gap: 16px;
-  min-height: 24px;
-  padding: 3px 12px;
-  border-top: 1px solid var(--border);
+  gap: 14px;
+  max-width: 100%;
+  padding: 4px 12px;
+  border: 1px solid var(--border);
+  border-width: 1px 0 0 1px;
+  border-radius: 8px 0 0 0;
   background: var(--bg-alt);
   color: var(--text-muted);
   font-size: 12px;
+}
+
+.status-bar:not(:has(.status-item:not(:empty))) {
+  display: none;
 }
 
 .status-item:empty {
@@ -191,11 +204,11 @@ button {
 }
 
 .inline-tag {
-  padding: 0 6px;
-  border-radius: 10px;
-  background: var(--bg-hover);
-  color: var(--accent);
-  font-size: 0.9em;
+  padding: 0.15em 0.65em;
+  border-radius: 2em;
+  background: color-mix(in srgb, var(--tag-color, var(--accent)) 14%, transparent);
+  color: var(--tag-color, var(--accent));
+  font-size: 0.875em;
 }
 
 code {
@@ -238,4 +251,141 @@ code {
   flex: 1;
   min-height: 0;
   overflow: auto;
+}
+
+/* Thin scrollbars that stay out of the way. */
+* {
+  scrollbar-width: thin;
+  scrollbar-color: color-mix(in srgb, var(--text-faint) 45%, transparent) transparent;
+}
+
+/* The note's name above its text. */
+.inline-title {
+  display: block;
+  width: 100%;
+  margin-bottom: 0.5em;
+  padding: 0;
+  border: none;
+  outline: none;
+  background: none;
+  color: inherit;
+  font: 700 1.618em/1.2 var(--font-text);
+  text-overflow: ellipsis;
+}
+
+:root.no-inline-title .inline-title {
+  display: none;
+}
+
+.inline-mark {
+  padding: 0 2px;
+  border-radius: 3px;
+  background: var(--mark);
+  color: inherit;
+}
+
+/* Checkboxes everywhere: rounded, filled with the accent colour when ticked, as in Obsidian. */
+input[type='checkbox']:not(.switch) {
+  appearance: none;
+  position: relative;
+  flex: none;
+  width: 1em;
+  height: 1em;
+  margin: 0;
+  border: 1px solid var(--text-faint);
+  border-radius: 4px;
+  vertical-align: -0.12em;
+  cursor: pointer;
+}
+
+input[type='checkbox']:not(.switch):hover {
+  border-color: var(--text-muted);
+}
+
+input[type='checkbox']:not(.switch):checked {
+  border-color: var(--accent);
+  background: var(--accent);
+}
+
+input[type='checkbox']:not(.switch):checked::after {
+  content: '';
+  position: absolute;
+  inset: 0;
+  background: #fff;
+  mask: url('data:image/svg+xml,<svg xmlns="http://www.w3.org/2000/svg" viewBox="0 0 16 16"><path d="M3.5 8.5l3 3 6-7" fill="none" stroke="black" stroke-width="2.2" stroke-linecap="round" stroke-linejoin="round"/></svg>') center / 100% no-repeat;
+}
+
+input[type='checkbox']:disabled {
+  opacity: 0.5;
+}
+
+/* Obsidian's palette for coloured icons, tags and labels. */
+:root {
+  --color-red: #e93147;
+  --color-orange: #ec7500;
+  --color-yellow: #e0ac00;
+  --color-green: #08b94e;
+  --color-cyan: #00bfbc;
+  --color-blue: #086ddd;
+  --color-purple: #7852ee;
+  --color-pink: #d53984;
+  --color-gray: #8a8a8a;
+}
+
+@media (prefers-color-scheme: dark) {
+  :root:not([data-theme='light']) {
+    --color-red: #fb464c;
+    --color-orange: #e9973f;
+    --color-yellow: #e0de71;
+    --color-green: #44cf6e;
+    --color-cyan: #53dfdd;
+    --color-blue: #027aff;
+    --color-purple: #a882ff;
+    --color-pink: #fa99cd;
+    --color-gray: #9a9a9a;
+  }
+}
+
+:root[data-theme='dark'] {
+  --color-red: #fb464c;
+  --color-orange: #e9973f;
+  --color-yellow: #e0de71;
+  --color-green: #44cf6e;
+  --color-cyan: #53dfdd;
+  --color-blue: #027aff;
+  --color-purple: #a882ff;
+  --color-pink: #fa99cd;
+  --color-gray: #9a9a9a;
+}
+
+/* An icon drawn by `app.icons.draw`: one character wide, in the colour of its text. */
+.icon {
+  display: inline-flex;
+  flex: none;
+  align-items: center;
+  justify-content: center;
+  width: 1em;
+  height: 1em;
+  line-height: 1;
+  vertical-align: -0.125em;
+}
+
+.icon svg {
+  width: 100%;
+  height: 100%;
+  fill: none;
+  stroke: currentColor;
+  stroke-width: 2;
+  stroke-linecap: round;
+  stroke-linejoin: round;
+}
+
+.icon img {
+  width: 100%;
+  height: 100%;
+  object-fit: contain;
+}
+
+.icon.emoji {
+  font-size: 0.9em;
 }

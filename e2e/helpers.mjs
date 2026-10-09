@@ -65,10 +65,10 @@ export function tools(page, vault, results) {
     exists: (file) => fs.existsSync(path.join(vault, file)),
     wait: (ms) => page.waitForTimeout(ms),
     count: (selector) => page.locator(selector).count(),
-    /** The file tree row with exactly this name (a folder's row starts with its arrow). */
-    row: (name) => page.locator('.row', { hasText: new RegExp(`^\\s*›?\\s*${name.replace(/[.*+?^${}()|[\]\\]/g, '\\$&')}$`) }),
-    tab: (name) => page.locator('.tab-title', { hasText: new RegExp(`^${name}$`) }),
-    activeTab: () => page.locator('.tab.active .tab-title').innerText(),
+    /** The file tree row with exactly this name. */
+    row: (name) => page.locator('.tree .row', { has: page.locator('.name', { hasText: new RegExp(`^${name.replace(/[.*+?^${}()|[\]\\]/g, '\\$&')}$`) }) }),
+    tab: (name) => page.locator('.tab-title', { hasText: new RegExp(`^\\s*${name}\\s*$`) }),
+    activeTab: async () => (await page.locator('.tab.active .tab-title').innerText()).trim(),
     /** Text of the open note as the editor shows it. */
     text: () => page.locator(`${leaf} .cm-content`).first().innerText(),
     /** Text of an element with all whitespace collapsed. */

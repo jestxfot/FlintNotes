@@ -85,7 +85,8 @@ export default class Buttons extends Plugin {
     const run = async (options: Options, path: string, source: string) => {
       const type = (options.type ?? '').toLowerCase()
       const action = options.action ?? ''
-      const place = /^(append|prepend|line\((\d+)\)|note\(([^,)]+)(?:,\s*[^)]*)?\))\s+(text|template)$/.exec(type)
+      // Run on the type as written: the name of the note keeps its capitals.
+      const place = /^(append|prepend|line\((\d+)\)|note\(([^,)]+)(?:,\s*[^)]*)?\))\s+(text|template)$/i.exec((options.type ?? '').trim())
 
       if (type === 'command') {
         // Obsidian writes the command's name here; commands are matched by theirs.
@@ -107,15 +108,15 @@ export default class Buttons extends Plugin {
         })
       } else if (place?.[3]) {
         const name = paths.normalize(place[3].trim())
-        const made = await content(place[4], action, paths.extname(name) ? name : `${name}.md`)
+        const made = await content(place[4].toLowerCase(), action, paths.extname(name) ? name : `${name}.md`)
         if (!app.vault.get(made.target)) await app.vault.create(made.target, made.text)
         await made.done?.()
         app.workspace.openFile(made.target)
       } else if (place) {
-        const made = await content(place[4], action, path)
+        const made = await content(place[4].toLowerCase(), action, path)
         await editNote(app, path, (lines) => {
           const block = locate(lines, source)
-          const at = place[2] ? Math.min(lines.length, Math.max(0, Number(place[2]) - 1)) : !block ? lines.length : place[1] === 'prepend' ? block.from : block.to + 1
+          const at = place[2] ? Math.min(lines.length, Math.max(0, Number(place[2]) - 1)) : !block ? lines.length : place[1].toLowerCase() === 'prepend' ? block.from : block.to + 1
           lines.splice(at, 0, ...made.text.split('\n'))
         })
       } else {

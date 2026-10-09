@@ -39,6 +39,8 @@ export type { SettingDef } from './core/settings'
 export type { SuggestOptions } from './core/suggest'
 export { plural } from './core/text'
 export { expandVariables } from './core/variables'
+export type { Look, LookKind } from './core/icons'
+export type { MenuItem } from './core/menu'
 export type { VaultEntry, VaultInfo } from './core/vault'
 export type { FileView, Leaf, ViewContext, ViewCreator } from './core/workspace'
 

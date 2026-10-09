@@ -8,16 +8,19 @@
   import HelpModal from './HelpModal.svelte'
   import MainMenu from './MainMenu.svelte'
   import VaultsModal from './VaultsModal.svelte'
+  import ContextMenu from './ContextMenu.svelte'
   import { drag } from './drag.svelte'
   import { watch } from './reactive.svelte'
   import SettingsModal from './SettingsModal.svelte'
   import Sidebar from './Sidebar.svelte'
   import SuggestModal from './SuggestModal.svelte'
   import type { SuggestOptions } from '../core/suggest'
+  import type { MenuItem } from '../core/menu'
 
   let settingsOpen = $state(false)
   let vaultsOpen = $state(false)
   let helpOpen = $state(false)
+  let menu = $state.raw<{ x: number; y: number; items: MenuItem[] } | null>(null)
   let suggest = $state.raw<SuggestOptions<any> | null>(null)
   let leftOpen = $state(true)
   let rightOpen = $state(true)
@@ -29,6 +32,14 @@
   const theme = watch(settings, ['change'], () => settings.get<string>('core', 'theme'))
   const fontSize = watch(settings, ['change'], () => settings.get<number>('core', 'fontSize'))
   const readableWidth = watch(settings, ['change'], () => settings.get<boolean>('core', 'readableWidth'))
+  const inlineTitle = watch(settings, ['change'], () => settings.get<boolean>('core', 'inlineTitle'))
+  /** Folders and name of the open file, for the path shown above it. */
+  const crumbs = watch(workspace, ['active-change', 'layout-change'], () => {
+    const path = workspace.active?.path
+    if (!path || path.startsWith('view:')) return workspace.active?.title ? [workspace.active.title] : []
+    const parts = path.split('/')
+    return [...parts.slice(0, -1), title(parts[parts.length - 1])]
+  })
 
   const root = document.documentElement
   $effect(() => {
@@ -41,9 +52,17 @@
   $effect(() => {
     root.classList.toggle('wide', !readableWidth.current)
   })
+  $effect(() => {
+    root.classList.toggle('no-inline-title', !inlineTitle.current)
+  })
 
   const title = (path: string) => (extname(path) === 'md' ? stripExt(basename(path)) : basename(path))
   const leafById = (id: number) => workspace.leaves.find((leaf) => leaf.id === id)!
+  const looks = watch(app.icons, ['change'], () => ({}))
+  const tabLook = (path: string) => (looks.current && !path.startsWith('view:') ? app.icons.look('file', path) : undefined)
+  function drawIcon(node: HTMLElement, icon: string | undefined) {
+    if (icon) node.append(app.icons.draw(icon))
+  }
 
   // Ctrl+wheel resizes the note's text, like in a text editor, instead of zooming the whole page.
   let wheel = 0
@@ -149,6 +168,11 @@
       void workspace.flushAll(true)
       void app.state.flush(true)
     }
+    offs.push(app.menus.on('show', (shown) => (menu = shown)))
+    const closeMenu = () => (menu = null)
+    window.addEventListener('click', closeMenu)
+    window.addEventListener('blur', closeMenu)
+    offs.push(() => (window.removeEventListener('click', closeMenu), window.removeEventListener('blur', closeMenu)))
     window.addEventListener('keydown', onKey, true)
     window.addEventListener('wheel', onWheel, { passive: false })
     document.addEventListener('visibilitychange', onHide)
@@ -171,7 +195,10 @@
   {/if}
 
   <main>
-    {#if tabs.current.length}
+    <div class="tabbar">
+      <button class="bar-button" title="Левая панель" aria-label="Левая панель" aria-pressed={leftOpen} onclick={() => (leftOpen = !leftOpen)}>
+        <svg viewBox="0 0 16 16" aria-hidden="true"><rect x="1.5" y="2.5" width="13" height="11" rx="2" /><path d="M6 2.5v11" /></svg>
+      </button>
       <div class="tabs" role="tablist">
         {#each tabs.current as tab (tab.id)}
           <div class="tab" class:active={tab.id === activeId.current}>
@@ -191,6 +218,9 @@
               }}
               ondragend={() => (drag.note = null)}
             >
+              {#key tabLook(tab.path)?.icon}
+                {#if tabLook(tab.path)?.icon}<span class="tab-icon" style:color={app.icons.css(tabLook(tab.path)?.color)} use:drawIcon={tabLook(tab.path)?.icon}></span>{/if}
+              {/key}
               {tab.title ?? title(tab.path)}
             </button>
             <button class="tab-close" aria-label="Закрыть вкладку" onclick={() => workspace.close(leafById(tab.id))}>
@@ -198,6 +228,28 @@
             </button>
           </div>
         {/each}
+        <button class="bar-button" title="Создать заметку" aria-label="Создать заметку" onclick={newNote}>
+          <svg viewBox="0 0 16 16" aria-hidden="true"><path d="M8 3v10M3 8h10" /></svg>
+        </button>
+      </div>
+      <button class="bar-button" title="Правая панель" aria-label="Правая панель" aria-pressed={rightOpen} onclick={() => (rightOpen = !rightOpen)}>
+        <svg viewBox="0 0 16 16" aria-hidden="true"><rect x="1.5" y="2.5" width="13" height="11" rx="2" /><path d="M10 2.5v11" /></svg>
+      </button>
+    </div>
+    {#if crumbs.current.length}
+      <div class="view-header">
+        <button class="bar-button" title="Назад" aria-label="Назад" onclick={() => history.back()}>
+          <svg viewBox="0 0 16 16" aria-hidden="true"><path d="M13 8H3M7 4L3 8l4 4" /></svg>
+        </button>
+        <button class="bar-button" title="Вперёд" aria-label="Вперёд" onclick={() => history.forward()}>
+          <svg viewBox="0 0 16 16" aria-hidden="true"><path d="M3 8h10M9 4l4 4-4 4" /></svg>
+        </button>
+        <div class="crumbs">
+          {#each crumbs.current as part, i (i)}
+            {#if i}<span class="sep">/</span>{/if}
+            <span class:last={i === crumbs.current.length - 1}>{part}</span>
+          {/each}
+        </div>
       </div>
     {/if}
 
@@ -229,6 +281,11 @@
 {#if helpOpen}
   <HelpModal onclose={() => (helpOpen = false)} />
 {/if}
+{#if menu}
+  {#key menu}
+    <ContextMenu x={menu.x} y={menu.y} items={menu.items} onclose={() => (menu = null)} />
+  {/key}
+{/if}
 {#if suggest}
   {#key suggest}
     <SuggestModal options={suggest} onclose={() => (suggest = null)} />
@@ -242,42 +299,130 @@
   }
 
   main {
+    position: relative;
     display: flex;
     flex-direction: column;
     flex: 1;
     min-width: 0;
   }
 
-  .tabs {
+  /* The strip of tabs: a darker band in which the open tab is a piece of the page. */
+  .tabbar {
     display: flex;
-    overflow-x: auto;
+    align-items: flex-end;
+    gap: 2px;
+    height: 40px;
+    padding: 0 6px;
     border-bottom: 1px solid var(--border);
     background: var(--bg-alt);
+  }
+
+  .tabs {
+    display: flex;
+    align-items: flex-end;
+    flex: 1;
+    align-self: stretch;
+    gap: 2px;
+    min-width: 0;
+    padding-top: 6px;
+    overflow-x: auto;
     scrollbar-width: none;
   }
 
   .tab {
+    position: relative;
     display: flex;
     align-items: center;
     flex: 0 1 200px;
+    align-self: stretch;
     min-width: 90px;
-    border-right: 1px solid var(--border);
+    border: 1px solid transparent;
+    border-bottom: none;
+    border-radius: 8px 8px 0 0;
     color: var(--text-muted);
   }
 
+  .tab:hover {
+    background: var(--bg-hover);
+  }
+
   .tab.active {
+    /* Reaches over the strip's bottom line, so the tab and the page are one surface. */
+    margin-bottom: -1px;
+    border-color: var(--border);
     background: var(--bg);
+    color: var(--text);
+  }
+
+  .bar-button {
+    display: flex;
+    flex: none;
+    align-items: center;
+    align-self: center;
+    justify-content: center;
+    width: 28px;
+    height: 28px;
+    border-radius: 5px;
+    color: var(--text-muted);
+  }
+
+  .bar-button:hover {
+    background: var(--bg-hover);
+    color: var(--text);
+  }
+
+  .bar-button svg {
+    width: 16px;
+    height: 16px;
+    fill: none;
+    stroke: currentColor;
+    stroke-width: 1.4;
+    stroke-linecap: round;
+    stroke-linejoin: round;
+  }
+
+  .view-header {
+    display: flex;
+    align-items: center;
+    gap: 2px;
+    height: 36px;
+    padding: 0 10px;
+  }
+
+  .crumbs {
+    flex: 1;
+    min-width: 0;
+    padding-left: 10px;
+    overflow: hidden;
+    color: var(--text-muted);
+    text-overflow: ellipsis;
+    white-space: nowrap;
+  }
+
+  .crumbs .sep {
+    padding: 0 6px;
+    color: var(--text-faint);
+  }
+
+  .crumbs .last {
     color: var(--text);
   }
 
   .tab-title {
     flex: 1;
     min-width: 0;
-    padding: 7px 4px 7px 12px;
+    padding: 0 4px 0 12px;
     overflow: hidden;
     text-align: left;
     text-overflow: ellipsis;
     white-space: nowrap;
+  }
+
+  .tab-icon {
+    display: inline-flex;
+    margin-right: 6px;
+    font-size: 14px;
+    vertical-align: -2px;
   }
 
   .tab-close {

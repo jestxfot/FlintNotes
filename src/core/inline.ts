@@ -3,7 +3,7 @@ import { openLink } from './links'
 
 // One alternative per inline element; the order decides which wins on overlap.
 const INLINE =
-  /(`[^`\n]+`)|(\*\*[^*\n]+\*\*)|(~~[^~\n]+~~)|(\*[^*\s][^*\n]*\*|_[^_\s][^_\n]*_)|(!?\[\[[^\]\n]+\]\])|(\[[^\]\n]+\]\([^)\s]+\))|((?<![\p{L}\p{N}_/#&;])#[\p{L}\p{N}_/-]+)|(https?:\/\/[^\s<>)\]]+)|(<br\s*\/?>)/gu
+  /(`[^`\n]+`)|(==[^=\n]+==)|(\*\*[^*\n]+\*\*)|(~~[^~\n]+~~)|(\*[^*\s][^*\n]*\*|_[^_\s][^_\n]*_)|(!?\[\[[^\]\n]+\]\])|(\[[^\]\n]+\]\([^)\s]+\))|((?<![\p{L}\p{N}_/#&;])#[\p{L}\p{N}_/-]+)|(https?:\/\/[^\s<>)\]]+)|(<br\s*\/?>)/gu
 
 function element<K extends keyof HTMLElementTagNameMap>(tag: K, className: string, text: string) {
   const el = document.createElement(tag)
@@ -38,8 +38,9 @@ export function renderInline(app: App, text: string, sourcePath: string): Docume
   for (const m of text.matchAll(INLINE)) {
     out.append(text.slice(last, m.index))
     last = m.index + m[0].length
-    const [all, code, bold, strike, italic, wiki, md, tag, url, br] = m
+    const [all, code, mark, bold, strike, italic, wiki, md, tag, url, br] = m
     if (code) out.append(element('code', '', code.slice(1, -1)))
+    else if (mark) out.append(element('mark', 'inline-mark', mark.slice(2, -2).trim()))
     else if (bold) out.append(element('strong', '', bold.slice(2, -2)))
     else if (strike) out.append(element('s', '', strike.slice(2, -2)))
     else if (italic) out.append(element('em', '', italic.slice(1, -1)))
@@ -49,7 +50,13 @@ export function renderInline(app: App, text: string, sourcePath: string): Docume
     } else if (md) {
       const [, label, href] = /^\[([^\]]+)\]\(([^)]+)\)$/.exec(md)!
       out.append(link(label, href, false))
-    } else if (tag) out.append(element('span', 'inline-tag', tag))
+    } else if (tag) {
+      const pill = element('span', 'inline-tag', tag)
+      const look = app.icons.look('tag', tag.slice(1))
+      pill.style.setProperty('--tag-color', app.icons.css(look?.color))
+      if (look?.icon) pill.prepend(app.icons.draw(look.icon), ' ')
+      out.append(pill)
+    }
     else if (url) out.append(link(url, url, false))
     else if (br) out.append(document.createElement('br'))
     else out.append(all)

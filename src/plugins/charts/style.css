@@ -1,0 +1,10 @@
+.chart-box {
+  width: var(--chart-width, 100%);
+  max-width: 100%;
+  margin: 0 auto;
+}
+
+.chart-error {
+  color: var(--color-red);
+  font: 0.88em var(--font-mono);
+}

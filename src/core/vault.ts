@@ -105,6 +105,27 @@ export class Vault extends Events<VaultEvents> {
     await request(url('reveal', path), { method: 'POST' })
   }
 
+  /** Programs that templates of this vault may run (their names), and the file where they are allowed. */
+  async systemCommands(): Promise<{ file: string; vault: string; commands: string[] }> {
+    return (await request('/api/system-commands')).json()
+  }
+
+  /** Runs an allowed program in the vault's folder; `env` reaches it as environment variables. */
+  async exec(name: string, env: Record<string, unknown> = {}): Promise<string> {
+    const res = await request('/api/exec', { method: 'POST', headers: { 'content-type': 'application/json' }, body: JSON.stringify({ name, env }) })
+    return ((await res.json()) as { output: string }).output
+  }
+
+  /** What a web page says about itself: title, description, picture. */
+  async unfurl(address: string): Promise<{ url: string; title: string; description: string; image: string; favicon: string }> {
+    return (await request(`/api/unfurl?url=${encodeURIComponent(address)}`)).json()
+  }
+
+  /** Names of the files in a folder, hidden folders included (`.obsidian/...`); empty if there is no such folder. */
+  async list(path: string): Promise<string[]> {
+    return (await request(url('list', path))).json()
+  }
+
   /** Reads the text of every note in one request, calling `each` as they arrive. */
   async readNotes(each: (path: string, text: string) => void): Promise<void> {
     const reader = (await request('/api/notes')).body!.getReader()

@@ -6,9 +6,9 @@ import { tags as t } from '@lezer/highlight'
 const theme = EditorView.theme({
   '&': { height: '100%', fontSize: 'var(--editor-font-size)', color: 'var(--text)' },
   '&.cm-focused': { outline: 'none' },
-  '.cm-scroller': { fontFamily: 'var(--font-text)', lineHeight: '1.65' },
+  '.cm-scroller': { fontFamily: 'var(--font-text)', lineHeight: '1.5' },
   '.cm-content': {
-    padding: '28px 32px 40vh',
+    padding: '32px 32px 40vh',
     maxWidth: 'var(--line-width)',
     margin: '0 auto',
     caretColor: 'var(--accent)',
@@ -36,10 +36,13 @@ const theme = EditorView.theme({
 })
 
 const highlight = HighlightStyle.define([
-  { tag: t.heading1, fontSize: '1.7em', fontWeight: '700' },
-  { tag: t.heading2, fontSize: '1.45em', fontWeight: '700' },
-  { tag: t.heading3, fontSize: '1.25em', fontWeight: '650' },
-  { tag: [t.heading4, t.heading5, t.heading6], fontWeight: '650' },
+  // Obsidian's scale: each heading level is one step of a 1.1 ratio smaller.
+  { tag: t.heading1, fontSize: '1.618em', fontWeight: '700' },
+  { tag: t.heading2, fontSize: '1.462em', fontWeight: '600' },
+  { tag: t.heading3, fontSize: '1.318em', fontWeight: '600' },
+  { tag: t.heading4, fontSize: '1.188em', fontWeight: '600' },
+  { tag: t.heading5, fontSize: '1.076em', fontWeight: '600' },
+  { tag: t.heading6, fontWeight: '600' },
   { tag: t.strong, fontWeight: '700' },
   { tag: t.emphasis, fontStyle: 'italic' },
   { tag: t.strikethrough, textDecoration: 'line-through' },

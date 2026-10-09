@@ -427,3 +427,65 @@
 .lp-task-field {
   cursor: pointer;
 }
+
+/* Nested groups: the outer level is a section with a line under it, the inner one a small heading. */
+.tasks-block .tasks-section {
+  display: flex;
+  align-items: baseline;
+  gap: 8px;
+  margin: 26px 0 6px;
+  padding-bottom: 5px;
+  border-bottom: 1px solid var(--border);
+  color: var(--text);
+  font-size: 1.1em;
+  font-weight: 700;
+}
+
+.tasks-block .tasks-section:first-child {
+  margin-top: 4px;
+}
+
+.tasks-block .tasks-section.overdue {
+  border-bottom-color: color-mix(in srgb, #e5484d 55%, transparent);
+  color: #e5484d;
+}
+
+.tasks-block .tasks-section span {
+  padding: 0 7px;
+  border-radius: 1em;
+  background: var(--bg-hover);
+  color: var(--text-muted);
+  font-size: 0.72em;
+  font-weight: 600;
+}
+
+.tasks-block .tasks-section + h4 {
+  margin-top: 8px;
+}
+
+/* A group that is not inside a section stands out like a section does. */
+.tasks-block h4.top {
+  margin-top: 20px;
+  padding-bottom: 4px;
+  border-bottom: 1px solid var(--border);
+  color: var(--text);
+}
+
+/* How long is left until the task's date. */
+.task-chip.days {
+  padding: 0 7px;
+  border-radius: 1em;
+  background: var(--bg-hover);
+  color: var(--text-muted);
+}
+
+.task-chip.days.soon {
+  background: color-mix(in srgb, #e0a100 22%, transparent);
+  color: #c98a00;
+  font-weight: 600;
+}
+
+.task-chip.days.overdue {
+  background: color-mix(in srgb, #e5484d 16%, transparent);
+  color: #e5484d;
+}

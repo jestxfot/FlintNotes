@@ -1,0 +1,131 @@
+.iconic-dialog {
+  width: min(520px, calc(100vw - 32px));
+  padding: 18px 20px;
+  border: 1px solid var(--border);
+  border-radius: 12px;
+  background: var(--bg);
+  color: var(--text);
+  box-shadow: var(--shadow);
+}
+
+.iconic-dialog::backdrop {
+  background: rgb(0 0 0 / 0.35);
+}
+
+.iconic-head {
+  display: flex;
+  align-items: center;
+  gap: 10px;
+  padding-bottom: 12px;
+}
+
+.iconic-head h2 {
+  margin: 0;
+  overflow: hidden;
+  font-size: 16px;
+  text-overflow: ellipsis;
+  white-space: nowrap;
+}
+
+.iconic-preview {
+  display: flex;
+  font-size: 24px;
+}
+
+.iconic-search {
+  width: 100%;
+  padding: 7px 10px;
+  border: 1px solid var(--border);
+  border-radius: 6px;
+  background: var(--bg-alt);
+}
+
+.iconic-grid {
+  display: grid;
+  grid-template-columns: repeat(auto-fill, 34px);
+  gap: 4px;
+  height: 232px;
+  margin: 10px 0;
+  overflow-y: auto;
+  align-content: start;
+}
+
+.iconic-icon {
+  display: flex;
+  align-items: center;
+  justify-content: center;
+  width: 34px;
+  height: 34px;
+  border-radius: 6px;
+  font-size: 18px;
+}
+
+.iconic-icon:hover {
+  background: var(--bg-hover);
+}
+
+.iconic-icon.selected {
+  outline: 2px solid var(--accent);
+  outline-offset: -2px;
+}
+
+.iconic-empty {
+  grid-column: 1 / -1;
+  padding: 24px 0;
+  color: var(--text-faint);
+  text-align: center;
+}
+
+.iconic-colors {
+  display: flex;
+  align-items: center;
+  gap: 8px;
+}
+
+.iconic-color {
+  width: 22px;
+  height: 22px;
+  border-radius: 50%;
+}
+
+.iconic-color.none {
+  border: 1px dashed var(--text-faint);
+}
+
+.iconic-color.selected {
+  outline: 2px solid var(--text);
+  outline-offset: 2px;
+}
+
+.iconic-custom {
+  width: 28px;
+  height: 24px;
+  margin-left: auto;
+  padding: 0;
+  border: none;
+  background: none;
+  cursor: pointer;
+}
+
+.iconic-buttons {
+  display: flex;
+  justify-content: space-between;
+  gap: 8px;
+  padding-top: 16px;
+}
+
+.iconic-buttons button {
+  padding: 6px 14px;
+  border: 1px solid var(--border);
+  border-radius: 6px;
+}
+
+.iconic-buttons button:hover {
+  background: var(--bg-hover);
+}
+
+.iconic-buttons .primary {
+  border-color: transparent;
+  background: var(--accent);
+  color: var(--accent-text);
+}

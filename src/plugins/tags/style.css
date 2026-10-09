@@ -1,8 +1,13 @@
+/* A tag is a pill in the accent colour, or in the colour the tag was given. */
 .cm-editor .lp-tag {
-  padding: 1px 7px;
-  border-radius: 10px;
-  background: var(--bg-hover);
-  color: var(--accent);
-  font-size: 0.9em;
+  padding: 0.15em 0.65em;
+  border-radius: 2em;
+  background: color-mix(in srgb, var(--tag-color, var(--accent)) 14%, transparent);
+  color: var(--tag-color, var(--accent));
+  font-size: 0.875em;
   cursor: pointer;
+}
+
+.cm-editor .lp-tag-icon {
+  margin-right: 3px;
 }

@@ -1,4 +1,5 @@
 import { cm, errorMessage, expandVariables, path as paths, Plugin, type Moment, type VaultEntry } from '../../api'
+import { prompt } from './dialogs'
 import { execute, TemplateError } from './engine'
 import { obsidianApp } from './obsidian'
 import { lines, parseRules, templateFor } from './rules'
@@ -30,6 +31,20 @@ export default class Templates extends Plugin {
 
   async onload() {
     const { app } = this
+    this.addCommand({
+      id: 'system-commands',
+      name: 'Системные команды шаблонов',
+      callback: async () => {
+        const { file, vault, commands } = await app.vault.systemCommands()
+        const example = JSON.stringify({ systemCommands: { [vault]: { commands: { hello: 'echo Hello, %name%' }, timeout: 5 } } }, null, 2)
+        // Shown in a text field so that the example can be copied.
+        void prompt(
+          `Разрешено сейчас: ${commands.join(', ') || 'ничего'}. Команды вписываются вручную в файл ${file} — так заметка или скрипт из хранилища не может разрешить запуск программы сама. В шаблоне: <% await tp.user.hello({ name: "мир" }) %>`,
+          example,
+          true,
+        )
+      },
+    })
     this.registerMarkdownSyntax(templateSyntax)
     this.showCommands()
     this.addSettings([
@@ -175,6 +190,10 @@ export default class Templates extends Plugin {
   private async scripts(): Promise<Record<string, unknown>> {
     const folder = paths.normalize(this.getSetting<string>('scripts'))
     const result: Record<string, unknown> = {}
+    // Programs the user allowed (Templater's "system command user functions"): `tp.user.name({ key: value })`
+    // runs the program with the values as environment variables and gives back what it printed.
+    const allowed = await this.app.vault.systemCommands().catch(() => ({ commands: [] as string[] }))
+    for (const name of allowed.commands) result[name] = (args: Record<string, unknown> = {}) => this.app.vault.exec(name, args)
     if (!folder) return result
     for (const file of this.app.vault.files()) {
       if (!file.path.startsWith(`${folder}/`) || paths.extname(file.path) !== 'js') continue

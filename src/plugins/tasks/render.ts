@@ -1,6 +1,6 @@
 import { path as paths, plural, renderInline, type App, type CodeBlockProcessor } from '../../api'
 import { drawCalendar, type CalendarState } from './calendar'
-import { shortDate, today } from './dates'
+import { daysBetween, shortDate, today } from './dates'
 import { parseQuery, runQuery } from './query'
 import type { TaskStore } from './store'
 import { isDone, isOpen, NO_PRIORITY, PRIORITIES, type Task } from './task'
@@ -32,6 +32,13 @@ export function taskRow(app: App, store: TaskStore, task: Task, hide: Set<string
   text.append(renderInline(app, task.description, task.path))
 
   const shown = (part: string) => !hide.has(part)
+  // How long is left until the task's date, counted afresh every time the list is drawn.
+  const target = task.due ?? task.scheduled
+  if (target && isOpen(task) && shown('days left')) {
+    const days = daysBetween(today(), target)
+    const label = days === 0 ? 'сегодня' : days === 1 ? 'завтра' : days > 0 ? `осталось ${plural(days, ['день', 'дня', 'дней'])}` : `просрочено на ${plural(-days, ['день', 'дня', 'дней'])}`
+    row.append(chip(days < 0 ? 'days overdue' : days <= 1 ? 'days soon' : 'days', label, `${task.due ? 'Срок' : 'Запланировано'}: ${target}`))
+  }
   if (task.priority !== NO_PRIORITY && shown('priority')) {
     const priority = PRIORITIES[task.priority]
     row.append(chip(`priority-${priority.name}`, priority.emoji, `Приоритет: ${priority.label.toLowerCase()}`))
@@ -113,11 +120,26 @@ export const tasksProcessor =
         return
       }
       let left = shown
+      let section: string | undefined
       for (const group of groups) {
         if (left <= 0) break
+        // Nested groups ("Overdue › March") get a section heading for the outer level and a smaller one inside it.
+        const levels = group.name.split(' › ')
+        const outer = levels.length > 1 ? levels[0] : undefined
+        if (outer !== undefined && outer !== section) {
+          const inSection = groups.filter((other) => other.name.startsWith(`${outer} › `)).flatMap((other) => other.tasks)
+          const heading = el.appendChild(document.createElement('h3'))
+          heading.className = 'tasks-section'
+          heading.classList.toggle('overdue', inSection.some(isOpen) && inSection.filter(isOpen).every((task) => !!task.due && task.due < today()))
+          heading.textContent = outer
+          const count = heading.appendChild(document.createElement('span'))
+          count.textContent = String(inSection.length)
+        }
+        section = outer
         if (group.name) {
           const title = el.appendChild(document.createElement('h4'))
-          title.textContent = group.name
+          title.classList.toggle('top', outer === undefined)
+          title.textContent = outer === undefined ? group.name : levels.slice(1).join(' › ')
           const count = title.appendChild(document.createElement('span'))
           count.textContent = String(group.tasks.length)
         }

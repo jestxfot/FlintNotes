@@ -6,6 +6,7 @@ import { Compartment, EditorState } from '@codemirror/state'
 import { drawSelection, dropCursor, EditorView, keymap } from '@codemirror/view'
 import type { App } from '../app'
 import { errorMessage } from '../notice'
+import { inlineTitle } from './inline-title'
 import { filePath } from './state'
 import { editorLook } from './theme'
 import type { FileView, ViewContext } from '../workspace'
@@ -50,6 +51,7 @@ export class MarkdownView implements FileView {
           keymap.of([...completionKeymap, ...defaultKeymap, ...historyKeymap, ...searchKeymap, indentWithTab]),
           editorLook,
           this.pathConfig.of(filePath.of(this.path)),
+          inlineTitle(this.app),
           this.app.livePreview.extension,
           this.app.editor.extension,
           EditorView.updateListener.of((update) => {

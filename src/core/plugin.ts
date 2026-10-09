@@ -6,6 +6,7 @@ import type { Command } from './commands'
 import type { CodeBlockProcessor, PreviewRenderer } from './editor/live-preview'
 import type { EmbedRenderer } from './embeds'
 import type { Off } from './events'
+import type { MenuItem } from './menu'
 import type { PanelDef } from './panels'
 import type { SettingDef } from './settings'
 import type { ViewCreator } from './workspace'
@@ -103,6 +104,11 @@ export abstract class Plugin {
    */
   registerView(type: string, creator: ViewCreator, extensions: string[]): void {
     this.register(this.app.workspace.registerView(type, creator, extensions))
+  }
+
+  /** Adds items to context menus of a kind (`file`, `tab`, `tag`, `property`); see `Menus`. */
+  registerMenu(kind: string, provider: (target: any, add: (item: MenuItem) => void) => void): void {
+    this.register(this.app.menus.register(kind, provider))
   }
 
   /** Offers something to other plugins under a name; see `Services`. */

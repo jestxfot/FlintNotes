@@ -61,6 +61,18 @@
   min-width: 80px;
 }
 
+.props-icon {
+  flex: none;
+  color: var(--text-muted);
+  font-size: 15px;
+}
+
+/* A tag among the properties looks like a tag in the text. */
+.props-chip.props-tag {
+  background: color-mix(in srgb, var(--tag-color, var(--accent)) 14%, transparent);
+  color: var(--tag-color, var(--accent));
+}
+
 .props-chip {
   display: inline-flex;
   align-items: center;

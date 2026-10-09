@@ -45,6 +45,7 @@ const el = <K extends keyof HTMLElementTagNameMap>(tag: K, className = '', text 
 export function propertiesForm(source: string, root: HTMLElement, ctx: CodeBlockContext): CodeBlockInstance {
   root.classList.add('props')
   let written = source
+  const offIcons = ctx.app.icons.on('change', () => render())
   let doc: Document
 
   const save = () => {
@@ -73,6 +74,12 @@ export function propertiesForm(source: string, root: HTMLElement, ctx: CodeBlock
       const kind = kindOf(value)
       const row = el('div', 'props-row')
       row.dataset.key = key
+
+      // The property's icon, its own or one for its type; a right click on it opens the property's menu.
+      const look = ctx.app.icons.look('property', key)
+      const icon = row.appendChild(ctx.app.icons.draw(look?.icon ?? (key === 'tags' ? 'tags' : Array.isArray(value) ? 'list' : 'align-left'), look?.color))
+      icon.classList.add('props-icon')
+      icon.oncontextmenu = (event) => ctx.app.menus.show(event, 'property', key)
 
       const name = row.appendChild(el('input', 'props-name'))
       name.value = key
@@ -147,6 +154,14 @@ export function propertiesForm(source: string, root: HTMLElement, ctx: CodeBlock
     items.forEach((item, i) => {
       // A tag may be written with or without its `#`; it is shown with exactly one.
       const chip = box.appendChild(el('span', 'props-chip', key === 'tags' ? `#${String(item).replace(/^#/, '')}` : String(item)))
+      if (key === 'tags') {
+        const tag = String(item).replace(/^#/, '')
+        const look = ctx.app.icons.look('tag', tag)
+        chip.classList.add('props-tag')
+        chip.style.setProperty('--tag-color', ctx.app.icons.css(look?.color))
+        if (look?.icon) chip.prepend(ctx.app.icons.draw(look.icon))
+        chip.oncontextmenu = (event) => ctx.app.menus.show(event, 'tag', tag)
+      }
       const remove = chip.appendChild(el('button', '', '×'))
       remove.title = 'Убрать'
       remove.onclick = () => set(items.filter((_, index) => index !== i))
@@ -176,5 +191,6 @@ export function propertiesForm(source: string, root: HTMLElement, ctx: CodeBlock
       written = next
       render()
     },
+    destroy: offIcons,
   }
 }

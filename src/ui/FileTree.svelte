@@ -3,6 +3,7 @@
   import { SvelteSet } from 'svelte/reactivity'
   import { errorMessage } from '../core/notice'
   import { basename, dirname, extname, join, stripExt } from '../core/path'
+  import type { MenuItem } from '../core/menu'
   import type { VaultEntry } from '../core/vault'
   import { app } from '../instance'
   import { watch } from './reactive.svelte'
@@ -19,12 +20,16 @@
   const entries = watch(vault, ['create', 'delete', 'rename'], () => vault.all())
   const activePath = watch(workspace, ['active-change', 'layout-change'], () => workspace.active?.path)
   const tree = $derived(build(entries.current))
+  // Icons and colours of files and folders come from plugins and may change at any time.
+  const looks = watch(app.icons, ['change'], () => ({}))
+  function drawIcon(node: HTMLElement, icon: string | undefined) {
+    if (icon) node.append(app.icons.draw(icon))
+  }
 
   // Which folders are open is remembered with the vault.
   const expanded = new SvelteSet<string>(app.state.get<string[]>('expanded', []))
   let renaming = $state<string | null>(null)
   let draft = $state('')
-  let menu = $state<{ x: number; y: number; entry: VaultEntry | null } | null>(null)
 
   $effect(() => {
     app.state.set('expanded', [...expanded])
@@ -63,9 +68,67 @@
   }
 
   function openMenu(event: MouseEvent, entry: VaultEntry | null) {
-    event.preventDefault()
-    event.stopPropagation()
-    menu = { x: event.clientX, y: event.clientY, entry }
+    const folder = folderFor(entry)
+    const items: MenuItem[] = [
+      { section: 'new', icon: 'square-pen', title: 'Новая заметка', onClick: () => create('file', folder) },
+      { section: 'new', icon: 'folder-plus', title: 'Новая папка', onClick: () => create('folder', folder) },
+      { section: 'system', icon: 'arrow-up-right', title: 'Показать в проводнике', onClick: () => reveal(entry) },
+    ]
+    if (entry) {
+      const absolute = `${vault.path}/${entry.path}`.replace(/\//g, vault.path.includes('\\') ? '\\' : '/')
+      const copy = (text: string) => navigator.clipboard.writeText(text).then(() => app.notice('Скопировано'), () => app.notice('Не удалось скопировать'))
+      if (entry.kind === 'file') {
+        items.push(
+          { section: 'open', icon: 'file-plus', title: 'Открыть в новой вкладке', onClick: () => workspace.openFile(entry.path, { newTab: true }) },
+          { section: 'open', icon: 'panel-right', title: 'Открыть в боковой панели', disabled: app.docked.has(entry.path), onClick: () => app.docked.dock(entry.path, 'right') },
+          { section: 'action', icon: 'files', title: 'Создать копию', onClick: () => duplicate(entry) },
+        )
+      }
+      items.push(
+        { section: 'action', icon: 'folder-tree', title: entry.kind === 'file' ? 'Переместить файл в…' : 'Переместить папку в…', onClick: () => moveTo(entry) },
+        {
+          section: 'copy',
+          icon: 'clipboard',
+          title: 'Копировать путь',
+          submenu: [
+            { title: 'Путь в хранилище', onClick: () => copy(entry.path) },
+            { title: 'Полный путь', onClick: () => copy(absolute) },
+            ...(entry.kind === 'file' ? [{ title: 'Ссылка на заметку', onClick: () => copy(`[[${app.metadata.linkText(entry.path, '')}]]`) }] : []),
+          ],
+        },
+        { section: 'edit', icon: 'pencil', title: 'Переименовать', onClick: () => startRename(entry) },
+        { section: 'danger', icon: 'trash-2', title: 'Удалить', danger: true, onClick: () => trash(entry) },
+      )
+    }
+    app.menus.show(event, 'file', entry, items)
+  }
+
+  async function duplicate(entry: VaultEntry) {
+    const name = basename(entry.path)
+    const ext = rawExt(name).slice(1)
+    try {
+      const copy = await vault.write(vault.uniquePath(dirname(entry.path), `${stripExt(name)} 1`, ext), await vault.readBinary(entry.path), { create: true })
+      if (extname(copy.path) === 'md') workspace.openFile(copy.path)
+    } catch (err) {
+      app.notice(`Не удалось создать копию: ${errorMessage(err)}`)
+    }
+  }
+
+  function moveTo(entry: VaultEntry) {
+    const folders = ['', ...vault.all().filter((e) => e.kind === 'folder' && e.path !== entry.path && !e.path.startsWith(`${entry.path}/`)).map((e) => e.path)].filter((folder) => folder !== dirname(entry.path))
+    app.suggest<string>({
+      placeholder: 'Куда переместить…',
+      items: (query) => folders.sort(collator.compare).filter((folder) => (folder || '/').toLowerCase().includes(query.toLowerCase())),
+      label: (folder) => folder || '/',
+      onChoose: async (folder) => {
+        try {
+          await vault.rename(entry.path, join(folder, basename(entry.path)))
+          if (folder) expanded.add(folder)
+        } catch (err) {
+          app.notice(`Не удалось переместить: ${errorMessage(err)}`)
+        }
+      },
+    })
   }
 
   /** Folder a new item goes into when created from the given entry. */
@@ -194,11 +257,6 @@
   }
 </script>
 
-<svelte:window
-  onclick={() => (menu = null)}
-  onkeydown={(event) => event.key === 'Escape' && (menu = null)}
-/>
-
 <div class="header">
   <span class="title">Файлы</span>
   <button title="Новая заметка" aria-label="Новая заметка" onclick={() => create('file', '')}>
@@ -213,6 +271,7 @@
   {#each nodes as node (node.entry.path)}
     {@const entry = node.entry}
     {@const isFolder = entry.kind === 'folder'}
+    {@const look = looks.current && app.icons.look(isFolder ? 'folder' : 'file', entry.path)}
     {#if renaming === entry.path}
       <input
         class="rename"
@@ -242,7 +301,10 @@
         oncontextmenu={(event) => openMenu(event, entry)}
       >
         <span class="chevron" class:open={expanded.has(entry.path)}>{isFolder ? '›' : ''}</span>
-        <span class="name">{extname(entry.path) === 'md' ? stripExt(node.name) : node.name}</span>
+        {#key look?.icon}
+          {#if look?.icon}<span class="row-icon" style:color={app.icons.css(look.color)} use:drawIcon={look.icon}></span>{/if}
+        {/key}
+        <span class="name" style:color={app.icons.css(look?.color)}>{extname(entry.path) === 'md' ? stripExt(node.name) : node.name}</span>
       </button>
     {/if}
     {#if isFolder && expanded.has(entry.path)}
@@ -264,20 +326,6 @@
 >
   {@render rows(tree, 0)}
 </div>
-
-{#if menu}
-  {@const entry = menu.entry}
-  <div class="menu" role="menu" style:left="{menu.x}px" style:top="{menu.y}px">
-    <button role="menuitem" onclick={() => create('file', folderFor(entry))}>Новая заметка</button>
-    <button role="menuitem" onclick={() => create('folder', folderFor(entry))}>Новая папка</button>
-    <hr />
-    <button role="menuitem" onclick={() => reveal(entry)}>Показать в проводнике</button>
-    {#if entry}
-      <button role="menuitem" onclick={() => startRename(entry)}>Переименовать</button>
-      <button role="menuitem" onclick={() => trash(entry)}>Удалить</button>
-    {/if}
-  </div>
-{/if}
 
 <style>
   .header {
@@ -361,6 +409,13 @@
     transform: rotate(90deg);
   }
 
+  .row-icon {
+    display: flex;
+    flex: none;
+    margin-right: 5px;
+    font-size: 15px;
+  }
+
   .name {
     overflow: hidden;
     text-overflow: ellipsis;
@@ -376,35 +431,5 @@
     border-radius: 5px;
     background: var(--bg);
     outline: none;
-  }
-
-  .menu {
-    position: fixed;
-    z-index: 10;
-    display: flex;
-    flex-direction: column;
-    min-width: 170px;
-    padding: 4px;
-    border: 1px solid var(--border);
-    border-radius: 8px;
-    background: var(--bg);
-    box-shadow: var(--shadow);
-  }
-
-  .menu button {
-    padding: 5px 10px;
-    border-radius: 5px;
-    text-align: left;
-  }
-
-  .menu button:hover {
-    background: var(--bg-hover);
-  }
-
-  .menu hr {
-    width: 100%;
-    margin: 4px 0;
-    border: none;
-    border-top: 1px solid var(--border);
   }
 </style>
