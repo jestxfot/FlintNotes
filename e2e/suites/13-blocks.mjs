@@ -159,9 +159,9 @@ export async function run(t) {
   await page.locator(`${leaf} .lp-task-field`, { hasText: day(1) }).click()
   await wait(500)
   const dialog = page.locator('dialog[open]')
-  ok('a click on a task field opens the task form', (await dialog.count()) === 1 && (await dialog.locator('input').first().inputValue()) === 'Call mom', await dialog.count())
-  await dialog.locator('input').first().fill('Call mother')
-  await dialog.locator('button', { hasText: 'Сохранить' }).click()
+  ok('a click on a task field opens the task form', (await dialog.count()) === 1 && (await dialog.locator('textarea').inputValue()) === 'Call mom', await dialog.count())
+  await dialog.locator('textarea').fill('Call mother')
+  await dialog.locator('button', { hasText: 'Применить' }).click()
   await wait(1500)
   ok('the form writes the line back', read('Plan.md').includes(`- [ ] Call mother ⏳ ${day(1)}`), read('Plan.md'))
 }

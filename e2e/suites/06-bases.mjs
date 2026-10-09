@@ -142,7 +142,7 @@ export async function run(t) {
   await tab('Читаю').click()
   await wait(400)
   text = await flat(base)
-  ok('cards view with its own filter', (await base.locator('.base-card').count()) === 1 && text.includes('Emma') && text.includes('#book') && text.includes('1 запись'), text)
+  ok('cards view with its own filter', (await base.locator('.base-card').count()) === 1 && text.includes('Emma') && (await base.locator('.base-card .base-pill').allInnerTexts()).includes('book') && text.includes('1 запись'), text)
   await tab('Дорогие').click()
   await wait(400)
   ok('list view sorted by price', JSON.stringify(await base.locator('.base-list li a').allInnerTexts()) === JSON.stringify(['Ulysses', 'Dune']))

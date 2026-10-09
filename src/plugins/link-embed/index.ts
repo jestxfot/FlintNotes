@@ -3,6 +3,7 @@ import { cm, errorMessage, Plugin, type CodeBlockProcessor } from '../../api'
 import './style.css'
 
 const WEB = /^https?:\/\//i
+const PICTURES = '.flint/embed-pictures.json'
 
 /**
  * ```embed
@@ -15,8 +16,46 @@ const WEB = /^https?:\/\//i
  * ```
  */
 export default class LinkEmbed extends Plugin {
-  onload() {
+  /** Pictures found for cards that were saved without one: address of the page -> address of its picture (`''` if it has none). */
+  private pictures: Record<string, string> = {}
+  private saving: ReturnType<typeof setTimeout> | undefined
+  private waiting: (() => void)[] = []
+  private busy = 0
+
+  /** A picture that can be told from the address alone, or one found earlier. */
+  private knownPicture(url: string): string {
+    // A video's preview has a fixed address; no need to ask the page.
+    const video = /(?:youtube\.com\/(?:watch\?(?:.*&)?v=|shorts\/|embed\/)|youtu\.be\/)([\w-]{11})/.exec(url)
+    return video ? `https://i.ytimg.com/vi/${video[1]}/hqdefault.jpg` : this.pictures[url] || ''
+  }
+
+  /** Asks the page for its picture, a few pages at a time, and remembers the answer. */
+  private async findPicture(url: string): Promise<string> {
+    if (this.pictures[url] !== undefined) return this.pictures[url]
+    if (this.busy >= 3) await new Promise<void>((resolve) => this.waiting.push(resolve))
+    this.busy++
+    try {
+      if (this.pictures[url] === undefined) this.pictures[url] = (await this.app.vault.unfurl(url)).image || ''
+    } catch {
+      // A page that does not answer is asked again another time, not remembered as having no picture.
+      return ''
+    } finally {
+      this.busy--
+      this.waiting.shift()?.()
+    }
+    clearTimeout(this.saving)
+    this.saving = setTimeout(() => void this.app.vault.write(PICTURES, JSON.stringify(this.pictures)).catch(() => {}), 2000)
+    return this.pictures[url]
+  }
+
+  async onload() {
     const { app } = this
+    try {
+      this.pictures = JSON.parse((await app.vault.readOptional(PICTURES)) ?? '{}')
+    } catch {
+      this.pictures = {}
+    }
+    this.register(() => clearTimeout(this.saving))
     const text = (value: unknown) => (value === null || value === undefined ? '' : String(value).trim())
     /** A picture may be on the web or in the vault. */
     const source = (value: string, path: string) => {
@@ -70,8 +109,7 @@ export default class LinkEmbed extends Plugin {
         }
         site.append(url)
 
-        const picture = source(text(data.image), path)
-        if (picture) {
+        const show = (picture: string) => {
           const frame = box.appendChild(document.createElement('div'))
           frame.className = 'embed-card-image'
           const ratio = Number(text(data.aspectRatio))
@@ -83,14 +121,34 @@ export default class LinkEmbed extends Plugin {
           image.loading = 'lazy'
           image.onerror = () => frame.remove()
         }
+        const picture = source(text(data.image), path) || this.knownPicture(url)
+        if (picture) show(picture)
+        // A card saved without a picture gets the page's own (its og:image), looked up once the card is on screen.
+        else if (WEB.test(url) && this.getSetting<boolean>('findPictures') !== false && this.pictures[url] === undefined) {
+          watching?.disconnect()
+          watching = new IntersectionObserver((entries) => {
+            if (!entries.some((entry) => entry.isIntersecting)) return
+            watching?.disconnect()
+            void this.findPicture(url).then((found) => found && box.isConnected && !box.querySelector('.embed-card-image') && show(found))
+          })
+          watching.observe(box)
+        }
       }
+      let watching: IntersectionObserver | undefined
       draw(block)
-      return { update: draw }
+      return { update: draw, destroy: () => watching?.disconnect() }
     }
     this.registerCodeBlockProcessor('embed', card)
 
     // ---- making a card from an address
     this.addSettings([
+      {
+        key: 'findPictures',
+        name: 'Искать картинку для карточек без неё',
+        desc: 'Карточка, сохранённая без картинки, получает картинку страницы (og:image; у видео YouTube — кадр). Заметка не меняется; найденное запоминается в .flint/embed-pictures.json',
+        type: 'toggle',
+        default: true,
+      },
       {
         key: 'paste',
         name: 'Вставленную ссылку превращать в карточку',

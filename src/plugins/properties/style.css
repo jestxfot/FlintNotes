@@ -156,3 +156,25 @@
   color: #d0342c;
   font-size: 13px;
 }
+
+/* A value that is a link: the link itself, with a pencil to get at its text. */
+.props-link {
+  display: flex;
+  align-items: center;
+  gap: 6px;
+  padding: 3px 6px;
+  cursor: text;
+}
+
+.props-edit {
+  color: var(--text-faint);
+  opacity: 0;
+}
+
+.props-row:hover .props-edit {
+  opacity: 1;
+}
+
+.props .inline-link {
+  cursor: pointer;
+}

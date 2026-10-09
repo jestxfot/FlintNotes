@@ -305,20 +305,25 @@
 
 .base-cards {
   display: grid;
-  grid-template-columns: repeat(auto-fill, minmax(200px, 1fr));
+  grid-template-columns: repeat(auto-fill, minmax(170px, 1fr));
   gap: 10px;
   padding: 2px;
 }
 
+/* A card, as in Obsidian Bases: the picture, the name on one line, then each property under its label. */
 .base-card {
   display: flex;
   flex-direction: column;
-  gap: 4px;
-  padding: 10px 12px;
+  gap: 8px;
+  padding: 0 0 10px;
   border: 1px solid var(--border);
   border-radius: 8px;
   background: var(--bg);
   overflow: hidden;
+}
+
+.base-card:hover {
+  border-color: var(--text-faint);
 }
 
 .base-card.dragging {
@@ -326,18 +331,29 @@
 }
 
 .base-cover {
-  width: calc(100% + 24px);
+  display: block;
+  width: 100%;
   max-width: none;
-  height: 110px;
-  margin: -10px -12px 4px;
+  height: 96px;
   object-fit: cover;
 }
 
+.base-cover-empty {
+  background: var(--bg-alt);
+}
+
 .base-card-title {
+  padding: 0 10px;
+  overflow: hidden;
   color: var(--text);
   font-weight: 600;
   text-decoration: none;
-  overflow-wrap: anywhere;
+  text-overflow: ellipsis;
+  white-space: nowrap;
+}
+
+.base-card > .base-card-title:first-child {
+  padding-top: 10px;
 }
 
 .base-card-title:hover {
@@ -345,29 +361,35 @@
 }
 
 .base-field {
+  display: flex;
+  flex-direction: column;
+  gap: 2px;
+  padding: 0 10px;
   color: var(--text);
-  font-size: 13px;
+  font-size: 12.5px;
   overflow-wrap: anywhere;
 }
 
-.base-field > span:first-child {
-  margin-right: 6px;
+.base-field-name {
+  color: var(--text-muted);
+}
+
+.base-none {
   color: var(--text-faint);
 }
 
-.base-list {
-  margin: 0;
-  padding: 0 0 0 20px;
+.base-pills {
+  display: flex;
+  gap: 4px;
+  overflow: hidden;
 }
 
-.base-list li {
-  padding: 2px 0;
-}
-
-.base-list-field {
-  margin-left: 10px;
-  color: var(--text-muted);
-  font-size: 13px;
+.base-pill {
+  flex: none;
+  padding: 1px 8px;
+  border-radius: 2em;
+  background: color-mix(in srgb, var(--tag-color, var(--accent)) 16%, transparent);
+  color: var(--tag-color, var(--accent));
 }
 
 .base-board {
@@ -692,4 +714,11 @@
   justify-content: space-between;
   gap: 8px;
   padding: 2px 6px;
+}
+
+/* A base shown inside a note has no frame of its own: its toolbar and rows are part of the page. */
+.cm-editor .lp-embed:has(.base) {
+  border: none;
+  border-radius: 0;
+  overflow: visible;
 }

@@ -1,5 +1,5 @@
 import { isMap, isScalar, parseDocument, type Document } from 'yaml'
-import { setYamlValue, type CodeBlockContext, type CodeBlockInstance } from '../../api'
+import { renderInline, setYamlValue, type CodeBlockContext, type CodeBlockInstance } from '../../api'
 
 type Kind = 'text' | 'number' | 'checkbox' | 'date' | 'list'
 
@@ -30,6 +30,9 @@ function convert(value: unknown, kind: Kind): unknown {
   if (kind === 'list') return Array.isArray(value) ? value : text ? text.split(',').map((item) => item.trim()).filter(Boolean) : []
   return text
 }
+
+/** A value that is nothing but a link: `[[Note]]`, `[text](address)` or a web address. */
+const LINKISH = /^(\[\[[^\]]+\]\]|\[[^\]]+\]\([^)]+\)|https?:\/\/\S+)$/
 
 const el = <K extends keyof HTMLElementTagNameMap>(tag: K, className = '', text = '') => {
   const node = document.createElement(tag)
@@ -139,6 +142,23 @@ export function propertiesForm(source: string, root: HTMLElement, ctx: CodeBlock
     }
     if (kind === 'list') return listEditor(key, value as unknown[], set)
     const input = el('input', 'props-value')
+    // A value that is a link is shown as one; a click beside it (or on the pencil) brings the text back for editing.
+    if (kind === 'text' && typeof value === 'string' && LINKISH.test(value.trim())) {
+      const shown = el('div', 'props-value props-link')
+      shown.append(renderInline(ctx.app, value.trim(), ctx.path))
+      const edit = shown.appendChild(el('button', 'props-edit', '✎'))
+      edit.title = 'Изменить'
+      const toInput = () => {
+        shown.replaceWith(input)
+        input.focus()
+      }
+      edit.onclick = toInput
+      shown.onclick = (event) => event.target === shown && toInput()
+      input.type = 'text'
+      input.value = value
+      input.onchange = () => set(input.value)
+      return shown
+    }
     input.type = kind === 'date' ? 'date' : kind === 'number' ? 'number' : 'text'
     if (kind === 'number') input.step = 'any'
     input.placeholder = 'Нет значения'
@@ -154,7 +174,10 @@ export function propertiesForm(source: string, root: HTMLElement, ctx: CodeBlock
     const box = el('div', 'props-value props-list')
     items.forEach((item, i) => {
       // A tag may be written with or without its `#`; it is shown with exactly one.
-      const chip = box.appendChild(el('span', 'props-chip', key === 'tags' ? `#${String(item).replace(/^#/, '')}` : String(item)))
+      const link = key !== 'tags' && typeof item === 'string' && LINKISH.test(item.trim())
+      const chip = box.appendChild(el('span', 'props-chip', link ? '' : key === 'tags' ? `#${String(item).replace(/^#/, '')}` : String(item)))
+      // A link kept in a list (`link: "[[Hub]]"`) opens its note.
+      if (link) chip.append(renderInline(ctx.app, String(item).trim(), ctx.path))
       if (key === 'tags') {
         const tag = String(item).replace(/^#/, '')
         const look = ctx.app.icons.look('tag', tag)

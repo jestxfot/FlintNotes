@@ -95,13 +95,13 @@ export default class Tasks extends Plugin {
           // Ticking "done" in the form completes the task properly: date stamp and next occurrence.
           if (!isDone(fields) || isDone(task)) return [formatTaskLine({ ...fields, done: isDone(fields) ? fields.done : undefined }, prefix)]
           const next = nextOccurrence({ ...fields, status: ' ' }, today())
-          const done = formatTaskLine({ ...fields, done: today() }, prefix)
+          const done = formatTaskLine({ ...fields, done: fields.done ?? today() }, prefix)
           return next ? [formatTaskLine(next, prefix), done] : [done]
         })
       })
 
     const addTask = async (fields: TaskFields) => {
-      const line = formatTaskLine(isDone(fields) ? { ...fields, done: today() } : fields)
+      const line = formatTaskLine(isDone(fields) ? { ...fields, done: fields.done ?? today() } : fields)
       const editor = app.workspace.activeEditor
       if (editor) {
         // Below the cursor's line, or in its place if that line is empty.
@@ -179,7 +179,7 @@ export default class Tasks extends Plugin {
             if (!line) return app.notice('Строка задачи изменилась, правка не записана')
             const completing = isDone(fields) && !isDone(task)
             const next = completing ? nextOccurrence({ ...fields, status: ' ' }, today()) : null
-            const written = formatTaskLine(completing ? { ...fields, done: today() } : { ...fields, done: isDone(fields) ? fields.done : undefined }, task.prefix)
+            const written = formatTaskLine(completing ? { ...fields, done: fields.done ?? today() } : { ...fields, done: isDone(fields) ? fields.done : undefined }, task.prefix)
             const lines = next ? [formatTaskLine(next, task.prefix), written] : [written]
             view.dispatch({ changes: { from: line.from, to: line.to, insert: lines.join(view.state.lineBreak) } })
           })

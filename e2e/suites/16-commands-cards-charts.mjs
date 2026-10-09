@@ -1,5 +1,6 @@
 // Programs run by templates (allowed by hand only), link cards from an address, charts, the rarer button types.
 import fs from 'node:fs'
+import { fixture } from '../helpers.mjs'
 
 const f = '```'
 export const vault = {
@@ -7,8 +8,10 @@ export const vault = {
   settings: { templates: { folder: 'Templates', onCreate: false } },
   files: {
     'Templates/Stamp.md': 'stamped <% tp.file.title %>',
+    'pic.png': fixture('pic.png'),
     'Run.md': 'Out: <%+ await tp.user.hello({ who: "World" }) %>!\n\nBad: <%+ await tp.user.nothere() %>\n\nend\n',
     'Paste.md': 'first\n\n',
+    'Cards.md': ['```embed', 'title: "A video"', 'image: ""', 'description: ""', 'url: "https://www.youtube.com/watch?v=xHrhYhfLrF8"', '```', '', '```embed', 'title: "A page"', 'image: ""', 'description: ""', 'url: "https://example.com/b"', '```', '', 'end', ''].join('\n'),
     'Charts.md': [
       `${f}chart`, 'type: bar', 'labels: [Mon, Tue, Wed]', 'series:', '  - title: Steps', '    data: [4, 7, 5]', 'width: 60%', 'beginAtZero: true', f, '',
       `${f}chart`, 'type: pyramid', f, '',
@@ -59,6 +62,17 @@ export async function run(t) {
   await t.cursorToEnd()
   await wait(400)
   ok('and is drawn as one', (await t.flat(page.locator(`${leaf} .embed-card`))).includes('Example "Domain"'))
+
+  // ---- cards saved without a picture get one
+  await page.unroute('**/api/unfurl*')
+  await page.route('**/api/unfurl*', (route) => route.fulfill({ json: { url: 'https://example.com/b', title: 'B', description: '', image: `${t.url}api/file?path=pic.png`, favicon: '' } }))
+  await page.route('https://i.ytimg.com/**', (route) => route.fulfill({ body: fixture('pic.png'), contentType: 'image/png' }))
+  await t.open('Cards')
+  await wait(1500)
+  const pictures = await page.locator(`${leaf} .embed-card-image img`).evaluateAll((list) => list.map((img) => img.src))
+  ok('a video card shows the video\'s frame; a page card, the picture the page names', pictures.length === 2 && pictures[0] === 'https://i.ytimg.com/vi/xHrhYhfLrF8/hqdefault.jpg' && pictures[1].includes('pic.png'), JSON.stringify(pictures))
+  await wait(2500)
+  ok('what was found is remembered, and the note is left as it was', JSON.parse(read('.flint/embed-pictures.json'))['https://example.com/b'].includes('pic.png') && read('Cards.md').includes('image: ""'), read('.flint/embed-pictures.json'))
 
   // ---- charts
   await t.open('Charts')

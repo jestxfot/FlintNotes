@@ -20,6 +20,7 @@ export const vault = {
     '.obsidian/custom-icons/food-soup.svg': SVG,
     'Plain.md': '---\ntags: [song, other]\n---\nText with #song and #other.\n',
     'Food/Soup.md': '# Soup\n',
+    'Linked.md': '---\nlink: "[[Plain]]"\nrefs:\n  - "[[Food/Soup]]"\nsite: https://example.com\n---\ntext\n',
     'Calendar/2026/Day.md': 'day\n',
     'Zeta/Deep/Deeper/Note.md': 'x\n',
     ...Object.fromEntries(Array.from({ length: 30 }, (_, i) => [`Many/File ${String(i).padStart(2, '0')}.md`, 'x\n'])),
@@ -116,6 +117,22 @@ export async function run(t) {
   await wait(1500)
   const after = JSON.parse(read('.obsidian/plugins/iconic/data.json')).fileIcons
   ok('a renamed folder keeps its icon', after.Alpha?.icon === 'lucide-rocket' && !after.Zeta && (await t.row('Alpha').locator('.row-icon svg').count()) === 1, JSON.stringify(after))
+
+  // ---- links among the properties open what they point to
+  await t.open('Linked')
+  const prop = (key) => page.locator(`${leaf} .props-row[data-key="${key}"]`)
+  ok('a property that is a link is shown as one', (await prop('link').locator('a.inline-link').innerText()) === 'Plain' && (await prop('refs').locator('.props-chip a.inline-link').count()) === 1 && (await prop('site').locator('a.inline-link').count()) === 1)
+  await prop('refs').locator('a.inline-link').click()
+  await wait(600)
+  ok('a link in a list property opens its note', (await t.activeTab()) === 'Soup', await t.activeTab())
+  await t.open('Linked')
+  await prop('link').hover()
+  await prop('link').locator('.props-edit').click()
+  ok('the pencil brings back the text of the link for editing', (await prop('link').locator('input.props-value').inputValue()) === '[[Plain]]')
+  await prop('link').locator('a.inline-link').count()
+  await page.keyboard.press('Escape')
+  await t.cursorToEnd()
+  await prop('link').locator('a.inline-link, input.props-value').first().waitFor()
 
   // ---- the inline title renames the note
   await t.open('Plain')
