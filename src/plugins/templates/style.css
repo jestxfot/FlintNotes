@@ -73,3 +73,26 @@
   background: var(--accent);
   color: var(--accent-text);
 }
+
+/* Template code in the editor */
+.lp-template,
+.lp-template-line {
+  font-family: var(--font-mono);
+  font-size: 0.9em;
+}
+
+.lp-template {
+  padding: 1px 3px;
+  border-radius: 4px;
+  background: var(--bg-alt);
+}
+
+.lp-template-line {
+  background: var(--bg-alt);
+}
+
+.lp-template-value.error {
+  color: var(--danger, #d1453b);
+  font-family: var(--font-mono);
+  font-size: 0.88em;
+}

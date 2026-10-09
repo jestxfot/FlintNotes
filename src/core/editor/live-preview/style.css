@@ -223,3 +223,8 @@
   padding-bottom: 4px;
   border-bottom-right-radius: 6px;
 }
+
+/* With Ctrl held, a link shown as written can be followed too. */
+.lp-wikilink-source:hover {
+  cursor: text;
+}

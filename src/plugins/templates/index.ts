@@ -3,6 +3,7 @@ import { execute, TemplateError } from './engine'
 import { obsidianApp } from './obsidian'
 import { lines, parseRules, templateFor } from './rules'
 import './style.css'
+import { templateSyntax } from './syntax'
 import { buildTp, type Run } from './tp'
 
 /** What other plugins get from `app.services.get('templates')`. */
@@ -29,6 +30,8 @@ export default class Templates extends Plugin {
 
   async onload() {
     const { app } = this
+    this.registerMarkdownSyntax(templateSyntax)
+    this.showCommands()
     this.addSettings([
       { key: 'folder', name: 'Папка с шаблонами', type: 'text', default: 'Шаблоны' },
       {
@@ -190,6 +193,56 @@ export default class Templates extends Plugin {
       result[paths.stripExt(paths.basename(file.path))] = cached.value
     }
     return result
+  }
+
+  /**
+   * In the editor, template code is set apart from the text, and a dynamic
+   * command, `<%+ tp.date.now() %>`, shows its value, worked out each time the
+   * note is drawn (the code appears when the cursor is in it).
+   */
+  private showCommands(): void {
+    const plugin = this
+    class DynamicValue extends cm.view.WidgetType {
+      constructor(
+        readonly source: string,
+        readonly path: string,
+      ) {
+        super()
+      }
+      eq(other: DynamicValue) {
+        return other.source === this.source && other.path === this.path
+      }
+      toDOM() {
+        const el = document.createElement('span')
+        el.className = 'lp-template-value'
+        el.title = this.source
+        plugin.run(this.source, { template: null, target: this.path, mode: 'DynamicProcessor', hooks: [] }).then(
+          (made) => (el.textContent = made.text),
+          (err) => {
+            el.classList.add('error')
+            el.textContent = `Шаблон: ${errorMessage(err)}`
+          },
+        )
+        return el
+      }
+    }
+    this.registerPreviewRenderer({
+      name: 'template-commands',
+      nodes: ['TemplateCommand', 'TemplateBlock'],
+      render: (node, ctx) => {
+        if (node.name === 'TemplateBlock') {
+          ctx.lines(node.from, node.to, (line) => ctx.line(line.from, 'lp-template-line'))
+          return false
+        }
+        const text = ctx.text(node.from, node.to)
+        // In a template itself the command is what is being written, so it stays as code there.
+        const folder = this.getSetting<string>('folder').replace(/^\/+|\/+$/g, '')
+        const isTemplate = !!folder && ctx.path.startsWith(`${folder}/`)
+        if (text.startsWith('<%+') && !isTemplate && !ctx.isActive(node.from, node.to)) ctx.replace(node.from, node.to, new DynamicValue(`<%${text.slice(3)}`, ctx.path))
+        else ctx.mark(node.from, node.to, { class: 'lp-template' })
+        return false
+      },
+    })
   }
 
   /** Fills in template text for a note. */
@@ -357,7 +410,7 @@ export default class Templates extends Plugin {
     const { app } = this
     if (!asked && this.getSetting<boolean>('imported')) return
     this.setSetting('imported', true)
-    const config = app.vault.obsidianConfigs[0]
+    const config = app.obsidianConfig
     const read = async (file: string) => {
       try {
         return JSON.parse((await app.vault.readOptional(`${config}/${file}`)) ?? 'null')

@@ -1,0 +1,48 @@
+.button-block {
+  padding: 2px 0;
+}
+
+.button-default {
+  padding: 6px 16px;
+  border: 1px solid var(--border);
+  border-radius: 6px;
+  background: var(--bg-alt);
+  font-family: var(--font-ui);
+  font-size: 0.94em;
+  font-weight: 500;
+  cursor: pointer;
+}
+
+.button-default:hover {
+  filter: brightness(0.94);
+}
+
+.button-default.blue,
+.button-default.green,
+.button-default.red,
+.button-default.purple,
+.button-default.yellow {
+  border-color: transparent;
+  color: #fff;
+}
+
+.button-default.blue {
+  background: #3b82f6;
+}
+
+.button-default.green {
+  background: #22a559;
+}
+
+.button-default.red {
+  background: #dc4c4c;
+}
+
+.button-default.purple {
+  background: #8b5cf6;
+}
+
+.button-default.yellow {
+  background: #e3b341;
+  color: #222;
+}

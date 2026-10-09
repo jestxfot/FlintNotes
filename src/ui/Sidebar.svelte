@@ -35,18 +35,21 @@
   }
 
   function over(event: DragEvent, group: number | null, at: number) {
-    if (!drag.panel) return
+    if (!drag.panel && !drag.note) return
     event.preventDefault()
     event.stopPropagation()
     target = { group, at }
   }
 
   function drop(event: DragEvent) {
-    if (!drag.panel || !target) return
+    if ((!drag.panel && !drag.note) || !target) return
     event.preventDefault()
     event.stopPropagation()
-    app.panels.move(drag.panel, side, target.group, target.at)
+    // A note tab dropped here becomes a widget showing that note.
+    if (drag.note) app.docked.dock(drag.note, side, target.group, target.at)
+    else if (drag.panel) app.panels.move(drag.panel, side, target.group, target.at)
     drag.panel = null
+    drag.note = null
     target = null
   }
 
@@ -68,7 +71,7 @@
   }
 </script>
 
-<aside class={side} class:dragging={!!drag.panel} style:flex-basis="{width}px" ondragleave={() => (target = null)}>
+<aside class={side} class:dragging={!!drag.panel || !!drag.note} style:flex-basis="{width}px" ondragleave={() => (target = null)}>
   {#each groups.current as group, i (group.index)}
     {@const activeDef = group.entries.find((entry) => entry.def.id === group.active)?.def}
     <!-- While a widget is dragged, the gaps between blocks accept it as a block of its own. -->

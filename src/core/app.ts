@@ -9,6 +9,7 @@ import { MetadataCache } from './metadata'
 import { notice } from './notice'
 import { Panels } from './panels'
 import { PluginManager } from './plugin-manager'
+import { DockedNotes } from './docked'
 import { Router } from './router'
 import { Services } from './services'
 import { VaultState } from './state'
@@ -44,7 +45,22 @@ const coreSettings: SettingsSection = {
         { value: 'source', label: 'Исходный текст' },
       ],
     },
-    { key: 'fontSize', name: 'Размер шрифта', type: 'number', default: 16, min: 12, max: 24, step: 1 },
+    { key: 'fontSize', name: 'Размер шрифта', desc: 'Меняется и колёсиком мыши с зажатым Ctrl', type: 'number', default: 16, min: 10, max: 32, step: 1 },
+    {
+      key: 'obsidianConfig',
+      name: 'Папка настроек Obsidian',
+      desc: 'Откуда плагины берут настройки Obsidian (шаблоны, ежедневные заметки). Пусто — папка с app.json, в которой Obsidian работал последним; иначе её имя, например .obsidian',
+      type: 'text',
+      default: '',
+      placeholder: 'сама',
+    },
+    {
+      key: 'reuseTab',
+      name: 'Открывать заметки в текущей вкладке',
+      desc: 'Заметка открывается на месте текущей; с зажатым Ctrl — в новой вкладке. Если выключить, каждая заметка открывается в своей вкладке',
+      type: 'toggle',
+      default: true,
+    },
     {
       key: 'readableWidth',
       name: 'Удобная ширина строки',
@@ -72,9 +88,16 @@ export class App {
   readonly plugins = new PluginManager(this)
   readonly services = new Services()
   readonly router = new Router(this)
+  readonly docked = new DockedNotes(this)
   readonly notice = notice
   /** Requests handled by the UI layer. */
   readonly ui = new Events<{ suggest: [options: SuggestOptions<any>] }>()
+
+  /** The folder Obsidian keeps this vault's settings in, if the vault is used with Obsidian. */
+  get obsidianConfig(): string | undefined {
+    const chosen = this.settings.get<string>('core', 'obsidianConfig')?.trim().replace(/^\/+|\/+$/g, '')
+    return chosen || this.vault.obsidianConfigs[0]
+  }
 
   /** Opens a pick-one dialog with a filter field. */
   suggest<T>(options: SuggestOptions<T>): void {
@@ -101,5 +124,6 @@ export class App {
       },
     })
     this.workspace.registerView('markdown', createMarkdownView, ['md'])
+    this.docked.init()
   }
 }

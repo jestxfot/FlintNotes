@@ -11,6 +11,8 @@ const builtin = fs.readdirSync(path.join(ROOT, 'src/plugins')).length
 
 export function afterStart(t) {
   fs.cpSync(path.join(ROOT, 'examples/plugins/hello-world'), path.join(t.vault, '.flint/plugins/hello-world'), { recursive: true })
+  // This suite counts tabs with one tab per note; opening in place is checked in the Dataview suite.
+  fs.writeFileSync(path.join(t.vault, '.flint/settings.json'), JSON.stringify({ core: { reuseTab: false } }))
 }
 
 export async function run(t) {

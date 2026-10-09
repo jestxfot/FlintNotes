@@ -71,10 +71,25 @@ export class Workspace extends Events<WorkspaceEvents> {
   private views = new Map<string, ViewCreator>()
   private extensions = new Map<string, string>()
   private nextId = 1
+  /** Views that are shown outside the tabs: notes docked in a sidebar. */
+  private embedded = new Set<{ path: string; view: FileView | null }>()
+  /** Lets someone else show a file instead of a tab; returns `true` if it did. */
+  redirect: ((path: string) => boolean) | null = null
+  /** Whether the click or Enter being handled right now asks for a new tab (Ctrl or the middle button). */
+  private aside = false
 
   constructor(private app: App) {
     super()
     this.containerEl.className = 'workspace'
+    // Every list, link and menu opens notes through `openFile`, so the modifier
+    // is read here once instead of in each of them.
+    const note = (event: Event) => {
+      const { ctrlKey, metaKey } = event as MouseEvent
+      this.aside = ctrlKey || metaKey || (event.type === 'auxclick' && (event as MouseEvent).button === 1)
+      setTimeout(() => (this.aside = false))
+    }
+    for (const type of ['click', 'auxclick']) window.addEventListener(type, note, true)
+    window.addEventListener('keydown', (event) => event.key === 'Enter' && note(event), true)
     app.vault.on('rename', (entry, oldPath) => {
       for (const leaf of this.leaves.filter((l) => l.path === oldPath)) {
         leaf.path = entry.path
@@ -87,7 +102,28 @@ export class Workspace extends Events<WorkspaceEvents> {
     })
     app.vault.on('modify', (entry) => {
       this.leaves.filter((l) => l.path === entry.path).forEach((leaf) => leaf.view?.onExternalChange?.())
+      for (const shown of this.embedded) if (shown.path === entry.path) shown.view?.onExternalChange?.()
     })
+  }
+
+  /**
+   * Shows a file inside `containerEl`, outside the tabs, with the view registered
+   * for its type. The returned function saves what was typed and takes the view away.
+   */
+  embed(path: string, containerEl: HTMLElement): Off {
+    const shown: { path: string; view: FileView | null } = { path, view: null }
+    let closed = false
+    this.embedded.add(shown)
+    const creator = this.views.get(this.viewTypeFor(path)) ?? unsupportedView
+    void Promise.resolve(creator({ app: this.app, path, containerEl })).then(
+      (view) => (closed ? view.destroy() : (shown.view = view)),
+      (err) => (containerEl.textContent = `Не удалось открыть файл: ${errorMessage(err)}`),
+    )
+    return () => {
+      closed = true
+      this.embedded.delete(shown)
+      void Promise.resolve(shown.view?.flush?.()).then(() => shown.view?.destroy())
+    }
   }
 
   /** The text editor of the active tab, if that tab shows one. */
@@ -111,11 +147,15 @@ export class Workspace extends Events<WorkspaceEvents> {
   }
 
   /**
-   * Opens the file in a tab, or switches to its tab. `focus: false` leaves the
-   * keyboard focus alone; `line` scrolls to a zero-based line.
+   * Opens the file, or switches to its tab if it is open already. It takes the
+   * place of the note in the current tab, unless the user holds Ctrl, the
+   * "reuse the tab" setting is off, or `newTab` says otherwise. `focus: false`
+   * leaves the keyboard focus alone; `line` scrolls to a zero-based line.
    */
-  openFile(path: string, { focus = true, line }: { focus?: boolean; line?: number } = {}): void {
-    const leaf = this.open(path, undefined, focus)
+  openFile(path: string, { focus = true, line, newTab }: { focus?: boolean; line?: number; newTab?: boolean } = {}): void {
+    if (this.redirect?.(path)) return
+    const reuse = !(newTab ?? (this.aside || !this.app.settings.get<boolean>('core', 'reuseTab')))
+    const leaf = this.open(path, undefined, focus, reuse)
     if (line !== undefined) void leaf.ready.then(() => leaf.view?.revealLine?.(line))
   }
 
@@ -124,11 +164,21 @@ export class Workspace extends Events<WorkspaceEvents> {
     this.open(VIEW_PREFIX + type, title, true)
   }
 
-  private open(path: string, title: string | undefined, focus: boolean): Leaf & { ready: Promise<void> } {
+  private open(path: string, title: string | undefined, focus: boolean, reuse = false): Leaf & { ready: Promise<void> } {
     const existing = this.leaves.find((leaf) => leaf.path === path)
     if (existing) {
       this.setActive(existing)
       return Object.assign(existing, { ready: Promise.resolve() })
+    }
+    const current = this.active
+    if (reuse && current && !current.path.startsWith(VIEW_PREFIX)) {
+      void current.view?.flush?.()
+      current.path = path
+      // It counts as another tab from here on, so that going to a note is a step in the browser's history.
+      current.id = this.nextId++
+      const ready = this.mount(current, focus)
+      this.changed()
+      return Object.assign(current, { ready })
     }
     const el = document.createElement('div')
     el.className = 'leaf'
@@ -160,7 +210,7 @@ export class Workspace extends Events<WorkspaceEvents> {
 
   /** Writes unsaved changes of every tab. */
   async flushAll(unloading = false): Promise<void> {
-    await Promise.all(this.leaves.map((leaf) => leaf.view?.flush?.(unloading)))
+    await Promise.all([...this.leaves, ...this.embedded].map((shown) => shown.view?.flush?.(unloading)))
   }
 
   /** Reopens the tabs of the previous session. */
@@ -200,7 +250,8 @@ export class Workspace extends Events<WorkspaceEvents> {
     leaf.view?.destroy()
     leaf.view = null
     leaf.el.replaceChildren()
-    const type = (leaf.viewType = this.viewTypeFor(leaf.path))
+    const path = leaf.path
+    const type = (leaf.viewType = this.viewTypeFor(path))
     const creator = this.views.get(type) ?? unsupportedView
     let view: FileView
     this.mounting.add(leaf)
@@ -215,8 +266,8 @@ export class Workspace extends Events<WorkspaceEvents> {
       this.mounting.delete(leaf)
       this.show()
     }
-    // The tab may have been closed or switched to another view while this one loaded.
-    if (!this.leaves.includes(leaf) || leaf.viewType !== type || leaf.view) {
+    // The tab may have been closed, or given another view or note, while this one loaded.
+    if (!this.leaves.includes(leaf) || leaf.viewType !== type || leaf.path !== path || leaf.view) {
       view.destroy()
       return
     }

@@ -1,0 +1,96 @@
+.widget-block {
+  display: flex;
+  justify-content: center;
+  padding: 10px 0;
+  font-family: var(--font-ui);
+  text-align: center;
+}
+
+.widget-clock-row,
+.widget-countdown-row,
+.widget-counter-row {
+  display: flex;
+  align-items: baseline;
+  justify-content: center;
+  gap: 8px;
+}
+
+.widget-clock-time {
+  font-size: 2.6em;
+  font-weight: 700;
+  font-variant-numeric: tabular-nums;
+  letter-spacing: 0.02em;
+  line-height: 1.1;
+}
+
+.widget-clock-half {
+  color: var(--text-muted);
+  font-weight: 600;
+}
+
+.widget-clock-date,
+.widget-countdown-to,
+.widget-counter-text,
+.widget-quote-author {
+  color: var(--text-muted);
+}
+
+.widget-countdown-row {
+  gap: 18px;
+}
+
+.widget-countdown-number {
+  font-size: 2em;
+  font-weight: 700;
+  font-variant-numeric: tabular-nums;
+  line-height: 1.1;
+}
+
+.widget-countdown-label {
+  color: var(--text-faint);
+  font-size: 0.8em;
+}
+
+.widget-counter-row {
+  align-items: center;
+  gap: 14px;
+  padding-top: 4px;
+}
+
+.widget-counter-value {
+  min-width: 2ch;
+  font-size: 2em;
+  font-weight: 700;
+  font-variant-numeric: tabular-nums;
+}
+
+.widget-counter-row button {
+  width: 32px;
+  height: 32px;
+  border: 1px solid var(--border);
+  border-radius: 50%;
+  font-size: 18px;
+}
+
+.widget-counter-row button:hover {
+  background: var(--bg-hover);
+}
+
+.widget-quote {
+  max-width: 560px;
+}
+
+.widget-quote-text {
+  font-size: 1.15em;
+  font-style: italic;
+  line-height: 1.5;
+}
+
+.widget-quote-author {
+  padding-top: 6px;
+}
+
+.widget-error {
+  color: var(--danger, #d1453b);
+  font-size: 0.9em;
+}

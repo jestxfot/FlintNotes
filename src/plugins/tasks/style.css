@@ -279,3 +279,151 @@
   background: var(--bg-hover);
   color: var(--text);
 }
+
+/* ```tasks with `view calendar` */
+.tasks-calendar-head {
+  display: flex;
+  align-items: center;
+  gap: 6px;
+  padding-bottom: 8px;
+}
+
+.tasks-calendar-title {
+  flex: 1;
+  font-size: 1.05em;
+  font-weight: 600;
+}
+
+.tasks-calendar-head button {
+  min-width: 28px;
+  height: 28px;
+  padding: 0 8px;
+  border: 1px solid var(--border);
+  border-radius: 6px;
+  color: var(--text-muted);
+}
+
+.tasks-calendar-head button:hover,
+.tasks-calendar-more:hover {
+  background: var(--bg-hover);
+}
+
+.tasks-calendar-grid {
+  display: grid;
+  grid-template-columns: repeat(7, minmax(0, 1fr));
+  border-top: 1px solid var(--border);
+  border-left: 1px solid var(--border);
+}
+
+.tasks-calendar-weekday {
+  padding: 3px 6px;
+  border-right: 1px solid var(--border);
+  border-bottom: 1px solid var(--border);
+  color: var(--text-faint);
+  font-size: 0.78em;
+  text-align: center;
+}
+
+.tasks-calendar-day {
+  display: flex;
+  flex-direction: column;
+  gap: 2px;
+  min-height: 84px;
+  padding: 3px 4px 5px;
+  border-right: 1px solid var(--border);
+  border-bottom: 1px solid var(--border);
+}
+
+.tasks-calendar-day.weekend {
+  background: var(--bg-alt);
+}
+
+.tasks-calendar-day.other > * {
+  opacity: 0.45;
+}
+
+.tasks-calendar-day.over {
+  outline: 2px dashed var(--accent);
+  outline-offset: -2px;
+}
+
+.tasks-calendar-date {
+  align-self: flex-end;
+  min-width: 1.7em;
+  border-radius: 1em;
+  color: var(--text-muted);
+  font-size: 0.82em;
+  line-height: 1.7;
+  text-align: center;
+}
+
+.tasks-calendar-day.today .tasks-calendar-date {
+  background: var(--accent);
+  color: #fff;
+  font-weight: 700;
+}
+
+.tasks-calendar-task {
+  display: flex;
+  align-items: baseline;
+  gap: 4px;
+  padding: 1px 4px;
+  border-radius: 4px;
+  background: color-mix(in srgb, var(--accent) 13%, transparent);
+  font-size: 0.82em;
+  line-height: 1.35;
+  cursor: grab;
+}
+
+.tasks-calendar-task input {
+  flex: none;
+  width: 0.95em;
+  height: 0.95em;
+  margin: 0;
+  translate: 0 0.12em;
+}
+
+.tasks-calendar-text {
+  min-width: 0;
+  overflow: hidden;
+  text-overflow: ellipsis;
+  white-space: nowrap;
+  cursor: pointer;
+}
+
+.tasks-calendar-task.done {
+  background: none;
+  color: var(--text-faint);
+  text-decoration: line-through;
+}
+
+.tasks-calendar-more {
+  align-self: flex-start;
+  padding: 0 6px;
+  border-radius: 4px;
+  color: var(--text-muted);
+  font-size: 0.8em;
+}
+
+.tasks-calendar-undated {
+  padding-top: 8px;
+}
+
+.tasks-calendar-undated summary {
+  color: var(--text-muted);
+  cursor: pointer;
+}
+
+.tasks-calendar-undated .tasks-calendar-task {
+  margin-top: 2px;
+  background: none;
+}
+
+.tasks-calendar-undated .tasks-calendar-text {
+  white-space: normal;
+}
+
+/* A date, priority or repeat rule of a task in the editor opens the task's form. */
+.lp-task-field {
+  cursor: pointer;
+}

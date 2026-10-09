@@ -158,6 +158,36 @@ export default class Tasks extends Plugin {
     }
     this.registerPreviewRenderer(fields)
 
+    // A click on one of those opens the task's form, filled from the line as it is in the editor
+    // (saved or not); the form writes the line back.
+    const fieldAt = (event: MouseEvent) => (event.button === 0 && !event.ctrlKey && !event.metaKey && event.target instanceof Element ? event.target.closest('.lp-task-field') : null)
+    this.registerEditorExtension(
+      cm.view.EditorView.domEventHandlers({
+        // Swallowing mousedown keeps the cursor where it was.
+        mousedown: (event) => !!fieldAt(event),
+        click: (event, view) => {
+          const chip = fieldAt(event)
+          if (!chip) return false
+          const raw = view.state.doc.lineAt(view.posAtDOM(chip)).text
+          const task = parseTaskLine(raw)
+          if (!task) return false
+          openDialog(task, 'Изменить задачу', (fields) => {
+            // The note may have been edited while the form was open; the line is found again by its text.
+            const { doc } = view.state
+            let line = null
+            for (let n = 1; n <= doc.lines && !line; n++) if (doc.line(n).text === raw) line = doc.line(n)
+            if (!line) return app.notice('Строка задачи изменилась, правка не записана')
+            const completing = isDone(fields) && !isDone(task)
+            const next = completing ? nextOccurrence({ ...fields, status: ' ' }, today()) : null
+            const written = formatTaskLine(completing ? { ...fields, done: today() } : { ...fields, done: isDone(fields) ? fields.done : undefined }, task.prefix)
+            const lines = next ? [formatTaskLine(next, task.prefix), written] : [written]
+            view.dispatch({ changes: { from: line.from, to: line.to, insert: lines.join(view.state.lineBreak) } })
+          })
+          return true
+        },
+      }),
+    )
+
     // Ticking a task's checkbox in the editor completes it like everywhere else:
     // the done date is stamped and a repeating task gets its next occurrence.
     this.registerEditorExtension(

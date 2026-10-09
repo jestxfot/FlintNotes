@@ -15,6 +15,7 @@
   },
   "dependencies": {
     "@hono/node-server": "^2.1.4",
+    "@lezer/javascript": "^1.5.6",
     "chokidar": "^5.0.0",
     "d3-force": "^3.0.0",
     "docx-preview": "^0.4.1",

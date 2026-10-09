@@ -86,6 +86,15 @@ export class Panels extends Events<PanelEvents> {
     }
   }
 
+  /** Drops a widget that is gone for good from the saved layout. */
+  forget(id: string): void {
+    for (const side of ['left', 'right'] as const) {
+      for (const group of this.layout[side]) group.tabs = group.tabs.filter((tab) => tab !== id)
+      this.layout[side] = this.layout[side].filter((group) => group.tabs.length > 0)
+    }
+    this.save()
+  }
+
   /** Number of widgets currently available. */
   count(): number {
     return this.entries.size

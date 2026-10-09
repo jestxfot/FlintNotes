@@ -1,4 +1,5 @@
 import { path as paths, plural, renderInline, type App, type CodeBlockProcessor } from '../../api'
+import { drawCalendar, type CalendarState } from './calendar'
 import { shortDate, today } from './dates'
 import { parseQuery, runQuery } from './query'
 import type { TaskStore } from './store'
@@ -78,6 +79,13 @@ export const tasksProcessor =
     let shown = PAGE
     let drawn = ''
     let stale = false
+    const calendar: CalendarState = {
+      open: new Set(),
+      redraw: () => {
+        drawn = ''
+        draw()
+      },
+    }
 
     const draw = () => {
       // Nothing is worked out for a list that is not on screen; it catches up when it is.
@@ -89,7 +97,7 @@ export const tasksProcessor =
       const query = parseQuery(app, current)
       const { groups, total } = runQuery(store.all(), query)
       // Most changes in the vault leave a given list as it was; then the page is not touched.
-      const signature = JSON.stringify([shown, query.errors, groups.map((group) => [group.name, group.tasks.map((task) => `${task.path}:${task.line}:${task.raw}`)])])
+      const signature = JSON.stringify([shown, query.calendar, calendar.month, today(), query.errors, groups.map((group) => [group.name, group.tasks.map((task) => `${task.path}:${task.line}:${task.raw}`)])])
       if (signature === drawn) return
       drawn = signature
 
@@ -98,6 +106,11 @@ export const tasksProcessor =
         const error = el.appendChild(document.createElement('div'))
         error.className = 'tasks-error'
         error.textContent = message
+      }
+      if (query.calendar) {
+        // A calendar shows everything that matched: its pages are the months.
+        drawCalendar(app, store, el, groups.flatMap((group) => group.tasks), query.calendar, calendar, onEdit)
+        return
       }
       let left = shown
       for (const group of groups) {

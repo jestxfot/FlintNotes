@@ -46,7 +46,8 @@ export class Router {
 
   start(): void {
     const { workspace } = this.app
-    this.open(location.pathname)
+    // The address the page was opened with adds its note to the restored tabs instead of replacing one.
+    this.open(location.pathname, true)
     this.started = true
     this.write()
 
@@ -59,14 +60,14 @@ export class Router {
     })
   }
 
-  private open(pathname: string): void {
+  private open(pathname: string, newTab?: boolean): void {
     const { workspace } = this.app
     const path = this.resolve(pathname)
     this.following = true
     try {
       if (!path) return
       if (path.startsWith(VIEW)) workspace.openView(path.slice(VIEW.length), workspace.leaves.find((leaf) => leaf.path === path)?.title ?? '')
-      else workspace.openFile(path)
+      else workspace.openFile(path, { newTab })
     } finally {
       this.following = false
     }

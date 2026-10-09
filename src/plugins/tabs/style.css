@@ -1,0 +1,55 @@
+.tabs-block {
+  border: 1px solid var(--border);
+  border-radius: 8px;
+  overflow: hidden;
+}
+
+.tabs-strip {
+  display: flex;
+  flex-wrap: wrap;
+  gap: 2px;
+  padding: 4px 6px 0;
+  border-bottom: 1px solid var(--border);
+  background: var(--bg-alt);
+  font-family: var(--font-ui);
+}
+
+.tabs-tab {
+  padding: 5px 12px;
+  border-bottom: 2px solid transparent;
+  border-radius: 6px 6px 0 0;
+  color: var(--text-muted);
+  font-size: 0.92em;
+}
+
+.tabs-tab:hover {
+  background: var(--bg-hover);
+}
+
+.tabs-tab.active {
+  border-bottom-color: var(--accent);
+  color: var(--text);
+  font-weight: 600;
+}
+
+.tabs-body {
+  padding: 4px 12px;
+}
+
+.tabs-pane[hidden] {
+  display: none;
+}
+
+/* The text of a tab is a small read-only editor; it takes the height of its content. */
+.tabs-pane .cm-editor {
+  height: auto;
+}
+
+.tabs-pane .cm-scroller {
+  overflow: visible;
+}
+
+.tabs-pane .cm-content {
+  max-width: none;
+  padding: 4px 0;
+}

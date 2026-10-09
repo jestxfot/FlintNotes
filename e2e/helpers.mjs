@@ -42,7 +42,8 @@ export function buildVault(dir, { files = {}, plugins = [], settings = {}, exter
     fs.writeFileSync(target, content)
   }
   for (const [file, content] of Object.entries(files)) write(file, content)
-  write('.flint/settings.json', JSON.stringify({ core: { enabledPlugins: plugins }, ...settings }))
+  // The suites were written with one tab per note; opening in place has checks of its own.
+  write('.flint/settings.json', JSON.stringify({ ...settings, core: { reuseTab: false, enabledPlugins: plugins, ...settings.core } }))
   for (const [id, parts] of Object.entries(externalPlugins)) {
     for (const [file, content] of Object.entries(parts)) write(`.flint/plugins/${id}/${file}`, content)
   }

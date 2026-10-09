@@ -39,10 +39,12 @@ async function follow(app: App, link: string, source: string): Promise<void> {
  * `![[file]]` of any type some plugin can embed (notes, PDF, ...) shows the file.
  */
 export const wikilinkRenderer = (app: App): PreviewRenderer => {
-  const target = (event: MouseEvent) =>
-    event.button === 0 && event.target instanceof Element
-      ? event.target.closest<HTMLElement>('.lp-wikilink')?.dataset.target
-      : undefined
+  const target = (event: MouseEvent) => {
+    if (event.button !== 0 || !(event.target instanceof Element)) return undefined
+    const rendered = event.target.closest<HTMLElement>('.lp-wikilink')?.dataset.target
+    // A link under the cursor is shown as written; Ctrl+click still follows it.
+    return rendered ?? (event.ctrlKey || event.metaKey ? event.target.closest<HTMLElement>('.lp-wikilink-source')?.dataset.target : undefined)
+  }
 
   return {
     name: 'wikilinks',
@@ -74,7 +76,10 @@ export const wikilinkRenderer = (app: App): PreviewRenderer => {
         else ctx.replace(node.from, node.to, widget)
         return
       }
-      if (active) return
+      if (active) {
+        if (!embed) ctx.mark(node.from, node.to, { class: 'lp-wikilink-source', attributes: { 'data-target': link.trim() } })
+        return
+      }
       ctx.hide(node.from, open)
       ctx.hide(close, node.to)
       // In a link the text after `|` is what to show; in an embed it is a size, so the name stays.

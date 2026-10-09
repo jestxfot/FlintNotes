@@ -26,12 +26,20 @@ export interface Query {
   hide: Set<string>
   /** Lines that could not be understood, with the reason. */
   errors: string[]
+  /** `view calendar`: the tasks are laid out on a month by this date instead of being listed. */
+  calendar?: 'due' | 'scheduled' | 'start' | 'done' | 'happens'
 }
 
 export interface ResultGroup {
   name: string
   tasks: Task[]
 }
+
+/** When a task "happens": the earliest of its start, scheduled and due dates, as in Obsidian Tasks. */
+export const happens = (task: Task): string | undefined => [task.start, task.scheduled, task.due].filter(Boolean).sort()[0]
+
+/** Reads the date a query word names: one of the task's dates, or `happens`. */
+const dateReader = (word: string) => (word === 'happens' ? happens : (task: Task) => task[DATE_WORDS[word]])
 
 const DATE_WORDS: Record<string, DateField> = {
   due: 'due',
@@ -186,16 +194,16 @@ function atom(app: App, text: string): Filter {
   if (lower === 'has reminder') return (task) => !!task.reminder
   if (lower === 'no reminder') return (task) => !task.reminder
 
-  if ((m = /^(has|no) (due|scheduled|start|created|done|cancelled) date$/.exec(lower))) {
-    const field = DATE_WORDS[m[2]]
+  if ((m = /^(has|no) (due|scheduled|start|created|done|cancelled|happens) date$/.exec(lower))) {
+    const date = dateReader(m[2])
     const wanted = m[1] === 'has'
-    return (task) => !!task[field] === wanted
+    return (task) => !!date(task) === wanted
   }
 
-  if ((m = /^(due|scheduled|starts|start|created|done|cancelled) (on or before|on or after|before|after|on)? ?(.+)$/.exec(lower))) {
+  if ((m = /^(due|scheduled|starts|start|created|done|cancelled|happens) (on or before|on or after|before|after|on)? ?(.+)$/.exec(lower))) {
     const range = parseDateSpec(m[3])
     if (range) {
-      const field = DATE_WORDS[m[1]]
+      const date = dateReader(m[1])
       const [from, to] = range
       const tests: Record<string, (date: string) => boolean> = {
         before: (date) => date < from,
@@ -204,7 +212,10 @@ function atom(app: App, text: string): Filter {
         'on or after': (date) => date >= from,
       }
       const test = tests[m[2] ?? ''] ?? ((date: string) => date >= from && date <= to)
-      return (task) => !!task[field] && test(task[field]!)
+      return (task) => {
+        const value = date(task)
+        return !!value && test(value)
+      }
     }
   }
 
@@ -270,6 +281,7 @@ const SORT_KEYS: Record<string, (task: Task) => unknown> = {
   start: dateSort('start'),
   created: dateSort('created'),
   done: dateSort('done'),
+  happens: (task) => happens(task) ?? null,
   priority: (task) => task.priority,
   path: (task) => task.path,
   filename: (task) => paths.basename(task.path),
@@ -289,6 +301,7 @@ const GROUP_KEYS: Record<string, () => Grouper> = {
   start: () => dateGroup('start', 'Без даты начала'),
   done: () => dateGroup('done', 'Не выполнено'),
   created: () => dateGroup('created', 'Без даты создания'),
+  happens: () => ({ names: (task) => [happens(task) ?? 'Без даты'], reverse: false }),
   priority: () => ({
     names: (task) => [PRIORITIES[task.priority].label],
     order: (name) => PRIORITIES.findIndex((p) => p.label === name),
@@ -330,6 +343,9 @@ const GROUP_KEYS: Record<string, () => Grouper> = {
  * - `sort by due`, `sort by priority reverse`, `sort by expr description.length`
  * - `group by due`, `group by tags`, `group by expr due.format("YYYY-MM")`
  * - `limit 10`, `hide backlink`, `hide task count`
+ * - `view calendar`, `view calendar by scheduled`: a month instead of a list.
+ *   Written as a comment, `# view calendar`, it is skipped by Obsidian Tasks,
+ *   so the same block is a list there and a calendar here.
  */
 export function parseQuery(app: App, source: string): Query {
   const query: Query = { filters: [], sorts: [], groups: [], hide: new Set(), errors: [] }
@@ -338,9 +354,15 @@ export function parseQuery(app: App, source: string): Query {
   // A backslash at the end of a line continues the instruction on the next one.
   for (const raw of source.replace(/\\\r?\n\s*/g, ' ').split(/\r?\n/)) {
     const line = raw.trim()
+    let m: RegExpExecArray | null = /^(?:#\s*)?view:?\s+(calendar|list)(?:\s+by\s+(\S+))?$/i.exec(line)
+    if (m) {
+      const field = (m[2] ?? 'happens').toLowerCase().replace(/^starts$/, 'start')
+      if (!['due', 'scheduled', 'start', 'done', 'happens'].includes(field)) query.errors.push(`«${line}»: календарь строится по due, scheduled, start, done или happens`)
+      else query.calendar = m[1].toLowerCase() === 'calendar' ? (field as Query['calendar']) : undefined
+      continue
+    }
     if (!line || line.startsWith('#')) continue
     const lower = line.toLowerCase()
-    let m: RegExpExecArray | null
     try {
       if ((m = /^limit(?: to)? (\d+)(?: tasks?)?$/.exec(lower))) query.limit = Number(m[1])
       else if ((m = /^(hide|show) (.+)$/.exec(lower))) {

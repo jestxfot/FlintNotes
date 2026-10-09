@@ -1,0 +1,221 @@
+/* Results of ```dataview and ```dataviewjs blocks */
+.dv-block {
+  font-family: var(--font-ui);
+  font-size: 0.94em;
+}
+
+.dv-table {
+  width: 100%;
+  border-collapse: collapse;
+}
+
+.dv-table th {
+  padding: 6px 10px;
+  border-bottom: 2px solid var(--border);
+  color: var(--text-muted);
+  font-weight: 600;
+  text-align: left;
+  white-space: nowrap;
+}
+
+.dv-table td {
+  padding: 5px 10px;
+  border-bottom: 1px solid var(--border);
+  vertical-align: top;
+  overflow-wrap: anywhere;
+}
+
+.dv-table tbody tr:hover {
+  background: var(--bg-hover);
+}
+
+.dv-count {
+  margin-left: 6px;
+  color: var(--text-faint);
+  font-weight: 400;
+}
+
+.dv-list,
+.dv-values {
+  margin: 0;
+  padding-left: 1.3em;
+}
+
+.dv-values {
+  padding-left: 1.1em;
+}
+
+.dv-empty,
+.dv-none,
+.dv-total {
+  color: var(--text-faint);
+}
+
+.dv-none,
+.dv-total {
+  padding: 6px 0;
+  font-size: 0.9em;
+}
+
+.dv-image {
+  max-width: 100%;
+  max-height: 160px;
+  border-radius: 6px;
+}
+
+.dv-group {
+  margin: 12px 0 4px;
+  font-size: 1em;
+  font-weight: 600;
+}
+
+.dv-group:first-child {
+  margin-top: 2px;
+}
+
+.dv-tasks {
+  margin: 0;
+  padding: 0;
+  list-style: none;
+}
+
+.dv-tasks .dv-tasks {
+  padding-left: 1.5em;
+}
+
+.dv-task-line {
+  display: flex;
+  align-items: baseline;
+  gap: 8px;
+  padding: 2px 0;
+}
+
+.dv-task-line input {
+  flex: none;
+  width: 1em;
+  height: 1em;
+  margin: 0;
+  translate: 0 0.12em;
+}
+
+.dv-bullet {
+  flex: none;
+  width: 1em;
+  color: var(--text-faint);
+  text-align: center;
+}
+
+.dv-task-text {
+  min-width: 0;
+  overflow-wrap: anywhere;
+  cursor: pointer;
+}
+
+.dv-task.done > .dv-task-line .dv-task-text {
+  color: var(--text-faint);
+  text-decoration: line-through;
+}
+
+.dv-more {
+  margin: 6px 0;
+  padding: 4px 10px;
+  border: 1px solid var(--border);
+  border-radius: 6px;
+  color: var(--text-muted);
+}
+
+.dv-more:hover {
+  background: var(--bg-hover);
+}
+
+.dv-error,
+.dv-inline-error {
+  color: var(--danger, #d1453b);
+  font-family: var(--font-mono);
+  font-size: 0.88em;
+  white-space: pre-wrap;
+}
+
+.dv-error {
+  padding: 8px 10px;
+  border: 1px solid currentColor;
+  border-radius: 6px;
+}
+
+.dv-calendar {
+  max-width: 420px;
+}
+
+.dv-calendar-head {
+  display: flex;
+  align-items: center;
+  gap: 6px;
+  padding-bottom: 6px;
+}
+
+.dv-calendar-title {
+  flex: 1;
+  font-weight: 600;
+  text-align: center;
+}
+
+.dv-calendar-head button {
+  width: 26px;
+  height: 26px;
+  border-radius: 6px;
+  color: var(--text-muted);
+  font-size: 16px;
+}
+
+.dv-calendar-head button:hover {
+  background: var(--bg-hover);
+}
+
+.dv-calendar-grid {
+  display: grid;
+  grid-template-columns: repeat(7, 1fr);
+  gap: 2px;
+}
+
+.dv-calendar-weekday {
+  color: var(--text-faint);
+  font-size: 0.8em;
+  text-align: center;
+}
+
+.dv-calendar-day {
+  display: flex;
+  flex-direction: column;
+  align-items: center;
+  min-height: 40px;
+  padding: 4px 0;
+  border-radius: 6px;
+}
+
+.dv-calendar-day.has-notes {
+  cursor: pointer;
+}
+
+.dv-calendar-day.has-notes:hover {
+  background: var(--bg-hover);
+}
+
+.dv-calendar-day.today > span {
+  color: var(--accent);
+  font-weight: 700;
+}
+
+.dv-calendar-dots {
+  display: flex;
+  flex-wrap: wrap;
+  justify-content: center;
+  gap: 2px;
+  padding-top: 3px;
+}
+
+.dv-calendar-dot {
+  width: 6px;
+  height: 6px;
+  border-radius: 50%;
+  background: var(--accent);
+}

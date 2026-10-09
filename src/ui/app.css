@@ -202,3 +202,40 @@ code {
   font-family: var(--font-mono);
   font-size: 0.9em;
 }
+
+/* A note docked in a sidebar */
+.docked-head {
+  display: flex;
+  align-items: center;
+  gap: 2px;
+  padding: 2px 6px 2px 10px;
+  color: var(--text-muted);
+  font-size: 12.5px;
+}
+
+.docked-head span {
+  flex: 1;
+  overflow: hidden;
+  font-weight: 600;
+  text-overflow: ellipsis;
+  white-space: nowrap;
+}
+
+.docked-head button {
+  width: 22px;
+  height: 22px;
+  border-radius: 5px;
+  color: var(--text-faint);
+}
+
+.docked-head button:hover {
+  background: var(--bg-hover);
+  color: var(--text);
+}
+
+.docked-body {
+  position: relative;
+  flex: 1;
+  min-height: 0;
+  overflow: auto;
+}

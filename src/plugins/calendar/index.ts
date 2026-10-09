@@ -92,7 +92,7 @@ export default class Calendar extends Plugin {
       // Plugins load before tabs are restored; the daily note opens after them, on top.
       setTimeout(async () => {
         const today = await notes.ensure('daily', moment())
-        if (today) app.workspace.openFile(today)
+        if (today) app.workspace.openFile(today, { newTab: true })
       })
       // Obsidian only does this at launch. A tab left open overnight gets the new
       // day's note too, without being switched away from what is on screen.
@@ -116,7 +116,7 @@ export default class Calendar extends Plugin {
     const { app } = this
     if (!asked && this.getSetting<boolean>('imported')) return
     this.setSetting('imported', true)
-    const config = app.vault.obsidianConfigs[0]
+    const config = app.obsidianConfig
     const read = async (file: string): Promise<any> => {
       try {
         return JSON.parse((await app.vault.readOptional(`${config}/${file}`)) ?? 'null')

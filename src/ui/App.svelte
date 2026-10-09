@@ -45,6 +45,19 @@
   const title = (path: string) => (extname(path) === 'md' ? stripExt(basename(path)) : basename(path))
   const leafById = (id: number) => workspace.leaves.find((leaf) => leaf.id === id)!
 
+  // Ctrl+wheel resizes the note's text, like in a text editor, instead of zooming the whole page.
+  let wheel = 0
+  function onWheel(event: WheelEvent) {
+    if (!event.ctrlKey && !event.metaKey) return
+    event.preventDefault()
+    // A mouse wheel sends one big step per notch, a touchpad many small ones.
+    wheel += event.deltaY
+    if (Math.abs(wheel) < 40) return
+    const size = settings.get<number>('core', 'fontSize') + (wheel < 0 ? 1 : -1)
+    wheel = 0
+    settings.set('core', 'fontSize', Math.min(32, Math.max(10, size)))
+  }
+
   async function newNote() {
     try {
       const entry = await app.vault.create(app.vault.uniquePath('', 'Без названия', 'md'))
@@ -137,10 +150,12 @@
       void app.state.flush(true)
     }
     window.addEventListener('keydown', onKey, true)
+    window.addEventListener('wheel', onWheel, { passive: false })
     document.addEventListener('visibilitychange', onHide)
     return () => {
       offs.forEach((off) => off())
       window.removeEventListener('keydown', onKey, true)
+      window.removeEventListener('wheel', onWheel)
       document.removeEventListener('visibilitychange', onHide)
     }
   })
@@ -167,6 +182,14 @@
               title={tab.title ?? tab.path}
               onclick={() => workspace.setActive(leafById(tab.id))}
               onauxclick={(event) => event.button === 1 && workspace.close(leafById(tab.id))}
+              draggable={!tab.path.startsWith('view:')}
+              ondragstart={(event) => {
+                event.dataTransfer?.setData('text/plain', tab.path)
+                // The sidebars change to show where the note can go; Chrome cancels a drag
+                // whose surroundings change while it is starting. So: a moment later.
+                setTimeout(() => (drag.note = tab.path))
+              }}
+              ondragend={() => (drag.note = null)}
             >
               {tab.title ?? title(tab.path)}
             </button>
@@ -192,7 +215,7 @@
   </main>
 
   <!-- An empty right sidebar appears while a widget is dragged, so it can be dropped there. -->
-  {#if rightOpen && (hasRightPanels.current || drag.panel)}
+  {#if rightOpen && (hasRightPanels.current || drag.panel || drag.note)}
     <Sidebar side="right" />
   {/if}
 </div>
