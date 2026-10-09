@@ -395,3 +395,33 @@ input[type='checkbox']:disabled {
 :root.no-properties .lp-block-body.props {
   display: none;
 }
+
+.inline-title-row {
+  display: flex;
+  align-items: baseline;
+  gap: 0.35em;
+}
+
+.inline-title-row .inline-title {
+  flex: 1;
+  min-width: 0;
+}
+
+.inline-title-icon {
+  font-size: 1.5em;
+  translate: 0 0.12em;
+}
+
+.cm-editor .lp-link-icon {
+  margin-right: 3px;
+  color: var(--accent);
+}
+
+/* An icon that can be changed by clicking it. */
+.icon-pick {
+  cursor: pointer;
+}
+
+.icon-pick:hover {
+  filter: brightness(1.25);
+}

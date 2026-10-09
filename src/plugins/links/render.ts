@@ -48,6 +48,25 @@ export async function follow(app: App, link: string, source: string): Promise<vo
  * `![[file]]` of any type some plugin can embed (notes, PDF, ...) shows the file.
  */
 export const wikilinkRenderer = (app: App): PreviewRenderer => {
+  /** The icon of the note a link points to, drawn before the link's text. */
+  class LinkIcon extends cm.view.WidgetType {
+    constructor(
+      readonly icon: string,
+      readonly color: string,
+    ) {
+      super()
+    }
+    eq(other: LinkIcon) {
+      return other.icon === this.icon && other.color === this.color
+    }
+    toDOM() {
+      const el = app.icons.draw(this.icon)
+      el.classList.add('lp-link-icon')
+      el.style.color = this.color
+      return el
+    }
+  }
+
   const target = (event: MouseEvent) => {
     if (event.button !== 0 || !(event.target instanceof Element)) return undefined
     const rendered = event.target.closest<HTMLElement>('.lp-wikilink')?.dataset.target
@@ -68,6 +87,8 @@ export const wikilinkRenderer = (app: App): PreviewRenderer => {
       const alias = pipe < 0 ? '' : inner.slice(pipe + 1)
       const dest = app.metadata.resolve(link.split('#')[0], ctx.path)
       const active = ctx.isActive(node.from, node.to)
+      // A link or embed under the cursor is shown as written; Ctrl+click on that text still follows it.
+      if (active) ctx.mark(node.from, node.to, { class: 'lp-wikilink-source', attributes: { 'data-target': link.trim() } })
 
       if (embed && dest && IMAGE.test(dest)) {
         const width = /^\d+$/.test(alias) ? alias : ''
@@ -85,10 +106,7 @@ export const wikilinkRenderer = (app: App): PreviewRenderer => {
         else ctx.replace(node.from, node.to, widget)
         return
       }
-      if (active) {
-        if (!embed) ctx.mark(node.from, node.to, { class: 'lp-wikilink-source', attributes: { 'data-target': link.trim() } })
-        return
-      }
+      if (active) return
       ctx.hide(node.from, open)
       ctx.hide(close, node.to)
       // In a link the text after `|` is what to show; in an embed it is a size, so the name stays.
@@ -96,6 +114,9 @@ export const wikilinkRenderer = (app: App): PreviewRenderer => {
       const textTo = alias && embed ? open + pipe : close
       ctx.hide(open, textFrom)
       ctx.hide(textTo, close)
+      // The note's own icon goes in front of a link to it.
+      const look = dest && !embed && app.icons.inNotes ? app.icons.look('file', dest) : undefined
+      if (look?.icon && look.icon !== 'lucide-file') ctx.widget(textFrom, new LinkIcon(look.icon, app.icons.css(look.color)), -1)
       ctx.mark(textFrom, textTo, {
         class: dest ? 'lp-wikilink' : 'lp-wikilink lp-wikilink-missing',
         attributes: { 'data-target': link.trim() },

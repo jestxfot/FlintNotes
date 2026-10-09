@@ -37,6 +37,8 @@ export interface TaskFields {
   cancelled?: string
   /** `YYYY-MM-DD HH:mm`, or just `HH:mm` to use the task's date. */
   reminder?: string
+  /** The reminder is written the way the Reminder plugin writes it, `(@2026-10-10 14:00)`, not with ⏰. */
+  reminderAt?: boolean
   /** The rule after 🔁, e.g. `every week`. */
   recurrence?: string
   /** Fields of the Obsidian Tasks format that are not used here (🆔 ⛔ 🏁), kept as written. */
@@ -60,6 +62,8 @@ const DATE = new RegExp(`([${Object.keys(DATE_FIELDS).join('')}])\\uFE0F?\\s*(\\
 const PRIORITY = /[🔺⏫🔼🔽⏬]️?/u
 const RECURRENCE = new RegExp(`🔁\\uFE0F?\\s*([^${SIGNS}#]+)`, 'u')
 const REMINDER = /⏰️?\s*((?:\d{4}-\d{2}-\d{2}[ T])?\d{1,2}:\d{2}|\d{4}-\d{2}-\d{2})/u
+// The Reminder plugin's own way of writing a reminder: `(@2026-10-10 14:00)` or `(@2026-10-10)`.
+const REMINDER_AT = /\(@(\d{4}-\d{2}-\d{2})(?:[ T](\d{1,2}:\d{2}))?\)/u
 const OTHER = /[🆔⛔🏁]️?\s*[\w,-]+/gu
 const TAG = /(?<![\p{L}\p{N}_/#&;])#([\p{L}\p{N}_/-]+)/gu
 
@@ -78,9 +82,11 @@ export function parseTaskLine(raw: string): (TaskFields & { tags: string[]; pref
   const priority = PRIORITY.exec(text)?.[0].replace('️', '')
   if (priority) fields.priority = PRIORITIES.findIndex((p) => p.emoji === priority)
   fields.recurrence = RECURRENCE.exec(text)?.[1].trim() || undefined
-  fields.reminder = REMINDER.exec(text)?.[1].replace('T', ' ')
+  const at = REMINDER_AT.exec(text)
+  fields.reminder = at ? `${at[1]}${at[2] ? ` ${at[2]}` : ''}` : REMINDER.exec(text)?.[1].replace('T', ' ')
+  if (at) fields.reminderAt = true
   fields.extra = text.match(OTHER)?.join(' ')
-  for (const pattern of [DATE, PRIORITY, RECURRENCE, REMINDER, OTHER]) text = text.replace(pattern, ' ')
+  for (const pattern of [DATE, PRIORITY, RECURRENCE, REMINDER_AT, REMINDER, OTHER]) text = text.replace(pattern, ' ')
   fields.description = text.replace(/\s+/g, ' ').trim()
   return { ...fields, prefix: m[1], tags: [...fields.description.matchAll(TAG)].map((t) => t[1]) }
 }
@@ -91,7 +97,7 @@ export function formatTaskLine(task: TaskFields, prefix = '- '): string {
   if (task.priority !== NO_PRIORITY) parts.push(PRIORITIES[task.priority].emoji)
   if (task.recurrence) parts.push(`🔁 ${task.recurrence}`)
   for (const [sign, field] of Object.entries(DATE_FIELDS)) if (task[field]) parts.push(`${sign} ${task[field]}`)
-  if (task.reminder) parts.push(`⏰ ${task.reminder}`)
+  if (task.reminder) parts.push(task.reminderAt && task.reminder.includes('-') ? `(@${task.reminder})` : `⏰ ${task.reminder}`)
   if (task.extra) parts.push(task.extra)
   return parts.join(' ')
 }

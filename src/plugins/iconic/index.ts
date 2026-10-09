@@ -23,6 +23,15 @@ export default class Iconic extends Plugin {
 
   async onload() {
     const { app } = this
+    this.addSettings([
+      { key: 'inNotes', name: 'Значки в самих заметках', desc: 'Показывать значок заметки перед ссылками на неё и рядом с её названием над текстом', type: 'toggle', default: true },
+    ])
+    const inNotes = () => {
+      app.icons.inNotes = this.getSetting<boolean>('inNotes') !== false
+      app.icons.refresh()
+    }
+    inNotes()
+    this.onSettingChange((key) => key === 'inNotes' && inNotes())
     await this.read()
     void this.readCustomIcons()
 
@@ -38,6 +47,8 @@ export default class Iconic extends Plugin {
         return icon || color ? { icon, color } : undefined
       }),
     )
+    app.icons.pick = (kind, id) => void this.choose(kind, id, kind === 'tag' ? `#${id}` : kind === 'property' ? id : paths.basename(id))
+    this.register(() => (app.icons.pick = null))
     const previous = app.icons.custom
     const previousNames = app.icons.customNames
     app.icons.custom = (name) => this.custom.get(name)

@@ -38,6 +38,28 @@ export class Icons extends Events<{ change: [] }> {
   /** Icons Lucide has renamed or redrawn since, by their old names: the inside of their `<svg>`. */
   private legacy: Record<string, string> = {}
   private loading: Promise<Nodes> | null = null
+  /** Whether icons are also shown inside notes: before links to notes and beside a note's title. Set from a plugin's setting. */
+  inNotes = true
+  /** Opens the choice of an icon for an item; set by the plugin that keeps the icons. */
+  pick: ((kind: LookKind, id: string) => void) | null = null
+
+  /**
+   * Makes a drawn icon a button for changing it: wherever the icon of a note, a
+   * folder, a tag or a property is shown, a click on it opens the choice of icons.
+   */
+  clickable(el: HTMLElement, kind: LookKind, id: string): HTMLElement {
+    el.classList.add('icon-pick')
+    el.addEventListener('click', (event) => {
+      if (!this.pick) return
+      event.preventDefault()
+      event.stopPropagation()
+      this.pick(kind, id)
+    })
+    // A press on the icon must not start what a press on its row would (a drag, moving the cursor).
+    el.addEventListener('mousedown', (event) => this.pick && event.stopPropagation())
+    return el
+  }
+
   /** Where pictures for icon names that are not Lucide's come from; set by a plugin. */
   custom: (name: string) => string | undefined = () => undefined
   /** Names of those pictures, for the icon picker; set by the same plugin. */

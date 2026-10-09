@@ -47,7 +47,15 @@ class TitleWidget extends WidgetType {
       event.preventDefault()
       view.focus()
     }
-    return el
+    // The note's icon, if it has one and icons are shown in notes, stands before its name.
+    const look = app.icons.inNotes ? app.icons.look('file', path) : undefined
+    if (!look?.icon || look.icon === 'lucide-file') return el
+    const row = document.createElement('div')
+    row.className = 'inline-title-row'
+    const icon = app.icons.clickable(app.icons.draw(look.icon, look.color), 'file', path)
+    icon.classList.add('inline-title-icon')
+    row.append(icon, el)
+    return row
   }
 
   ignoreEvent(): boolean {

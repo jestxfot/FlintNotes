@@ -195,9 +195,10 @@
   color: var(--text);
 }
 
+/* A base is one piece of its note and grows to its full height: the note scrolls, not the base.
+   Only a table wider than the page scrolls, and only sideways. */
 .base-body {
-  max-height: 70vh;
-  overflow: auto;
+  overflow: visible;
 }
 
 .base-file .base-body {

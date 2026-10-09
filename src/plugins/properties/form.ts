@@ -85,7 +85,7 @@ export function propertiesForm(source: string, root: HTMLElement, ctx: CodeBlock
 
       // The property's icon, its own or one for its type; a right click on it opens the property's menu.
       const look = ctx.app.icons.look('property', key)
-      const icon = row.appendChild(ctx.app.icons.draw(look?.icon ?? (key === 'tags' ? 'tags' : KIND_ICONS[kind]), look?.color))
+      const icon = row.appendChild(ctx.app.icons.clickable(ctx.app.icons.draw(look?.icon ?? (key === 'tags' ? 'tags' : key === 'aliases' ? 'forward' : KIND_ICONS[kind]), look?.color), 'property', key))
       icon.classList.add('props-icon')
       // The property's menu: its type, the clipboard, deleting; plugins add theirs (an icon, say).
       const setType = (next: Kind) => {
@@ -185,6 +185,57 @@ export function propertiesForm(source: string, root: HTMLElement, ctx: CodeBlock
     root.replaceChildren(el('div', 'props-heading', 'Свойства'), ...rows, add)
   }
 
+  /**
+   * Offers, under a value's field, the values this very property has in other
+   * notes, the most used first: a note's `breakfast` suggests what was written
+   * in `breakfast` elsewhere, not every note or tag of the vault.
+   */
+  const suggest = (input: HTMLInputElement, key: string, pick: (value: string) => void, taken: string[] = []) => {
+    let popup: HTMLElement | null = null
+    const close = () => {
+      popup?.remove()
+      popup = null
+    }
+    const open = () => {
+      const counts = new Map<string, number>()
+      for (const note of ctx.app.metadata.notes()) {
+        const value = ctx.app.metadata.get(note)?.frontmatter?.[key]
+        for (const item of Array.isArray(value) ? value : [value]) {
+          if (typeof item !== 'string' && typeof item !== 'number') continue
+          const text = String(item).trim()
+          if (text && !taken.includes(text)) counts.set(text, (counts.get(text) ?? 0) + 1)
+        }
+      }
+      const typed = input.value.trim().toLowerCase()
+      const values = [...counts].filter(([value]) => !typed || value.toLowerCase().includes(typed)).sort((a, b) => b[1] - a[1] || a[0].localeCompare(b[0])).slice(0, 40)
+      close()
+      if (!values.length) return
+      popup = document.body.appendChild(el('div', 'props-suggest'))
+      const box = input.getBoundingClientRect()
+      popup.style.left = `${box.left}px`
+      popup.style.top = `${box.bottom + 4}px`
+      popup.style.minWidth = `${Math.max(260, box.width)}px`
+      popup.style.maxHeight = `${Math.max(120, window.innerHeight - box.bottom - 16)}px`
+      for (const [value] of values) {
+        const link = /^\[\[([^\]|]+)(?:\|([^\]]+))?\]\]$/.exec(value)
+        const row = popup.appendChild(el('button', 'props-suggest-row'))
+        row.append(el('span', '', link ? (link[2] ?? link[1].split('/').pop()!) : key === 'tags' ? value.replace(/^#/, '') : value))
+        if (link) row.append(ctx.app.icons.draw('link'))
+        // The field keeps the focus: the choice is made on the press, before the field would lose it.
+        row.onmousedown = (event) => {
+          event.preventDefault()
+          close()
+          input.value = ''
+          pick(value)
+        }
+      }
+    }
+    input.addEventListener('focus', open)
+    input.addEventListener('input', open)
+    input.addEventListener('blur', close)
+    input.addEventListener('keydown', (event) => event.key === 'Escape' && close())
+  }
+
   /** The control for one value, chosen by its type. */
   const editor = (key: string, value: unknown, kind: Kind): HTMLElement => {
     const set = (next: unknown) => {
@@ -224,6 +275,7 @@ export function propertiesForm(source: string, root: HTMLElement, ctx: CodeBlock
     // Nested data cannot be edited as one line of text; it stays readable here and editable in the source.
     input.readOnly = typeof value === 'object' && value !== null
     input.onchange = () => set(kind === 'number' ? (input.value === '' ? null : Number(input.value)) : input.value)
+    if (kind === 'text') suggest(input, key, (picked) => set(picked))
     return input
   }
 
@@ -233,7 +285,9 @@ export function propertiesForm(source: string, root: HTMLElement, ctx: CodeBlock
     items.forEach((item, i) => {
       // A tag may be written with or without its `#`; it is shown with exactly one.
       const link = key !== 'tags' && typeof item === 'string' && LINKISH.test(item.trim())
-      const chip = box.appendChild(el('span', 'props-chip', link ? '' : key === 'tags' ? `#${String(item).replace(/^#/, '')}` : String(item)))
+      // A tag is shown without its `#`, as Obsidian shows it among the properties.
+      const chip = box.appendChild(el('span', 'props-chip', link ? '' : key === 'tags' ? String(item).replace(/^#/, '') : String(item)))
+      if (link) chip.classList.add('props-chip-link')
       // A link kept in a list (`link: "[[Hub]]"`) opens its note.
       if (link) chip.append(renderInline(ctx.app, String(item).trim(), ctx.path))
       if (key === 'tags') {
@@ -241,7 +295,7 @@ export function propertiesForm(source: string, root: HTMLElement, ctx: CodeBlock
         const look = ctx.app.icons.look('tag', tag)
         chip.classList.add('props-tag')
         chip.style.setProperty('--tag-color', ctx.app.icons.css(look?.color))
-        if (look?.icon) chip.prepend(ctx.app.icons.draw(look.icon))
+        if (look?.icon) chip.prepend(ctx.app.icons.clickable(ctx.app.icons.draw(look.icon), 'tag', tag))
         chip.oncontextmenu = (event) => ctx.app.menus.show(event, 'tag', tag)
       }
       const remove = chip.appendChild(el('button', '', '×'))
@@ -250,6 +304,7 @@ export function propertiesForm(source: string, root: HTMLElement, ctx: CodeBlock
     })
     const input = box.appendChild(el('input'))
     input.placeholder = items.length ? '' : 'Нет значения'
+    suggest(input, key, (value) => set([...items, key === 'tags' ? value.replace(/^#/, '') : value]), items.map(String))
     const add = () => {
       const fresh = input.value.split(',').map((item) => item.trim().replace(key === 'tags' ? /^#/ : /^$/, '')).filter(Boolean)
       if (fresh.length) set([...items, ...fresh])

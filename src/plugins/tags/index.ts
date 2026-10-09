@@ -22,14 +22,18 @@ export default class Tags extends Plugin {
       constructor(
         readonly icon: string,
         readonly color: string,
+        readonly tag: string,
       ) {
         super()
       }
       eq(other: TagIcon) {
-        return other.icon === this.icon && other.color === this.color
+        return other.icon === this.icon && other.color === this.color && other.tag === this.tag
+      }
+      ignoreEvent() {
+        return true
       }
       toDOM() {
-        const el = app.icons.draw(this.icon)
+        const el = app.icons.clickable(app.icons.draw(this.icon), 'tag', this.tag)
         el.classList.add('lp-tag-icon')
         el.style.color = this.color || 'var(--accent)'
         return el
@@ -46,7 +50,7 @@ export default class Tags extends Plugin {
         const tag = ctx.text(node.from + 1, node.to)
         const look = app.icons.look('tag', tag)
         const color = app.icons.css(look?.color)
-        if (look?.icon) ctx.widget(node.from, new TagIcon(look.icon, color), -1)
+        if (look?.icon) ctx.widget(node.from, new TagIcon(look.icon, color, tag), -1)
         ctx.mark(node.from, node.to, {
           class: 'lp-tag',
           attributes: { 'data-tag': tag, ...(color ? { style: `--tag-color: ${color}` } : {}) },

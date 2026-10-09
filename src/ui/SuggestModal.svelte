@@ -1,10 +1,11 @@
 <script lang="ts" generics="T">
   import { onMount } from 'svelte'
   import type { SuggestOptions } from '../core/suggest'
+  import { app } from '../instance'
 
   let { options, onclose }: { options: SuggestOptions<T>; onclose: () => void } = $props()
 
-  const LIMIT = 50
+  const LIMIT = 80
 
   let dialog: HTMLDialogElement
   let query = $state('')
@@ -40,6 +41,22 @@
     }
   }
 
+  /** The label in pieces, so that what was typed can be shown in bold where it occurs. */
+  function pieces(text: string): { text: string; hit: boolean }[] {
+    const needle = query.trim().toLowerCase()
+    const at = needle ? text.toLowerCase().indexOf(needle) : -1
+    if (at < 0) return [{ text, hit: false }]
+    return [
+      { text: text.slice(0, at), hit: false },
+      { text: text.slice(at, at + needle.length), hit: true },
+      { text: text.slice(at + needle.length), hit: false },
+    ]
+  }
+
+  function icon(node: HTMLElement, look: { icon?: string; color?: string } | undefined) {
+    if (look?.icon) node.append(app.icons.draw(look.icon, look.color))
+  }
+
   onMount(() => dialog.showModal())
 </script>
 
@@ -50,6 +67,7 @@
     onclose()
   }}
   {onkeydown}
+  class:stacked={options.stacked}
   onclick={(event) => event.target === dialog && dialog.close()}>
   <input
     placeholder={options.placeholder}
@@ -67,8 +85,14 @@
         onclick={() => choose(i)}
         onmousemove={() => (index = i)}
       >
-        <span class="label">{options.label(item)}</span>
-        {#if detail}<span class="detail">{detail}</span>{/if}
+        {#if options.icon}
+          {@const look = options.icon(item)}
+          {#key look?.icon}<span class="glyph" use:icon={look}></span>{/key}
+        {/if}
+        <span class="text">
+          <span class="label">{#each pieces(options.label(item)) as piece, n (n)}{#if piece.hit}<b>{piece.text}</b>{:else}{piece.text}{/if}{/each}</span>
+          {#if detail}<span class="detail">{detail}</span>{/if}
+        </span>
       </button>
     {/each}
     {#if creatable}
@@ -128,11 +152,54 @@
 
   .list button {
     display: flex;
-    justify-content: space-between;
-    gap: 12px;
+    align-items: center;
+    gap: 10px;
     padding: 7px 10px;
     border-radius: 6px;
     text-align: left;
+  }
+
+  .text {
+    display: flex;
+    flex: 1;
+    justify-content: space-between;
+    gap: 12px;
+    min-width: 0;
+  }
+
+  .glyph {
+    display: flex;
+    flex: none;
+    width: 18px;
+    color: var(--text-muted);
+    font-size: 16px;
+  }
+
+  .label b {
+    font-weight: 700;
+  }
+
+  /* A big list for finding files: most of the window, the folder under each name. */
+  dialog.stacked {
+    top: 8vh;
+    width: min(880px, calc(100vw - 48px));
+    max-height: 84vh;
+    background: var(--bg-alt);
+  }
+
+  .stacked .text {
+    flex-direction: column;
+    gap: 1px;
+  }
+
+  .stacked .detail {
+    max-width: 100%;
+    color: var(--text-muted);
+  }
+
+  .stacked input {
+    padding: 15px 18px;
+    font-size: 16px;
   }
 
   .list button.selected {

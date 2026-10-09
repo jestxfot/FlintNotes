@@ -38,7 +38,6 @@ export const code: PreviewRenderer = {
     const openEnd = ctx.state.doc.lineAt(open.from).to
     if (lang) ctx.replace(open.from, openEnd, new LanguageLabel(lang))
     else ctx.hide(open.from, openEnd)
-    // The emptied fence lines shrink to a thin padding of the block.
     ctx.line(open.from, 'lp-code-fence')
     if (close) {
       ctx.hide(close.from, close.to)

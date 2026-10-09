@@ -144,6 +144,19 @@ export async function run(t) {
   await page.locator(`${leaf} .lp-wikilink-source`).click({ modifiers: ['Control'] })
   await wait(600)
   ok('Ctrl+click follows a link shown as written, into a new tab', (await t.count('.tab')) === 3 && (await t.activeTab()) === 'Dune', `${await t.count('.tab')} ${await t.activeTab()}`)
+  // The same for an embed whose source is showing.
+  await t.tab('Q').click()
+  await wait(300)
+  await page.evaluate(() => {
+    const editor = app.workspace.activeEditor
+    editor.dispatch({ changes: { from: editor.state.doc.length, insert: '\n\n![[Emma]]' } })
+    editor.dispatch({ selection: { anchor: editor.state.doc.length - 4 } })
+    editor.focus()
+  })
+  await wait(500)
+  await page.locator(`${leaf} .lp-wikilink-source`, { hasText: 'Emma' }).click({ modifiers: ['Control'] })
+  await wait(600)
+  ok('Ctrl+click on an embed shown as written opens what it embeds', (await t.activeTab()) === 'Emma', await t.activeTab())
 
   // The "+" of the tab strip always opens a tab of its own, whatever the setting for links says.
   const tabsBefore = await t.count('.tab')

@@ -75,7 +75,7 @@ export async function run(t) {
   await page.keyboard.press('Enter')
   await wait(700)
   ok('an item is added to a list', read('Notes.md').includes('tags: [a, b, c]\n'), read('Notes.md').slice(0, 120))
-  await row('tags').locator('.props-chip', { hasText: '#a' }).locator('button').click()
+  await row('tags').locator('.props-chip', { hasText: /^a/ }).locator('button').click()
   await wait(700)
   ok('and removed', read('Notes.md').includes('tags: [b, c]\n'))
   await row('count').locator('.props-name').fill('amount')

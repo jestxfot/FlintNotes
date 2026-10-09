@@ -16,10 +16,11 @@
 .props-row {
   display: flex;
   align-items: center;
-  gap: 6px;
-  min-height: 30px;
+  gap: 8px;
+  min-height: 34px;
+  padding: 1px 0;
   border: 1px solid transparent;
-  border-radius: 6px;
+  border-radius: 8px;
 }
 
 /* A thin line marks the row under the pointer; a firmer one, the row being edited. */
@@ -87,14 +88,22 @@
   color: var(--tag-color, var(--accent));
 }
 
+/* Values of a list stand in a row, each with its cross; only tags are pills. */
 .props-chip {
   display: inline-flex;
   align-items: center;
-  gap: 3px;
-  padding: 1px 5px 1px 10px;
+  gap: 4px;
+  padding: 2px 2px 2px 0;
   border-radius: 2em;
-  background: var(--bg-hover);
-  font-size: 0.93em;
+  background: none;
+}
+
+.props-chip.props-tag {
+  padding: 2px 6px 2px 11px;
+}
+
+.props-list {
+  gap: 4px 10px !important;
 }
 
 .props-chip button,
@@ -136,8 +145,8 @@
 .props-add {
   align-self: flex-start;
   margin-top: 6px;
-  padding: 4px 8px;
-  border-radius: 5px;
+  padding: 6px 12px;
+  border-radius: 8px;
   color: var(--text-muted);
 }
 
@@ -177,4 +186,38 @@
 
 .props .inline-link {
   cursor: pointer;
+}
+
+/* Values this property has in other notes, offered under its field. */
+.props-suggest {
+  position: fixed;
+  z-index: 45;
+  display: flex;
+  flex-direction: column;
+  max-width: min(560px, 90vw);
+  padding: 6px;
+  overflow-y: auto;
+  border: 1px solid var(--border);
+  border-radius: 10px;
+  background: var(--bg-alt);
+  box-shadow: var(--shadow);
+  font: 13.5px var(--font-ui);
+}
+
+.props-suggest-row {
+  display: flex;
+  align-items: center;
+  justify-content: space-between;
+  gap: 16px;
+  padding: 7px 12px;
+  border-radius: 6px;
+  text-align: left;
+}
+
+.props-suggest-row:hover {
+  background: var(--bg-hover);
+}
+
+.props-suggest-row .icon {
+  color: var(--text-faint);
 }

@@ -23,8 +23,8 @@
   const tree = $derived(build(entries.current))
   // Icons and colours of files and folders come from plugins and may change at any time.
   const looks = watch(app.icons, ['change'], () => ({}))
-  function drawIcon(node: HTMLElement, icon: string | undefined) {
-    if (icon) node.append(app.icons.draw(icon))
+  function drawIcon(node: HTMLElement, [icon, kind, id]: [string | undefined, 'file' | 'folder', string]) {
+    if (icon) node.append(app.icons.clickable(app.icons.draw(icon), kind, id))
   }
 
   // Which folders are open is remembered with the vault.
@@ -304,7 +304,7 @@
       >
         <span class="chevron" class:open={expanded.has(entry.path)}>{isFolder ? '›' : ''}</span>
         {#key look?.icon}
-          {#if look?.icon}<span class="row-icon" style:color={app.icons.css(look.color)} use:drawIcon={look.icon}></span>{/if}
+          {#if look?.icon}<span class="row-icon" style:color={app.icons.css(look.color)} use:drawIcon={[look.icon, isFolder ? 'folder' : 'file', entry.path]}></span>{/if}
         {/key}
         <span class="name" style:color={app.icons.css(look?.color)}>{extname(entry.path) === 'md' ? stripExt(node.name) : node.name}</span>
       </button>

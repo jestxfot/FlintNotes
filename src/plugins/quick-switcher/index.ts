@@ -51,8 +51,12 @@ export default class QuickSwitcher extends Plugin {
               .sort((a, b) => b.rank - a.rank || a.item.file.path.length - b.item.file.path.length)
               .map(({ item }) => item)
           },
+          stacked: true,
           label: ({ file, alias }) => alias ?? title(file),
-          detail: ({ file, alias }) => (alias ? `→ ${title(file)}` : path.dirname(file.path) || undefined),
+          // Under the name: the folder, or for an alias the note it belongs to.
+          detail: ({ file, alias }) => (alias ? `→ ${file.path.replace(/\.md$/, '')}` : path.dirname(file.path) ? `${path.dirname(file.path)}/` : undefined),
+          // The note's own icon if it has one, otherwise one for the kind of file.
+          icon: ({ file }) => app.icons.look('file', file.path) ?? { icon: path.extname(file.path) === 'md' ? 'file-text' : /^(png|jpe?g|gif|webp|svg|bmp|avif)$/i.test(path.extname(file.path)) ? 'image' : 'file' },
           onChoose: ({ file }) => app.workspace.openFile(file.path),
           createLabel: (name) => `Создать заметку «${name}»`,
           onCreate: async (name) => {

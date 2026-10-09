@@ -73,8 +73,8 @@
   const ribbons = watch(app.toolbars, ['change'], () => ({ left: app.toolbars.list('left-ribbon').length > 0, right: app.toolbars.list('right-ribbon').length > 0 }))
   const looks = watch(app.icons, ['change'], () => ({}))
   const tabLook = (path: string) => (looks.current && !path.startsWith('view:') ? app.icons.look('file', path) : undefined)
-  function drawIcon(node: HTMLElement, icon: string | undefined) {
-    if (icon) node.append(app.icons.draw(icon))
+  function drawIcon(node: HTMLElement, [icon, path]: [string | undefined, string]) {
+    if (icon) node.append(app.icons.clickable(app.icons.draw(icon), 'file', path))
   }
 
   // Ctrl+wheel resizes the note's text, like in a text editor, instead of zooming the whole page.
@@ -284,7 +284,7 @@
               ondragend={() => (drag.note = null)}
             >
               {#key tabLook(tab.path)?.icon}
-                {#if tabLook(tab.path)?.icon}<span class="tab-icon" style:color={app.icons.css(tabLook(tab.path)?.color)} use:drawIcon={tabLook(tab.path)?.icon}></span>{/if}
+                {#if tabLook(tab.path)?.icon}<span class="tab-icon" style:color={app.icons.css(tabLook(tab.path)?.color)} use:drawIcon={[tabLook(tab.path)?.icon, tab.path]}></span>{/if}
               {/key}
               {tab.title ?? title(tab.path)}
             </button>

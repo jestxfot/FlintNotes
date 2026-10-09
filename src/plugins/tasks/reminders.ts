@@ -1,15 +1,47 @@
 import { path as paths, renderInline, type Off, type Plugin } from '../../api'
 import type { TaskStore } from './store'
-import { isOpen, reminderTime, type Task } from './task'
+import { formatTaskLine, isOpen, parseTaskLine, reminderTime, type Task } from './task'
 
 const MINUTE = 60_000
 const CHECK_EVERY = 15_000
 const FORGET_AFTER = 60 * 24 * 60 * MINUTE
 
-interface Due {
+export interface Due {
   key: string
   task: Task
   at: Date
+}
+
+const pad = (n: number) => String(n).padStart(2, '0')
+/** A moment as reminders are written: `2026-10-10 14:00`. */
+export const stamp = (date: Date) => `${date.getFullYear()}-${pad(date.getMonth() + 1)}-${pad(date.getDate())} ${pad(date.getHours())}:${pad(date.getMinutes())}`
+
+/**
+ * When "remind me later: <option>" is. Options are written in the settings in
+ * plain words, in Russian or as the Reminder plugin has them: `10 минут`,
+ * `1 час`, `Завтра`, `Через неделю`, `In 30 minutes`, `Tomorrow`, `Next week`.
+ * `null` if the words are not understood.
+ */
+export function laterTime(option: string, morning = '09:00', now = new Date()): Date | null {
+  const text = option.trim().toLowerCase().replace(/^(через|in)\s+/, '')
+  const [hours, minutes] = morning.split(':').map(Number)
+  const day = (offset: number) => {
+    const date = new Date(now)
+    date.setDate(date.getDate() + offset)
+    date.setHours(hours || 9, minutes || 0, 0, 0)
+    return date
+  }
+  if (/^(завтра|tomorrow)/.test(text)) return day(1)
+  if (/^(послезавтра)/.test(text)) return day(2)
+  if (/^(неделю|next week|недел)/.test(text)) return day(7)
+  if (/^(месяц|next month)/.test(text)) return day(30)
+  const amount = /^(\d+)\s*(мин|min|m\b|час|hour|h\b|дн|день|day|d\b|нед|week|w\b)/.exec(text)
+  if (!amount) return null
+  const unit = amount[2]
+  const count = Number(amount[1])
+  if (/^(дн|день|day|d)/.test(unit)) return day(count)
+  if (/^(нед|week|w)/.test(unit)) return day(count * 7)
+  return new Date(now.getTime() + count * (/^(час|hour|h)/.test(unit) ? 60 : 1) * MINUTE)
 }
 
 /** A short, hard-to-miss signal: three rising beeps, made with the Web Audio API. */
@@ -156,6 +188,40 @@ export class Reminders {
     this.mark('snoozed', keys, until)
   }
 
+  /** The "remind me later" choices from the settings, with the time each stands for. */
+  private laterOptions(): { label: string; at: Date }[] {
+    const morning = this.setting<string>('defaultTime') || '09:00'
+    return (this.setting<string>('laterOptions') ?? '')
+      .split('\n')
+      .map((label) => ({ label: label.trim(), at: laterTime(label, morning) }))
+      .filter((option): option is { label: string; at: Date } => !!option.label && !!option.at)
+  }
+
+  /**
+   * Reminds of a task later. A task that carries its own reminder gets the new
+   * time written into the note, as the Reminder plugin does, so it holds in
+   * Obsidian too; a task that only has a due date is put off here alone.
+   */
+  private later(due: Due, at: Date): void {
+    if (!due.task.reminder) return this.snooze([due.key], at.getTime())
+    void this.store.edit(due.task, (raw) => {
+      const parsed = parseTaskLine(raw)
+      return parsed ? [formatTaskLine({ ...parsed, reminder: stamp(at) }, parsed.prefix)] : [raw]
+    })
+  }
+
+  /** Every open task that has a time to remind at, soonest first: what the reminders panel lists. */
+  upcoming(): Due[] {
+    const defaultTime = this.setting<boolean>('remindDue') ? this.setting<string>('defaultTime') : null
+    const result: Due[] = []
+    for (const task of this.store.all()) {
+      if (!isOpen(task)) continue
+      const at = reminderTime(task, /^\d{1,2}:\d{2}$/.test(defaultTime ?? '') ? defaultTime : null)
+      if (at) result.push({ key: `${task.path}|${task.description}|${at.getTime()}`, task, at })
+    }
+    return result.sort((a, b) => a.at.getTime() - b.at.getTime())
+  }
+
   private close(): void {
     this.beeper.stop()
     clearInterval(this.flash)
@@ -180,14 +246,9 @@ export class Reminders {
       el.onclick = action
       return el
     }
-    const tomorrow = () => {
-      const date = new Date()
-      date.setDate(date.getDate() + 1)
-      date.setHours(9, 0, 0, 0)
-      return date.getTime()
-    }
 
-    for (const { key, task, at } of due) {
+    for (const one of due) {
+      const { key, task, at } = one
       const item = list.appendChild(document.createElement('div'))
       item.className = 'alert-task'
       const text = item.appendChild(document.createElement('div'))
@@ -204,9 +265,8 @@ export class Reminders {
           this.acknowledge([key])
           void this.store.toggle(task)
         }),
-        button('Через 10 минут', '', () => this.snooze([key], Date.now() + 10 * MINUTE)),
-        button('Через час', '', () => this.snooze([key], Date.now() + 60 * MINUTE)),
-        button('Завтра в 9:00', '', () => this.snooze([key], tomorrow())),
+        // "Remind me later": the choices come from the settings.
+        ...this.laterOptions().map((option) => button(`Через ${option.label}`.replace(/^Через (через|завтра|послезавтра|in |tomorrow|next )/i, '$1').replace(/^./, (c) => c.toUpperCase()), 'later', () => this.later(one, option.at))),
         button('Открыть заметку', '', () => {
           this.acknowledge([key])
           app.workspace.openFile(task.path, { line: task.line })

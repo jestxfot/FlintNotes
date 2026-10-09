@@ -20,6 +20,7 @@ export const vault = {
     '.obsidian/custom-icons/food-soup.svg': SVG,
     'Plain.md': '---\ntags: [song, other]\n---\nText with #song and #other.\n',
     'Food/Soup.md': '# Soup\n',
+    'Other.md': '---\nrefs:\n  - "[[Many/File 00]]"\n  - "[[Food/Soup]]"\nlink: "[[Elsewhere]]"\n---\n',
     'Linked.md': '---\nlink: "[[Plain]]"\nrefs:\n  - "[[Food/Soup]]"\nsite: https://example.com\n---\ntext\n',
     'Calendar/2026/Day.md': 'day\n',
     'Zeta/Deep/Deeper/Note.md': 'x\n',
@@ -60,6 +61,15 @@ export async function run(t) {
   ok('a tag in the text has its colour and icon', (await tag.evaluate((el) => el.style.getPropertyValue('--tag-color'))) === 'var(--color-purple)' && (await t.count(`${leaf} .cm-content .lp-tag-icon svg`)) === 1 && purple.startsWith('#'), purple)
   ok('so does the tag among the properties', (await page.locator(`${leaf} .props-tag`, { hasText: 'song' }).locator('.icon svg').count()) === 1)
   ok('a property has its icon', (await page.locator(`${leaf} .props-row[data-key="tags"] .props-icon svg`).count()) === 1)
+
+  // ---- a click on an icon, wherever it is shown, opens the choice of icons for that item
+  await row('Plain').locator('.row-icon .icon').click()
+  ok('a click on a file\'s icon opens the choice of icons', (await page.locator('.iconic-dialog h2').innerText()) === 'Plain.md' && (await t.activeTab()) === 'Plain')
+  await page.keyboard.press('Escape')
+  await page.locator(`${leaf} .props-row[data-key="tags"] .props-icon`).click()
+  ok('and so does a click on a property\'s', (await page.locator('.iconic-dialog h2').innerText()) === 'tags')
+  await page.keyboard.press('Escape')
+  ok('tags among the properties are shown without #', (await page.locator(`${leaf} .props-tag`).first().innerText()).trim().startsWith('song'))
 
   // ---- the context menu
   await row('Many').click()
@@ -133,6 +143,15 @@ export async function run(t) {
   await page.keyboard.press('Escape')
   await t.cursorToEnd()
   await prop('link').locator('a.inline-link, input.props-value').first().waitFor()
+
+  // ---- a property's field offers the values that same property has elsewhere
+  await t.open('Linked')
+  await prop('refs').locator('.props-list input').click()
+  const offered = page.locator('.props-suggest .props-suggest-row')
+  ok('values of the same property in other notes are offered, and nothing else', (await offered.allInnerTexts()).map((v) => v.trim()).join('|') === 'File 00', (await offered.allInnerTexts()).join('|'))
+  await offered.first().dispatchEvent('mousedown')
+  await wait(900)
+  ok('a chosen value is added to the property', read('Linked.md').includes('[[Many/File 00]]'), read('Linked.md'))
 
   // ---- the menu of a property
   await t.open('Linked')

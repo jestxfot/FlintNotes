@@ -1,7 +1,7 @@
 import { mount, unmount } from 'svelte'
-import { cm, errorMessage, Plugin, type CodeBlockContext, type PreviewRenderer } from '../../api'
+import { cm, errorMessage, Plugin, renderInline, type CodeBlockContext, type PreviewRenderer } from '../../api'
 import { today } from './dates'
-import { Reminders } from './reminders'
+import { Reminders, stamp } from './reminders'
 import { tasksProcessor } from './render'
 import { TaskStore } from './store'
 import './style.css'
@@ -57,6 +57,24 @@ export default class Tasks extends Plugin {
         min: 1,
         max: 365,
       },
+      {
+        key: 'laterOptions',
+        name: 'Варианты «напомнить позже»',
+        desc: 'По одному в строке: «10 минут», «1 час», «3 часа», «Завтра», «Через неделю» (или In 30 minutes, Tomorrow, Next week). У задачи со своим временем напоминания новое время записывается в заметку',
+        type: 'lines',
+        default: '10 минут\n30 минут\n1 час\n3 часа\nЗавтра\nЧерез неделю',
+      },
+      {
+        key: 'reminderStyle',
+        name: 'Как записывать напоминание',
+        desc: 'Для напоминаний, заданных в форме задачи и подсказкой после «(@». Оба вида читаются всегда',
+        type: 'select',
+        default: 'emoji',
+        options: [
+          { value: 'emoji', label: '⏰ 2026-10-10 14:00 (как Tasks)' },
+          { value: 'at', label: '(@2026-10-10 14:00) (как Reminder)' },
+        ],
+      },
       { key: 'sound', name: 'Звуковой сигнал', type: 'toggle', default: true },
       { key: 'repeatSeconds', name: 'Повторять сигнал каждые, секунд', type: 'number', default: 5, min: 2, max: 120 },
       {
@@ -72,7 +90,10 @@ export default class Tasks extends Plugin {
       if (key === 'system' && this.getSetting<boolean>('system')) void globalThis.Notification?.requestPermission()
     })
 
-    const openDialog = (task: TaskFields, title: string, onsave: (fields: TaskFields) => void) => {
+    /** A reminder set in the form is written the way the settings say, unless the task already had one written otherwise. */
+    const styled = (before: TaskFields, after: TaskFields): TaskFields => ({ ...after, reminderAt: before.reminder ? before.reminderAt : this.getSetting<string>('reminderStyle') === 'at' })
+    const openDialog = (task: TaskFields, title: string, save: (fields: TaskFields) => void) => {
+      const onsave = (fields: TaskFields) => save(styled(task, fields))
       const target = document.body.appendChild(document.createElement('div'))
       const dialog = mount(TaskDialog, {
         target,
@@ -204,6 +225,95 @@ export default class Tasks extends Plugin {
 
     const reminders = new Reminders(this, store)
     this.register(reminders.start())
+
+    // ---- the list of reminders, as a sidebar widget: overdue, today, tomorrow, then by day
+    this.addPanel({
+      id: 'reminders',
+      title: 'Напоминания',
+      side: 'right',
+      icon: 'M8 2.5a4 4 0 0 0-4 4c0 3-1.5 4-1.5 5h11c0-1-1.5-2-1.5-5a4 4 0 0 0-4-4zM6.5 13.5a1.6 1.6 0 0 0 3 0',
+      mount: (target) => {
+        const list = target.appendChild(document.createElement('div'))
+        list.className = 'reminders-panel'
+        const draw = () => {
+          const now = new Date()
+          const dayOf = (date: Date) => `${date.getFullYear()}-${String(date.getMonth() + 1).padStart(2, '0')}-${String(date.getDate()).padStart(2, '0')}`
+          const tomorrow = new Date(now.getFullYear(), now.getMonth(), now.getDate() + 1)
+          const groups = new Map<string, ReturnType<typeof reminders.upcoming>>()
+          for (const due of reminders.upcoming()) {
+            const day = dayOf(due.at)
+            const name = due.at < now ? 'Просрочено' : day === dayOf(now) ? 'Сегодня' : day === dayOf(tomorrow) ? 'Завтра' : due.at.toLocaleDateString('ru', { day: 'numeric', month: 'long', weekday: 'short' })
+            groups.set(name, [...(groups.get(name) ?? []), due])
+          }
+          list.replaceChildren()
+          if (!groups.size) {
+            const none = list.appendChild(document.createElement('p'))
+            none.className = 'reminders-none'
+            none.textContent = 'Напоминаний нет. Допишите к задаче ⏰ 14:00 или (@2026-10-10 14:00).'
+          }
+          for (const [name, items] of groups) {
+            const title = list.appendChild(document.createElement('h4'))
+            title.className = name === 'Просрочено' ? 'overdue' : ''
+            title.textContent = name
+            for (const { task, at } of items) {
+              const row = list.appendChild(document.createElement('button'))
+              row.className = 'reminder-row'
+              row.title = task.path
+              const time = row.appendChild(document.createElement('span'))
+              time.className = 'reminder-time'
+              time.textContent = name === 'Просрочено' ? at.toLocaleString('ru', { day: 'numeric', month: 'short', hour: '2-digit', minute: '2-digit' }) : at.toLocaleTimeString('ru', { hour: '2-digit', minute: '2-digit' })
+              const text = row.appendChild(document.createElement('span'))
+              text.className = 'reminder-text'
+              text.append(renderInline(app, task.description, task.path))
+              row.onclick = (event) => {
+                if (!(event.target as Element).closest('a')) app.workspace.openFile(task.path, { line: task.line })
+              }
+              row.oncontextmenu = (event) => app.menus.show(event, 'task', task, [{ icon: 'pencil', title: 'Изменить задачу…', onClick: () => editTask(task) }])
+            }
+          }
+        }
+        draw()
+        const off = store.on('change', draw)
+        // Reminders move from "today" to "overdue" as time passes.
+        const timer = setInterval(draw, 60_000)
+        return () => {
+          off()
+          clearInterval(timer)
+        }
+      },
+    })
+
+    // ---- typing a reminder: after "(@" a list of times is offered
+    this.registerCompletionSource((context) => {
+      const match = context.matchBefore(/\(@[^)\n]*$/)
+      if (!match) return null
+      const closed = context.state.sliceDoc(context.pos, context.pos + 1) === ')'
+      const now = new Date()
+      const at = (days: number, hours: number, minutes = 0) => stamp(new Date(now.getFullYear(), now.getMonth(), now.getDate() + days, hours, minutes))
+      const typed = match.text.slice(2).trim()
+      const choices: [label: string, value: string][] = [
+        ['Через час', stamp(new Date(now.getTime() + 3_600_000))],
+        ['Сегодня вечером, 19:00', at(0, 19)],
+        ['Завтра утром, 09:00', at(1, 9)],
+        ['Завтра вечером, 19:00', at(1, 19)],
+        ['Послезавтра, 09:00', at(2, 9)],
+        ['Через неделю, 09:00', at(7, 9)],
+      ]
+      // What is typed may already be a time of its own: "14:30" means today at that time.
+      if (/^\d{1,2}:\d{2}$/.test(typed)) choices.unshift([`Сегодня, ${typed}`, at(0, Number(typed.split(':')[0]), Number(typed.split(':')[1]))])
+      return {
+        from: match.from + 2,
+        filter: false,
+        options: choices.map(([label, value], i) => ({
+          label,
+          detail: value,
+          boost: -i,
+          apply: (view: InstanceType<typeof cm.view.EditorView>, _c: unknown, from: number, to: number) =>
+            view.dispatch({ changes: { from, to, insert: closed ? value : `${value})` }, selection: { anchor: from + value.length + 1 }, userEvent: 'input.complete' }),
+        })),
+      }
+    })
+    this.addInsertCommand('insert-reminder', 'Вставить напоминание', '(@|)', 'bell')
 
     this.addCommand({
       id: 'new',
