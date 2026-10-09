@@ -29,7 +29,8 @@ export async function run(t) {
   })
   ok('image embed rendered', img?.width === 50 && img?.natural === 40, JSON.stringify(img))
   ok('tags rendered as pills', (await count('.lp-tag')) === 2)
-  ok('file list stays the first sidebar tab', (await t.flat(page.locator('aside.left .tabs'))) === 'Файлы Теги Поиск', await page.locator('aside.left .tabs').innerText())
+  const tabTitles = await page.locator('aside.left .widget-tab').evaluateAll((tabs) => tabs.map((tab) => tab.title))
+  ok('file list stays the first sidebar tab', JSON.stringify(tabTitles) === JSON.stringify(['Файлы', 'Теги', 'Поиск']), JSON.stringify(tabTitles))
   ok('backlinks of A', /Обратные ссылки\s*2/i.test(await backlinks()) && (await backlinks()).includes('Back to [[A]]') && (await backlinks()).includes('links [[A]] and [[B#B]]'), await backlinks())
 
   await page.locator(`${leaf} .lp-wikilink`, { hasText: /^B$/ }).click()

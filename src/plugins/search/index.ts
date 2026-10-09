@@ -11,6 +11,7 @@ export default class Search extends Plugin {
       id: PANEL,
       title: 'Поиск',
       side: 'left',
+      icon: 'M7 12A5 5 0 1 0 7 2a5 5 0 0 0 0 10zM11 11l3 3',
       mount: (target) => {
         const panel = mount(SearchPanel, { target, props: { app, panelId: PANEL } })
         return () => void unmount(panel)

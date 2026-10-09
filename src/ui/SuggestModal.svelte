@@ -9,6 +9,7 @@
   let dialog: HTMLDialogElement
   let query = $state('')
   let index = $state(0)
+  let chosen = false
 
   const results = $derived(options.items(query).slice(0, LIMIT))
   const creatable = $derived.by(() => {
@@ -21,6 +22,7 @@
   function choose(i: number) {
     const item = results[i]
     if (!item && !(creatable && i === results.length)) return
+    chosen = true
     dialog.close()
     if (item) options.onChoose(item)
     else options.onCreate!(creatable!)
@@ -41,7 +43,14 @@
   onMount(() => dialog.showModal())
 </script>
 
-<dialog bind:this={dialog} {onclose} {onkeydown} onclick={(event) => event.target === dialog && dialog.close()}>
+<dialog
+  bind:this={dialog}
+  onclose={() => {
+    if (!chosen) options.onCancel?.()
+    onclose()
+  }}
+  {onkeydown}
+  onclick={(event) => event.target === dialog && dialog.close()}>
   <input
     placeholder={options.placeholder}
     aria-label={options.placeholder}

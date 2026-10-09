@@ -105,6 +105,11 @@ export abstract class Plugin {
     this.register(this.app.workspace.registerView(type, creator, extensions))
   }
 
+  /** Offers something to other plugins under a name; see `Services`. */
+  provide(name: string, service: unknown): void {
+    this.register(this.app.services.provide(name, service))
+  }
+
   /** Declares the plugin's settings; they appear as a section of the settings screen. */
   addSettings(defs: SettingDef[]): void {
     const { id, name } = this.manifest

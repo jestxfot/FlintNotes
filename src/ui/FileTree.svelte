@@ -13,7 +13,6 @@
     children: Node[]
   }
 
-  const STORAGE_KEY = app.vault.storageKey('expanded')
   const collator = new Intl.Collator(undefined, { numeric: true, sensitivity: 'base' })
   const { vault, workspace } = app
 
@@ -21,25 +20,14 @@
   const activePath = watch(workspace, ['active-change', 'layout-change'], () => workspace.active?.path)
   const tree = $derived(build(entries.current))
 
-  const expanded = new SvelteSet<string>(readExpanded())
+  // Which folders are open is remembered with the vault.
+  const expanded = new SvelteSet<string>(app.state.get<string[]>('expanded', []))
   let renaming = $state<string | null>(null)
   let draft = $state('')
   let menu = $state<{ x: number; y: number; entry: VaultEntry | null } | null>(null)
 
-  function readExpanded(): string[] {
-    try {
-      return JSON.parse(localStorage.getItem(STORAGE_KEY) ?? '[]')
-    } catch {
-      return []
-    }
-  }
-
   $effect(() => {
-    try {
-      localStorage.setItem(STORAGE_KEY, JSON.stringify([...expanded]))
-    } catch {
-      // Remembering open folders is optional.
-    }
+    app.state.set('expanded', [...expanded])
   })
 
   onMount(() =>

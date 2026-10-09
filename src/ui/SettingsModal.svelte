@@ -79,6 +79,14 @@
                 if (!Number.isNaN(n)) set(Math.min(def.max ?? n, Math.max(def.min ?? n, n)))
               }}
             />
+          {:else if def.type === 'lines'}
+            <textarea
+              rows="4"
+              spellcheck="false"
+              placeholder={def.placeholder}
+              value={value<string>(section.id, def.key)}
+              onchange={(event) => set(event.currentTarget.value)}
+            ></textarea>
           {:else}
             <input
               type="text"
@@ -245,6 +253,17 @@
 
   input[type='number'] {
     width: 80px;
+  }
+
+  textarea {
+    flex: 0 0 55%;
+    padding: 6px 8px;
+    border: 1px solid var(--border);
+    border-radius: 6px;
+    background: var(--bg);
+    color: inherit;
+    font: 12.5px/1.5 var(--font-mono);
+    resize: vertical;
   }
 
   .switch {

@@ -58,7 +58,7 @@ export async function run(t) {
   await wait(600)
   ok('and opens the note behind the alias', (await t.activeTab()) === 'Other')
 
-  await page.locator('aside.left .tabs button', { hasText: 'Файлы' }).click()
+  await page.locator('aside.left .widget-tab[title="Файлы"]').click()
   await t.open('Draft')
   await page.keyboard.type(' [[Road')
   await wait(600)

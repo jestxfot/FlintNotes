@@ -9,6 +9,8 @@ import { MetadataCache } from './metadata'
 import { notice } from './notice'
 import { Panels } from './panels'
 import { PluginManager } from './plugin-manager'
+import { Services } from './services'
+import { VaultState } from './state'
 import { Settings, type SettingsSection } from './settings'
 import { StatusBar } from './status-bar'
 import type { SuggestOptions } from './suggest'
@@ -63,9 +65,11 @@ export class App {
   readonly livePreview = new LivePreview(this)
   readonly embeds = new Embeds()
   readonly statusBar = new StatusBar()
-  readonly panels = new Panels()
+  readonly state = new VaultState(this.vault)
+  readonly panels = new Panels(this.state)
   readonly workspace = new Workspace(this)
   readonly plugins = new PluginManager(this)
+  readonly services = new Services()
   readonly notice = notice
   /** Requests handled by the UI layer. */
   readonly ui = new Events<{ suggest: [options: SuggestOptions<any>] }>()
@@ -79,7 +83,8 @@ export class App {
   async init(): Promise<void> {
     // The file list and the settings do not depend on each other; plugin code is
     // requested as soon as the settings say which plugins are on.
-    await Promise.all([this.vault.load(), this.settings.load().then(() => this.plugins.preload())])
+    await Promise.all([this.vault.load(), this.state.load(), this.settings.load().then(() => this.plugins.preload())])
+    this.panels.init()
     this.settings.addSection(coreSettings)
     this.metadata.init()
     this.livePreview.init()

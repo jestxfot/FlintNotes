@@ -8,6 +8,7 @@
   import HelpModal from './HelpModal.svelte'
   import MainMenu from './MainMenu.svelte'
   import VaultsModal from './VaultsModal.svelte'
+  import { drag } from './drag.svelte'
   import { watch } from './reactive.svelte'
   import SettingsModal from './SettingsModal.svelte'
   import Sidebar from './Sidebar.svelte'
@@ -24,7 +25,7 @@
   const { workspace, settings } = app
   const tabs = watch(workspace, ['layout-change'], () => workspace.leaves.map(({ id, path, title }) => ({ id, path, title })))
   const activeId = watch(workspace, ['active-change'], () => workspace.active?.id ?? null)
-  const hasRightPanels = watch(app.panels, ['change'], () => app.panels.list('right').length > 0)
+  const hasRightPanels = watch(app.panels, ['change'], () => app.panels.has('right'))
   const theme = watch(settings, ['change'], () => settings.get<string>('core', 'theme'))
   const fontSize = watch(settings, ['change'], () => settings.get<number>('core', 'fontSize'))
   const readableWidth = watch(settings, ['change'], () => settings.get<boolean>('core', 'readableWidth'))
@@ -77,13 +78,14 @@
     const offs = [
       app.ui.on('suggest', (options) => (suggest = options)),
       app.panels.on('reveal', (id) => {
-        if (app.panels.list('left').some((p) => p.def.id === id)) leftOpen = true
+        if (app.panels.sideOf(id) === 'left') leftOpen = true
         else rightOpen = true
       }),
       app.panels.add({
         id: 'files',
         title: 'Файлы',
         side: 'left',
+        icon: 'M2 4.5h4l1.5 1.5H14v6.5H2z',
         mount: (target) => {
           const tree = mount(FileTree, { target })
           return () => void unmount(tree)
@@ -129,7 +131,11 @@
     ]
     // Capture phase: app shortcuts take priority over the focused editor's keymap.
     const onKey = (event: KeyboardEvent) => void app.commands.handleKey(event)
-    const onHide = () => document.visibilityState === 'hidden' && void workspace.flushAll(true)
+    const onHide = () => {
+      if (document.visibilityState !== 'hidden') return
+      void workspace.flushAll(true)
+      void app.state.flush(true)
+    }
     window.addEventListener('keydown', onKey, true)
     document.addEventListener('visibilitychange', onHide)
     return () => {
@@ -185,7 +191,8 @@
     <div use:host={app.statusBar.el}></div>
   </main>
 
-  {#if rightOpen && hasRightPanels.current}
+  <!-- An empty right sidebar appears while a widget is dragged, so it can be dropped there. -->
+  {#if rightOpen && (hasRightPanels.current || drag.panel)}
     <Sidebar side="right" />
   {/if}
 </div>

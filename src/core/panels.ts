@@ -1,13 +1,19 @@
 import { Events, type Off } from './events'
+import type { VaultState } from './state'
 
 export type Side = 'left' | 'right'
 
-/** A panel in one of the sidebars. */
+/** A widget of a sidebar: the file list, search, the calendar, ... */
 export interface PanelDef {
   id: string
   title: string
+  /** The sidebar it appears in until the user moves it. */
   side: Side
-  /** Builds the panel inside `el`; the returned function tears it down. */
+  /** Path data of a 16x16 outline icon for its tab. */
+  icon?: string
+  /** A widget that is as tall as its content (a calendar) instead of filling the space. */
+  compact?: boolean
+  /** Builds the widget inside `el`; the returned function tears it down. */
   mount(el: HTMLElement): Off | void
 }
 
@@ -17,59 +23,134 @@ export interface PanelEntry {
   key: number
 }
 
+/** Widgets stacked in one block of a sidebar; one of them shows at a time. */
+export interface PanelGroup {
+  /** Position in the stored layout; pass it to `move`. */
+  index: number
+  entries: PanelEntry[]
+  active: string
+}
+
+interface StoredGroup {
+  tabs: string[]
+  active?: string
+}
+
+type Layout = Record<Side, StoredGroup[]>
+
 type PanelEvents = {
   change: []
-  /** A panel was brought to the front; its sidebar should open. */
+  /** A widget was brought to the front; its sidebar should open. */
   reveal: [id: string]
 }
 
-const STORAGE_KEY = 'flint:panels'
-
+/**
+ * The widgets of both sidebars and where each one sits. Any widget can be moved
+ * to either side, into any block, or into a block of its own. The layout also
+ * remembers widgets of plugins that are switched off, so they return to their
+ * place when switched on again.
+ */
 export class Panels extends Events<PanelEvents> {
-  private entries: PanelEntry[] = []
-  private activeIds: Partial<Record<Side, string>> = {}
+  private entries = new Map<string, PanelEntry>()
+  private layout: Layout = { left: [], right: [] }
   private nextKey = 1
 
-  constructor() {
+  constructor(private state: VaultState) {
     super()
-    try {
-      this.activeIds = JSON.parse(localStorage.getItem(STORAGE_KEY) ?? '{}')
-    } catch {
-      // Remembering the open panel is optional.
-    }
+  }
+
+  /** Reads the saved layout. Called once the vault's state has been loaded. */
+  init(): void {
+    const saved = this.state.get<Partial<Layout>>('layout', {})
+    const groups = (list: unknown): StoredGroup[] =>
+      Array.isArray(list) ? list.filter((g) => Array.isArray(g?.tabs)).map((g) => ({ tabs: g.tabs.map(String), active: g.active })) : []
+    this.layout = { left: groups(saved.left), right: groups(saved.right) }
   }
 
   add(def: PanelDef): Off {
     const entry = { def, key: this.nextKey++ }
-    this.entries.push(entry)
+    this.entries.set(def.id, entry)
+    if (!this.locate(def.id)) {
+      // New to the layout: it joins the first block of its own side.
+      const side = this.layout[def.side]
+      if (side.length) side[0].tabs.push(def.id)
+      else side.push({ tabs: [def.id] })
+    }
     this.trigger('change')
     return () => {
-      this.entries.splice(this.entries.indexOf(entry), 1)
+      if (this.entries.get(def.id) === entry) this.entries.delete(def.id)
       this.trigger('change')
     }
   }
 
-  list(side: Side): PanelEntry[] {
-    return this.entries.filter((entry) => entry.def.side === side)
+  /** Number of widgets currently available. */
+  count(): number {
+    return this.entries.size
   }
 
-  /** Id of the panel shown on a side: the last chosen one, or the first. */
-  active(side: Side): string | undefined {
-    const panels = this.list(side)
-    return (panels.find((p) => p.def.id === this.activeIds[side]) ?? panels[0])?.def.id
+  has(side: Side): boolean {
+    return this.groups(side).length > 0
   }
 
-  /** Shows the panel and opens its sidebar. */
+  sideOf(id: string): Side | undefined {
+    return this.locate(id)?.side
+  }
+
+  /** The blocks of a sidebar, top to bottom, with the widgets that exist right now. */
+  groups(side: Side): PanelGroup[] {
+    return this.layout[side]
+      .map((group, index) => {
+        const entries = group.tabs.map((id) => this.entries.get(id)).filter((entry): entry is PanelEntry => !!entry)
+        const active = entries.find((entry) => entry.def.id === group.active) ?? entries[0]
+        return { index, entries, active: active?.def.id ?? '' }
+      })
+      .filter((group) => group.entries.length > 0)
+  }
+
+  /** Shows the widget in its block and opens its sidebar. */
   reveal(id: string): void {
-    const entry = this.entries.find((e) => e.def.id === id)
-    if (!entry) return
-    this.activeIds[entry.def.side] = id
-    try {
-      localStorage.setItem(STORAGE_KEY, JSON.stringify(this.activeIds))
-    } catch {
-      // See the constructor.
-    }
-    this.trigger('change')
+    const found = this.locate(id)
+    if (!found || !this.entries.has(id)) return
+    found.group.active = id
+    this.save()
     this.trigger('reveal', id)
+  }
+
+  /**
+   * Moves a widget. With `group` it joins that block of `side` at position
+   * `at`; with `group: null` it gets a block of its own, inserted before the
+   * block at index `at` (or last).
+   */
+  move(id: string, side: Side, group: number | null, at: number): void {
+    const from = this.locate(id)
+    if (!from) return
+    const target = group === null ? null : this.layout[side][group]
+    // Positions are counted with the widget still in place.
+    if (target === from.group && from.group.tabs.indexOf(id) < at) at--
+    from.group.tabs.splice(from.group.tabs.indexOf(id), 1)
+    if (from.group.active === id) from.group.active = undefined
+    if (target) {
+      target.tabs.splice(Math.max(0, at), 0, id)
+      target.active = id
+    } else {
+      const anchor = this.layout[side][at]
+      const fresh = { tabs: [id], active: id }
+      const index = anchor ? this.layout[side].indexOf(anchor) : this.layout[side].length
+      this.layout[side].splice(index, 0, fresh)
+    }
+    for (const s of ['left', 'right'] as const) this.layout[s] = this.layout[s].filter((g) => g.tabs.length > 0)
+    this.save()
+  }
+
+  private locate(id: string): { side: Side; group: StoredGroup } | undefined {
+    for (const side of ['left', 'right'] as const) {
+      const group = this.layout[side].find((g) => g.tabs.includes(id))
+      if (group) return { side, group }
+    }
+  }
+
+  private save(): void {
+    this.state.set('layout', this.layout)
+    this.trigger('change')
   }
 }

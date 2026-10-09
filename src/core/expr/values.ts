@@ -1,3 +1,5 @@
+import { moment } from '../moment'
+
 /** A span of time: whole months (which vary in length) plus milliseconds. */
 export class Duration {
   constructor(
@@ -108,24 +110,8 @@ export function addDuration(date: Date, duration: Duration, sign = 1): Date {
   return new Date(result.getTime() + sign * duration.ms)
 }
 
-const pad = (n: number, length = 2) => String(n).padStart(length, '0')
-
-/** Formats a date with `YYYY MM DD HH mm ss` style tokens. */
-export function formatDate(date: Date, format: string): string {
-  const parts: Record<string, string> = {
-    YYYY: pad(date.getFullYear(), 4),
-    YY: pad(date.getFullYear() % 100),
-    MM: pad(date.getMonth() + 1),
-    M: String(date.getMonth() + 1),
-    DD: pad(date.getDate()),
-    D: String(date.getDate()),
-    HH: pad(date.getHours()),
-    H: String(date.getHours()),
-    mm: pad(date.getMinutes()),
-    ss: pad(date.getSeconds()),
-  }
-  return format.replace(/YYYY|YY|MM|M|DD|D|HH|H|mm|ss/g, (token) => parts[token])
-}
+/** Formats a date with moment.js tokens (`YYYY-MM-DD`, `dddd`, `D MMMM`, ...). */
+export const formatDate = (date: Date, format: string): string => moment(date).format(format)
 
 /** `2026-10-09`, with the time appended unless it is midnight. */
 export function isoDate(date: Date): string {

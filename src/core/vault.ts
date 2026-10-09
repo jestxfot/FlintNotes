@@ -68,11 +68,6 @@ export class Vault extends Events<VaultEvents> {
     return (await request('/api/vaults/forget', json({ path }))).json()
   }
 
-  /** A key for browser storage that is separate for every vault. */
-  storageKey(name: string): string {
-    return `flint:${name}:${this.path}`
-  }
-
   get(path: string): VaultEntry | undefined {
     return this.entries.get(path)
   }

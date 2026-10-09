@@ -13,6 +13,8 @@ export type SettingDef = SettingBase &
   (
     | { type: 'toggle'; default: boolean }
     | { type: 'text'; default: string; placeholder?: string }
+    /** Several lines of text, one item or rule per line. */
+    | { type: 'lines'; default: string; placeholder?: string }
     | { type: 'number'; default: number; min?: number; max?: number; step?: number }
     | { type: 'select'; default: string; options: { value: string; label: string }[] }
   )

@@ -55,6 +55,7 @@ export default class Tags extends Plugin {
       id: PANEL,
       title: 'Теги',
       side: 'left',
+      icon: 'M2 2.5h5.5L14 9l-5 5-6.5-6.5zM5 5.5v.1',
       mount: (target) => {
         const panel = mount(TagsPanel, { target, props: { app, selection } })
         return () => void unmount(panel)
