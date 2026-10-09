@@ -4,6 +4,7 @@ import chokidar from 'chokidar'
 import { Hono, type Context } from 'hono'
 import { HTTPException } from 'hono/http-exception'
 import { streamSSE } from 'hono/streaming'
+import { spawn } from 'node:child_process'
 import { existsSync, type Stats } from 'node:fs'
 import fs from 'node:fs/promises'
 import path from 'node:path'
@@ -234,6 +235,14 @@ if (existsSync('dist')) {
 }
 
 serve({ fetch: app.fetch, port, hostname: '127.0.0.1' }, () => {
-  console.log(`FlintNotes: http://localhost:${port}`)
+  const url = `http://localhost:${port}`
+  console.log(`FlintNotes: ${url}`)
   console.log(`Хранилище: ${root}${usePolling ? ' (опрос изменений)' : ''}`)
+  if (!existsSync('dist')) console.log('Приложение не собрано: выполните `npm run build` или запустите `npm run dev`.')
+  // The launchers set FLINT_OPEN so the app appears in the browser once it is ready.
+  if (process.env.FLINT_OPEN) {
+    const [command, args] =
+      process.platform === 'win32' ? ['cmd', ['/c', 'start', '', url]] : process.platform === 'darwin' ? ['open', [url]] : ['xdg-open', [url]]
+    spawn(command, args, { stdio: 'ignore', detached: true }).on('error', () => {})
+  }
 })
