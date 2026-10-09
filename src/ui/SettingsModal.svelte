@@ -14,6 +14,7 @@
   const CORE_PAGES: [name: string, icon: string][] = [
     [GENERAL, 'circle-user'],
     ['Оформление', 'palette'],
+    ['Интерфейс', 'monitor'],
     ['Редактор', 'pencil'],
     ['Файлы и ссылки', 'folder-open'],
   ]
@@ -45,13 +46,20 @@
   interface Card {
     scope: string
     title: string
+    /** A page's own heading is shown once; panels under it carry the names of their sections. */
+    heading: string
     defs: SettingDef[]
+  }
+  /** Splits a page into panels, one per section named by its settings, in the order they first appear. */
+  const panels = (scope: string, title: string, defs: SettingDef[]): Card[] => {
+    const names = [...new Set(defs.map((def) => def.section ?? ''))]
+    return names.map((name) => ({ scope, title, heading: name, defs: defs.filter((def) => (def.section ?? '') === name) }))
   }
   /** What the right side shows: the chosen page, or every setting that matches the search. */
   const cards = $derived.by((): Card[] => {
     const all: Card[] = [
-      ...CORE_PAGES.map(([name]) => ({ scope: 'core', title: name, defs: core?.defs.filter((def) => (def.group ?? GENERAL) === name) ?? [] })),
-      ...pluginSections.map((s) => ({ scope: s.id, title: s.title, defs: s.defs })),
+      ...CORE_PAGES.flatMap(([name]) => panels('core', name, core?.defs.filter((def) => (def.group ?? GENERAL) === name) ?? [])),
+      ...pluginSections.flatMap((s) => panels(s.id, s.title, s.defs)),
     ]
     if (query.trim()) return all.map((card) => ({ ...card, defs: card.defs.filter((def) => matches(def.name) || matches(def.desc) || matches(card.title)) })).filter((card) => card.defs.length)
     return all.filter((card) => (card.scope === 'core' ? card.title === tab : card.scope === tab))
@@ -133,8 +141,9 @@
     <button class="close" aria-label="Закрыть" onclick={() => dialog.close()}>×</button>
 
     {#if page === 'cards' || page === 'search'}
-      {#each cards as card (card.scope + card.title)}
-        <h2>{card.title}</h2>
+      {#each cards as card, i (card.scope + card.title + card.heading)}
+        {#if i === 0 || cards[i - 1].title !== card.title || cards[i - 1].scope !== card.scope}<h2>{card.title}</h2>{/if}
+        {#if card.heading}<h3>{card.heading}</h3>{/if}
         <div class="card">
           {#each card.defs as def (def.key)}
             {@const set = (v: unknown) => settings.set(card.scope, def.key, v)}
@@ -330,6 +339,11 @@
 
   h2:first-of-type {
     margin-top: 2px;
+  }
+
+  h3 {
+    margin: 22px 4px 10px;
+    font-size: 15px;
   }
 
   .hint {

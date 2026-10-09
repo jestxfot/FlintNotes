@@ -134,6 +134,20 @@ export async function run(t) {
   await t.cursorToEnd()
   await prop('link').locator('a.inline-link, input.props-value').first().waitFor()
 
+  // ---- the menu of a property
+  await t.open('Linked')
+  await prop('site').locator('.props-icon').click({ button: 'right' })
+  await page.locator('.menu button', { hasText: 'Тип свойства' }).hover()
+  await wait(300)
+  ok('a property has a menu with its type, the clipboard and deleting', /Тип свойства.*Вырезать.*Копировать.*Вставить.*Удалить/.test(await t.flat(page.locator('.menu').first())) && (await t.flat(page.locator('.menu').nth(1))).includes('Дата и время'), await t.flat(page.locator('.menu').first()))
+  await page.locator('.menu').nth(1).locator('button', { hasText: 'Список' }).click()
+  await wait(900)
+  ok('the type is changed from the menu', read('Linked.md').includes('site:\n  - https://example.com') || read('Linked.md').includes('site: [https://example.com]'), read('Linked.md'))
+  await prop('site').locator('.props-icon').click({ button: 'right' })
+  await page.locator('.menu button', { hasText: 'Удалить' }).click()
+  await wait(900)
+  ok('and the property deleted', !read('Linked.md').includes('site'))
+
   // ---- the inline title renames the note
   await t.open('Plain')
   await title.click()

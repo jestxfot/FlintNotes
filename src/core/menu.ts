@@ -26,6 +26,8 @@ type Provider = (target: any, add: (item: MenuItem) => void) => void
  */
 export class Menus extends Events<{ show: [menu: { x: number; y: number; items: MenuItem[] }] }> {
   private providers = new Map<string, Provider[]>()
+  /** Whether the user asked for the browser's menus instead of the app's; set by the core from the settings. */
+  native: () => boolean = () => false
 
   /** Adds items to every menu of the kind. `target` is what the menu is for (a file entry, a tag name, ...). */
   register(kind: string, provider: Provider): Off {
@@ -37,8 +39,8 @@ export class Menus extends Events<{ show: [menu: { x: number; y: number; items: 
   show(event: MouseEvent | { x: number; y: number }, kind: string, target: unknown, items: MenuItem[] = []): boolean {
     const all = [...items]
     for (const provider of this.providers.get(kind) ?? []) provider(target, (item) => all.push({ section: 'plugin', ...item }))
-    // With nothing to offer, the browser's own menu is left alone.
-    if (!all.length) return false
+    // With nothing to offer, or when the user prefers it, the browser's own menu is left alone.
+    if (!all.length || (this.native() && event instanceof MouseEvent)) return false
     if (event instanceof MouseEvent) {
       event.preventDefault()
       event.stopPropagation()

@@ -1,23 +1,27 @@
 import { isMap, isScalar, parseDocument, type Document } from 'yaml'
 import { renderInline, setYamlValue, type CodeBlockContext, type CodeBlockInstance } from '../../api'
 
-type Kind = 'text' | 'number' | 'checkbox' | 'date' | 'list'
+type Kind = 'text' | 'number' | 'checkbox' | 'date' | 'datetime' | 'list'
 
 const KINDS: { kind: Kind; label: string }[] = [
   { kind: 'text', label: 'Текст' },
   { kind: 'number', label: 'Число' },
   { kind: 'checkbox', label: 'Флажок' },
   { kind: 'date', label: 'Дата' },
+  { kind: 'datetime', label: 'Дата и время' },
   { kind: 'list', label: 'Список' },
 ]
 
 const DATE = /^\d{4}-\d{2}-\d{2}$/
+const DATETIME = /^\d{4}-\d{2}-\d{2}[T ]\d{2}:\d{2}(:\d{2})?$/
+const KIND_ICONS: Record<Kind, string> = { text: 'align-left', number: 'binary', checkbox: 'square-check', date: 'calendar', datetime: 'clock', list: 'list' }
 const BLOCK = /^---[ \t]*\r?\n([\s\S]*?)\r?\n?(?:---|\.\.\.)[ \t]*$/
 
 function kindOf(value: unknown): Kind {
   if (typeof value === 'boolean') return 'checkbox'
   if (typeof value === 'number') return 'number'
   if (Array.isArray(value)) return 'list'
+  if (typeof value === 'string' && DATETIME.test(value)) return 'datetime'
   return typeof value === 'string' && DATE.test(value) ? 'date' : 'text'
 }
 
@@ -26,7 +30,8 @@ function convert(value: unknown, kind: Kind): unknown {
   const text = Array.isArray(value) ? value.join(', ') : value === null || value === undefined ? '' : String(value)
   if (kind === 'checkbox') return value === true || /^(true|yes|да|1)$/i.test(text)
   if (kind === 'number') return Number.isNaN(Number(text.replace(',', '.'))) || !text ? 0 : Number(text.replace(',', '.'))
-  if (kind === 'date') return DATE.test(text) ? text : new Date().toISOString().slice(0, 10)
+  if (kind === 'date') return DATE.test(text) ? text : DATETIME.test(text) ? text.slice(0, 10) : new Date().toISOString().slice(0, 10)
+  if (kind === 'datetime') return DATETIME.test(text) ? text : `${DATE.test(text) ? text : new Date().toISOString().slice(0, 10)}T00:00`
   if (kind === 'list') return Array.isArray(value) ? value : text ? text.split(',').map((item) => item.trim()).filter(Boolean) : []
   return text
 }
@@ -80,9 +85,62 @@ export function propertiesForm(source: string, root: HTMLElement, ctx: CodeBlock
 
       // The property's icon, its own or one for its type; a right click on it opens the property's menu.
       const look = ctx.app.icons.look('property', key)
-      const icon = row.appendChild(ctx.app.icons.draw(look?.icon ?? (key === 'tags' ? 'tags' : Array.isArray(value) ? 'list' : 'align-left'), look?.color))
+      const icon = row.appendChild(ctx.app.icons.draw(look?.icon ?? (key === 'tags' ? 'tags' : KIND_ICONS[kind]), look?.color))
       icon.classList.add('props-icon')
-      icon.oncontextmenu = (event) => ctx.app.menus.show(event, 'property', key)
+      // The property's menu: its type, the clipboard, deleting; plugins add theirs (an icon, say).
+      const setType = (next: Kind) => {
+        setYamlValue(doc, key, convert(value, next))
+        save()
+      }
+      const copy = () => navigator.clipboard.writeText(`${key}: ${typeof value === 'string' ? value : JSON.stringify(value)}`).catch(() => {})
+      const menu = (event: MouseEvent) =>
+        ctx.app.menus.show(event, 'property', key, [
+          { section: 'new', icon: 'info', title: 'Тип свойства', submenu: KINDS.map(({ kind: k, label }) => ({ icon: k === kind ? 'check' : KIND_ICONS[k], title: label, onClick: () => setType(k) })) },
+          {
+            section: 'copy',
+            icon: 'scissors',
+            title: 'Вырезать',
+            onClick: () => {
+              void copy()
+              doc.delete(key)
+              save()
+            },
+          },
+          { section: 'copy', icon: 'copy', title: 'Копировать', onClick: () => void copy() },
+          {
+            section: 'copy',
+            icon: 'clipboard-paste',
+            title: 'Вставить',
+            onClick: async () => {
+              // A copied property is `name: value`; pasted, it becomes a property of this note.
+              const pasted = /^([^:\n]+):\s*([\s\S]*)$/.exec((await navigator.clipboard.readText().catch(() => '')).trim())
+              if (!pasted) return ctx.app.notice('В буфере нет свойства вида «имя: значение»')
+              let parsed: unknown = pasted[2]
+              try {
+                parsed = JSON.parse(pasted[2])
+              } catch {
+                // Not JSON: the value is the text itself.
+              }
+              setYamlValue(doc, pasted[1].trim(), parsed)
+              save()
+            },
+          },
+          {
+            section: 'danger',
+            icon: 'trash',
+            title: 'Удалить',
+            danger: true,
+            onClick: () => {
+              doc.delete(key)
+              save()
+            },
+          },
+        ])
+      icon.oncontextmenu = menu
+      row.oncontextmenu = (event) => {
+        // In a field the browser's own menu (paste, spelling) is the useful one.
+        if (!(event.target instanceof HTMLInputElement) || event.target.classList.contains('props-name')) menu(event)
+      }
 
       const name = row.appendChild(el('input', 'props-name'))
       name.value = key
@@ -159,10 +217,10 @@ export function propertiesForm(source: string, root: HTMLElement, ctx: CodeBlock
       input.onchange = () => set(input.value)
       return shown
     }
-    input.type = kind === 'date' ? 'date' : kind === 'number' ? 'number' : 'text'
+    input.type = kind === 'date' ? 'date' : kind === 'datetime' ? 'datetime-local' : kind === 'number' ? 'number' : 'text'
     if (kind === 'number') input.step = 'any'
     input.placeholder = 'Нет значения'
-    input.value = value === null || value === undefined ? '' : typeof value === 'object' ? JSON.stringify(value) : String(value)
+    input.value = value === null || value === undefined ? '' : typeof value === 'object' ? JSON.stringify(value) : kind === 'datetime' ? String(value).replace(' ', 'T') : String(value)
     // Nested data cannot be edited as one line of text; it stays readable here and editable in the source.
     input.readOnly = typeof value === 'object' && value !== null
     input.onchange = () => set(kind === 'number' ? (input.value === '' ? null : Number(input.value)) : input.value)

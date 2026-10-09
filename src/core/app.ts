@@ -9,6 +9,8 @@ import { MetadataCache } from './metadata'
 import { notice } from './notice'
 import { Panels } from './panels'
 import { PluginManager } from './plugin-manager'
+import type { Extension } from '@codemirror/state'
+import { EditorView } from '@codemirror/view'
 import { DockedNotes } from './docked'
 import { autoPairs } from './editor/pairs'
 import { Icons } from './icons'
@@ -27,8 +29,10 @@ const coreSettings: SettingsSection = {
   id: 'core',
   title: 'Основные',
   defs: [
+    // ---- Оформление
     {
-      key: 'theme', group: 'Оформление',
+      key: 'theme',
+      group: 'Оформление',
       name: 'Тема',
       type: 'select',
       default: 'system',
@@ -38,41 +42,90 @@ const coreSettings: SettingsSection = {
         { value: 'dark', label: 'Тёмная' },
       ],
     },
-    { key: 'autoPair', group: 'Редактор', name: 'Закрывать скобки и кавычки', desc: 'Открывающая скобка или кавычка сразу получает закрывающую; выделенный текст оборачивается', type: 'toggle', default: true },
+    { key: 'fontSize', group: 'Оформление', name: 'Размер шрифта', desc: 'Меняется и колёсиком мыши с зажатым Ctrl', type: 'number', default: 16, min: 10, max: 32, step: 1 },
+
+    // ---- Интерфейс
+    { key: 'viewHeader', group: 'Интерфейс', name: 'Строка заголовка', desc: 'Строка над заметкой с кнопками «назад» и «вперёд» и путём к файлу', type: 'toggle', default: true },
+    { key: 'ribbon', group: 'Интерфейс', name: 'Вертикальная панель', desc: 'Полосы кнопок по краям окна (их наполняет плагин «Быстрые кнопки и команды»)', type: 'toggle', default: true },
+    { key: 'zoom', group: 'Интерфейс', section: 'Расширенные', name: 'Уровень масштабирования, %', desc: 'Общий масштаб приложения', type: 'number', default: 100, min: 50, max: 200, step: 5 },
+    { key: 'nativeMenu', group: 'Интерфейс', section: 'Расширенные', name: 'Системное контекстное меню', desc: 'По правому щелчку показывать меню браузера, а не приложения', type: 'toggle', default: false },
+
+    // ---- Редактор
     {
-      key: 'editorMode', group: 'Редактор',
-      name: 'Режим редактора',
+      key: 'editorMode',
+      group: 'Редактор',
+      name: 'Режим редактора по умолчанию',
       desc: 'Live Preview показывает оформление прямо в тексте и раскрывает разметку под курсором',
       type: 'select',
       default: 'live',
       options: [
-        { value: 'live', label: 'Live Preview' },
+        { value: 'live', label: 'Динамический просмотр' },
         { value: 'source', label: 'Исходный текст' },
       ],
     },
-    { key: 'fontSize', group: 'Оформление', name: 'Размер шрифта', desc: 'Меняется и колёсиком мыши с зажатым Ctrl', type: 'number', default: 16, min: 10, max: 32, step: 1 },
+    { key: 'inlineTitle', group: 'Редактор', section: 'Отображение', name: 'Встроенный заголовок', desc: 'Имя файла как заголовок над текстом; его правка переименовывает заметку', type: 'toggle', default: true },
+    { key: 'readableWidth', group: 'Редактор', section: 'Отображение', name: 'Ограничить максимальную длину строки', desc: 'Длинные абзацы читать удобнее, но на экране помещается меньше', type: 'toggle', default: true },
     {
-      key: 'obsidianConfig', group: 'Файлы и ссылки',
-      name: 'Папка настроек Obsidian',
-      desc: 'Откуда плагины берут настройки Obsidian (шаблоны, ежедневные заметки). Пусто — папка с app.json, в которой Obsidian работал последним; иначе её имя, например .obsidian',
-      type: 'text',
-      default: '',
-      placeholder: 'сама',
+      key: 'properties',
+      group: 'Редактор',
+      section: 'Отображение',
+      name: 'Свойства в документе',
+      desc: 'Показывать ли блок свойств в начале заметки (рисует его плагин «Свойства»)',
+      type: 'select',
+      default: 'visible',
+      options: [
+        { value: 'visible', label: 'Видимый' },
+        { value: 'hidden', label: 'Скрытый' },
+      ],
     },
+    { key: 'spellcheck', group: 'Редактор', section: 'Режим работы', name: 'Проверять орфографию', desc: 'Подчёркивает слова с ошибками средствами браузера', type: 'toggle', default: false },
+    { key: 'autoPair', group: 'Редактор', section: 'Режим работы', name: 'Закрывать скобки и кавычки', desc: 'Открывающая скобка или кавычка сразу получает закрывающую; выделенный текст оборачивается', type: 'toggle', default: true },
+
+    // ---- Файлы и ссылки
     {
-      key: 'reuseTab', group: 'Файлы и ссылки',
+      key: 'reuseTab',
+      group: 'Файлы и ссылки',
       name: 'Открывать заметки в текущей вкладке',
       desc: 'Заметка открывается на месте текущей; с зажатым Ctrl — в новой вкладке. Если выключить, каждая заметка открывается в своей вкладке',
       type: 'toggle',
       default: true,
     },
-    { key: 'inlineTitle', group: 'Оформление', name: 'Название заметки над текстом', desc: 'Правка названия переименовывает заметку', type: 'toggle', default: true },
     {
-      key: 'readableWidth', group: 'Оформление',
-      name: 'Удобная ширина строки',
-      desc: 'Ограничивает ширину текста в редакторе',
-      type: 'toggle',
-      default: true,
+      key: 'newNoteTab',
+      group: 'Файлы и ссылки',
+      name: 'Новую заметку открывать',
+      desc: 'Для команды «Новая заметка» и создания в списке файлов. Кнопка «+» в полосе вкладок всегда открывает новую вкладку',
+      type: 'select',
+      default: 'current',
+      options: [
+        { value: 'current', label: 'в текущей вкладке' },
+        { value: 'new', label: 'в новой вкладке' },
+      ],
+    },
+    {
+      key: 'newNoteLocation',
+      group: 'Файлы и ссылки',
+      name: 'Место для новых заметок',
+      desc: 'Куда попадает заметка, созданная командой или кнопкой «+»',
+      type: 'select',
+      default: 'root',
+      options: [
+        { value: 'root', label: 'Корень хранилища' },
+        { value: 'current', label: 'Папка открытой заметки' },
+        { value: 'folder', label: 'Указанная папка' },
+      ],
+    },
+    { key: 'newNoteFolder', group: 'Файлы и ссылки', name: 'Папка для новых заметок', desc: 'Используется, когда выше выбрана «Указанная папка»', type: 'text', default: '', placeholder: 'Заметки' },
+    { key: 'confirmDelete', group: 'Файлы и ссылки', name: 'Спрашивать перед удалением', desc: 'Удалённое в любом случае попадает в папку .trash хранилища', type: 'toggle', default: true },
+    {
+      key: 'obsidianConfig',
+      group: 'Файлы и ссылки',
+      section: 'Obsidian',
+      name: 'Папка настроек Obsidian',
+      desc: 'Откуда плагины берут настройки Obsidian (шаблоны, ежедневные заметки). Пусто — папка с app.json, в которой Obsidian работал последним; иначе её имя, например .obsidian',
+      type: 'text',
+      default: '',
+      placeholder: 'сама',
     },
   ],
 }
@@ -123,13 +176,18 @@ export class App {
     this.metadata.init()
     this.livePreview.init()
     this.embeds.on('change', () => this.livePreview.refresh())
-    // Brackets that close themselves, on or off without reopening anything.
-    let pairs = this.settings.get<boolean>('core', 'autoPair') ? this.editor.add(autoPairs) : null
-    this.settings.on('change', (scope, key) => {
-      if (scope !== 'core' || key !== 'autoPair') return
-      pairs?.()
-      pairs = this.settings.get<boolean>('core', 'autoPair') ? this.editor.add(autoPairs) : null
-    })
+    this.menus.native = () => this.settings.get<boolean>('core', 'nativeMenu')
+    // Editor behaviour that is switched in the settings takes effect at once, in every open note.
+    const switched = (key: string, extension: Extension) => {
+      let off = this.settings.get<boolean>('core', key) ? this.editor.add(extension) : null
+      this.settings.on('change', (scope, changed) => {
+        if (scope !== 'core' || changed !== key) return
+        off?.()
+        off = this.settings.get<boolean>('core', key) ? this.editor.add(extension) : null
+      })
+    }
+    switched('autoPair', autoPairs)
+    switched('spellcheck', EditorView.contentAttributes.of({ spellcheck: 'true' }))
     this.commands.add({
       id: 'core:toggle-editor-mode',
       name: 'Переключить Live Preview и исходный текст',

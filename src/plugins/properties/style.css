@@ -22,9 +22,9 @@
   border-radius: 6px;
 }
 
-/* The row being edited is outlined as a whole. */
+/* A thin line marks the row under the pointer; a firmer one, the row being edited. */
 .props-row:hover {
-  background: color-mix(in srgb, var(--bg-hover) 45%, transparent);
+  border-color: var(--border);
 }
 
 .props-row:focus-within {

@@ -2,7 +2,7 @@
   import { mount, onMount, unmount } from 'svelte'
   import { formatHotkey, type Command } from '../core/commands'
   import { errorMessage } from '../core/notice'
-  import { basename, extname, stripExt } from '../core/path'
+  import { basename, dirname, extname, stripExt } from '../core/path'
   import { app } from '../instance'
   import FileTree from './FileTree.svelte'
   import HelpModal from './HelpModal.svelte'
@@ -34,6 +34,12 @@
   const fontSize = watch(settings, ['change'], () => settings.get<number>('core', 'fontSize'))
   const readableWidth = watch(settings, ['change'], () => settings.get<boolean>('core', 'readableWidth'))
   const inlineTitle = watch(settings, ['change'], () => settings.get<boolean>('core', 'inlineTitle'))
+  const look = watch(settings, ['change'], () => ({
+    header: settings.get<boolean>('core', 'viewHeader'),
+    ribbon: settings.get<boolean>('core', 'ribbon'),
+    zoom: settings.get<number>('core', 'zoom'),
+    properties: settings.get<string>('core', 'properties'),
+  }))
   /** Folders and name of the open file, for the path shown above it. */
   const crumbs = watch(workspace, ['active-change', 'layout-change'], () => {
     const path = workspace.active?.path
@@ -55,6 +61,10 @@
   })
   $effect(() => {
     root.classList.toggle('no-inline-title', !inlineTitle.current)
+  })
+  $effect(() => {
+    root.classList.toggle('no-properties', look.current.properties === 'hidden')
+    root.style.zoom = look.current.zoom && look.current.zoom !== 100 ? String(look.current.zoom / 100) : ''
   })
 
   const title = (path: string) => (extname(path) === 'md' ? stripExt(basename(path)) : basename(path))
@@ -92,10 +102,23 @@
     if (leaves.length > 1 && active) workspace.setActive(leaves[(leaves.indexOf(active) + by + leaves.length) % leaves.length])
   }
 
-  async function newNote() {
+  /** The folder new notes go to, as chosen in the settings. */
+  function newNoteFolder(): string {
+    const where = settings.get<string>('core', 'newNoteLocation')
+    const active = workspace.active?.path
+    if (where === 'current' && active && !active.startsWith('view:')) return dirname(active)
+    return where === 'folder' ? settings.get<string>('core', 'newNoteFolder').trim().replace(/^\/+|\/+$/g, '') : ''
+  }
+
+  /** Makes a note and opens it. `inNewTab` is for the tab strip's "+", which always opens a tab of its own. */
+  async function newNote(inNewTab = false) {
     try {
-      const entry = await app.vault.create(app.vault.uniquePath('', 'Без названия', 'md'))
-      workspace.openFile(entry.path)
+      const folder = newNoteFolder()
+      if (folder && !app.vault.get(folder)) await app.vault.createFolder(folder)
+      const entry = await app.vault.create(app.vault.uniquePath(folder, 'Без названия', 'md'))
+      workspace.openFile(entry.path, inNewTab || settings.get<string>('core', 'newNoteTab') === 'new' ? { newTab: true } : {})
+      // The name is selected, ready to be typed over.
+      setTimeout(() => document.querySelector<HTMLInputElement>('.leaf:not([hidden]) .inline-title')?.select(), 250)
     } catch (err) {
       app.notice(`Не удалось создать заметку: ${errorMessage(err)}`)
     }
@@ -165,7 +188,7 @@
         hotkey: 'Mod+Shift+Backslash',
         callback: () => (rightOpen = !rightOpen),
       }),
-      app.commands.add({ id: 'core:new-note', name: 'Новая заметка', hotkey: 'Alt+N', callback: newNote }),
+      app.commands.add({ id: 'core:new-note', name: 'Новая заметка', hotkey: 'Alt+N', callback: () => void newNote() }),
       app.commands.add({
         id: 'core:close-tab',
         name: 'Закрыть вкладку',
@@ -193,7 +216,7 @@
           ['core:reveal-vault', 'Показать папку хранилища в проводнике', 'folder-open', () => void app.vault.reveal('').catch((err) => app.notice(errorMessage(err)))],
           ['core:copy-path', 'Копировать путь открытого файла', 'clipboard', () => withFile((path) => void navigator.clipboard.writeText(path).then(() => app.notice('Скопировано')))],
           ['core:rename-active', 'Переименовать открытую заметку', 'pencil', () => document.querySelector<HTMLInputElement>('.leaf:not([hidden]) .inline-title')?.select()],
-          ['core:delete-active', 'Удалить открытый файл', 'trash', () => withFile((path) => confirm(`Переместить «${basename(path)}» в корзину?`) && void app.vault.trash(path).catch((err) => app.notice(errorMessage(err))))],
+          ['core:delete-active', 'Удалить открытый файл', 'trash', () => withFile((path) => (!settings.get<boolean>('core', 'confirmDelete') || confirm(`Переместить «${basename(path)}» в корзину?`)) && void app.vault.trash(path).catch((err) => app.notice(errorMessage(err))))],
           ['core:dock-active', 'Перенести открытую заметку в боковую панель', 'panel-right', () => withFile((path) => app.docked.dock(path, 'right'))],
           ['core:toggle-theme', 'Переключить светлую и тёмную тему', 'sun-moon', () => settings.set('core', 'theme', (root.dataset.theme ?? (matchMedia('(prefers-color-scheme: dark)').matches ? 'dark' : 'light')) === 'dark' ? 'light' : 'dark')],
           ['core:font-bigger', 'Увеличить шрифт заметки', 'a-arrow-up', () => stepFont(1)],
@@ -227,7 +250,7 @@
 </script>
 
 <div class="app">
-  {#if ribbons.current.left}<Toolbar place="left-ribbon" vertical />{/if}
+  {#if ribbons.current.left && look.current.ribbon}<Toolbar place="left-ribbon" vertical />{/if}
   {#if leftOpen}
     <Sidebar side="left">
       {#snippet footer()}
@@ -270,7 +293,7 @@
             </button>
           </div>
         {/each}
-        <button class="bar-button" title="Создать заметку" aria-label="Создать заметку" onclick={newNote}>
+        <button class="bar-button" title="Новая вкладка с новой заметкой" aria-label="Новая вкладка" onclick={() => newNote(true)}>
           <svg viewBox="0 0 16 16" aria-hidden="true"><path d="M8 3v10M3 8h10" /></svg>
         </button>
       </div>
@@ -279,7 +302,7 @@
         <svg viewBox="0 0 16 16" aria-hidden="true"><rect x="1.5" y="2.5" width="13" height="11" rx="2" /><path d="M10 2.5v11" /></svg>
       </button>
     </div>
-    {#if crumbs.current.length}
+    {#if crumbs.current.length && look.current.header}
       <div class="view-header">
         <button class="bar-button" title="Назад" aria-label="Назад" onclick={() => history.back()}>
           <svg viewBox="0 0 16 16" aria-hidden="true"><path d="M13 8H3M7 4L3 8l4 4" /></svg>
@@ -301,7 +324,7 @@
       {#if !tabs.current.length}
         <div class="empty">
           <p>Откройте заметку в боковой панели</p>
-          <button onclick={newNote}>Новая заметка <kbd>Alt+N</kbd></button>
+          <button onclick={() => newNote()}>Новая заметка <kbd>Alt+N</kbd></button>
           <button onclick={openPalette}>Палитра команд <kbd>Ctrl+P</kbd></button>
         </div>
       {/if}
@@ -314,7 +337,7 @@
   {#if rightOpen && (hasRightPanels.current || drag.panel || drag.note)}
     <Sidebar side="right" />
   {/if}
-  {#if ribbons.current.right}<Toolbar place="right-ribbon" vertical />{/if}
+  {#if ribbons.current.right && look.current.ribbon}<Toolbar place="right-ribbon" vertical />{/if}
 </div>
 
 {#if settingsOpen}

@@ -145,6 +145,21 @@ export async function run(t) {
   await wait(600)
   ok('Ctrl+click follows a link shown as written, into a new tab', (await t.count('.tab')) === 3 && (await t.activeTab()) === 'Dune', `${await t.count('.tab')} ${await t.activeTab()}`)
 
+  // The "+" of the tab strip always opens a tab of its own, whatever the setting for links says.
+  const tabsBefore = await t.count('.tab')
+  await page.locator('.tabbar button[aria-label="Новая вкладка"]').click()
+  await wait(900)
+  ok('"+" opens a new note in a new tab', (await t.count('.tab')) === tabsBefore + 1 && (await t.activeTab()).startsWith('Без названия'), `${await t.count('.tab')} ${await t.activeTab()}`)
+  await page.evaluate(() => app.settings.set('core', 'newNoteLocation', 'folder'))
+  await page.evaluate(() => app.settings.set('core', 'newNoteFolder', 'Inbox'))
+  await page.evaluate(() => app.commands.run('core:new-note'))
+  await wait(900)
+  ok('new notes go to the folder chosen in the settings, in the current tab by default', t.exists('Inbox/Без названия.md') && (await t.count('.tab')) === tabsBefore + 1, await t.count('.tab'))
+  await page.evaluate(() => app.settings.set('core', 'viewHeader', false))
+  await wait(200)
+  ok('the header above the note can be switched off', (await t.count('.view-header')) === 0)
+  await page.evaluate(() => app.settings.set('core', 'viewHeader', true))
+
   // Ctrl+wheel changes the size of the note's text, not the zoom of the page.
   const size = () => page.evaluate(() => getComputedStyle(document.querySelector('.leaf:not([hidden]) .cm-editor')).fontSize)
   const before = await size()

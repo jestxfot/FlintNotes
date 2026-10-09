@@ -389,3 +389,9 @@ input[type='checkbox']:disabled {
 .icon.emoji {
   font-size: 0.9em;
 }
+
+/* "Properties in the document: hidden" */
+:root.no-properties .lp-block:has(> .props),
+:root.no-properties .lp-block-body.props {
+  display: none;
+}

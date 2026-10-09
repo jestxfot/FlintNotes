@@ -150,7 +150,7 @@
           : await vault.createFolder(vault.uniquePath(folder, 'Новая папка'))
       if (folder) expanded.add(folder)
       // The name field keeps the focus so the new item can be named right away.
-      if (kind === 'file') workspace.openFile(entry.path, { focus: false })
+      if (kind === 'file') workspace.openFile(entry.path, { focus: false, ...(app.settings.get<string>('core', 'newNoteTab') === 'new' ? { newTab: true } : {}) })
       startRename(entry)
     } catch (err) {
       app.notice(`Не удалось создать: ${errorMessage(err)}`)
@@ -236,7 +236,7 @@
   }
 
   async function trash(entry: VaultEntry) {
-    if (!confirm(`Переместить «${basename(entry.path)}» в корзину?`)) return
+    if (app.settings.get<boolean>('core', 'confirmDelete') && !confirm(`Переместить «${basename(entry.path)}» в корзину?`)) return
     try {
       await vault.trash(entry.path)
     } catch (err) {

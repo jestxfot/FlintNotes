@@ -8,6 +8,8 @@ interface SettingBase {
   desc?: string
   /** The page of the settings screen it goes on, for sections that have several (the core's). */
   group?: string
+  /** A heading within the page; settings under the same heading share a panel. */
+  section?: string
 }
 
 /** Declarative description of one setting; the settings screen renders it. */
