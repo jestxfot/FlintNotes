@@ -88,7 +88,7 @@ export const table: ViewRenderer = (ctx) => {
               sort: direction === 'DESC' ? [] : [{ property, direction: direction === 'ASC' ? 'DESC' : 'ASC' }],
             }),
         },
-        engine.label(property),
+        h('span', { class: 'base-th-name' }, engine.label(property)),
         direction ? h('span', { class: 'base-sort' }, direction === 'ASC' ? '▲' : '▼') : null,
       )
     }),

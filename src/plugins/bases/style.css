@@ -195,14 +195,6 @@
   color: var(--text);
 }
 
-.base-add-view {
-  appearance: none;
-  border: none !important;
-  background: none !important;
-  color: var(--text-muted);
-  cursor: pointer;
-}
-
 .base-body {
   max-height: 70vh;
   overflow: auto;
@@ -225,29 +217,45 @@
 
 .base-table th,
 .base-table td {
-  padding: 5px 10px;
+  padding: 3px 8px;
   border-bottom: 1px solid var(--border);
   max-width: 340px;
+  font-size: 13px;
+  line-height: 1.45;
   text-align: left;
   vertical-align: top;
 }
 
+/* Column headers, as in Obsidian Bases: a row of boxes, each with its name and its sort mark. */
 .base-table thead th {
   position: sticky;
   top: 0;
+  padding: 5px 8px;
+  border: 1px solid var(--border);
   background: var(--bg);
   color: var(--text-muted);
   font-size: 12.5px;
-  font-weight: 600;
+  font-weight: 500;
   white-space: nowrap;
   cursor: pointer;
   user-select: none;
 }
 
+.base-table thead th:hover {
+  color: var(--text);
+}
+
+.base-th-name {
+  display: inline-block;
+  min-width: 60px;
+}
+
 .base-sort {
-  margin-left: 5px;
+  float: right;
+  padding-left: 10px;
   color: var(--accent);
-  font-size: 10px;
+  font-size: 9px;
+  line-height: 1.9;
 }
 
 .base-table td.editable {
@@ -721,4 +729,158 @@
   border: none;
   border-radius: 0;
   overflow: visible;
+}
+
+/* The settings of a view: a column of labelled fields. */
+.base-grow {
+  flex: 1;
+}
+
+.base-pop .base-view-name {
+  width: 100%;
+  font-weight: 600;
+}
+
+.base-setting.stacked {
+  flex-direction: column;
+  align-items: stretch;
+  gap: 4px;
+  color: var(--text);
+}
+
+.base-slider {
+  display: flex;
+  align-items: center;
+  gap: 10px;
+}
+
+.base-slider-value {
+  flex: 0 0 34px;
+  color: var(--text-muted);
+  font-variant-numeric: tabular-nums;
+}
+
+.base-slider input {
+  flex: 1;
+  min-width: 0;
+  accent-color: var(--accent);
+}
+
+.base-add-types {
+  display: flex;
+  flex-direction: column;
+  gap: 1px;
+  padding-left: 14px;
+}
+
+.base-add-type {
+  display: flex;
+  align-items: center;
+  gap: 8px;
+  padding: 4px 8px;
+  border-radius: 5px;
+  text-align: left;
+}
+
+.base-add-type:hover {
+  background: var(--bg-hover);
+}
+
+.base-view-row[hidden] {
+  display: none;
+}
+
+/* The calendar view */
+.base-calendar-head {
+  display: flex;
+  align-items: center;
+  gap: 6px;
+  padding-bottom: 8px;
+}
+
+.base-calendar-head b {
+  min-width: 130px;
+}
+
+.base-calendar-head button {
+  min-width: 26px;
+  height: 26px;
+  padding: 0 8px;
+  border: 1px solid var(--border);
+  border-radius: 6px;
+  color: var(--text-muted);
+}
+
+.base-calendar-head button:hover {
+  background: var(--bg-hover);
+}
+
+.base-calendar-by {
+  margin-left: auto;
+  color: var(--text-faint);
+  font-size: 12px;
+}
+
+.base-calendar-grid {
+  display: grid;
+  grid-template-columns: repeat(7, minmax(0, 1fr));
+  border-top: 1px solid var(--border);
+  border-left: 1px solid var(--border);
+}
+
+.base-calendar-weekday,
+.base-calendar-day {
+  border-right: 1px solid var(--border);
+  border-bottom: 1px solid var(--border);
+}
+
+.base-calendar-weekday {
+  padding: 3px;
+  color: var(--text-faint);
+  font-size: 11.5px;
+  text-align: center;
+}
+
+.base-calendar-day {
+  display: flex;
+  flex-direction: column;
+  gap: 2px;
+  min-height: 74px;
+  padding: 3px 4px 5px;
+}
+
+.base-calendar-day.other > * {
+  opacity: 0.4;
+}
+
+.base-calendar-date {
+  align-self: flex-end;
+  min-width: 1.7em;
+  border-radius: 1em;
+  color: var(--text-muted);
+  font-size: 12px;
+  line-height: 1.7;
+  text-align: center;
+}
+
+.base-calendar-day.today .base-calendar-date {
+  background: var(--accent);
+  color: #fff;
+  font-weight: 700;
+}
+
+.base-calendar-note {
+  padding: 1px 5px;
+  overflow: hidden;
+  border-radius: 4px;
+  background: color-mix(in srgb, var(--accent) 14%, transparent);
+  color: var(--text);
+  font-size: 12px;
+  text-decoration: none;
+  text-overflow: ellipsis;
+  white-space: nowrap;
+}
+
+.base-calendar-note:hover {
+  background: color-mix(in srgb, var(--accent) 28%, transparent);
 }

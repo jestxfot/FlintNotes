@@ -4,12 +4,13 @@ import { h } from './dom'
 import { BaseEngine, groupRule, noteKey, type Row, type ViewResult } from './engine'
 import { editBase, parseBase, VIEW_TYPES, viewLabel, viewsOf, type BaseConfig, type FilterNode, type SortRule, type ViewConfig } from './model'
 import { board } from './views/board'
+import { calendar } from './views/calendar'
 import { cards } from './views/cards'
 import { list } from './views/list'
 import type { ViewContext, ViewRenderer } from './views/shared'
 import { table } from './views/table'
 
-const RENDERERS: Record<string, ViewRenderer> = { table, cards, list, board }
+const RENDERERS: Record<string, ViewRenderer> = { table, cards, list, board, calendar }
 /** A condition the filter panel can show as fields: what is tested, how, and against what. */
 interface Condition {
   subject: string
@@ -74,7 +75,7 @@ function formatCondition({ subject, op, value }: Condition): string {
   return `${subject} ${bare} ${/^-?\d+(?:\.\d+)?$|^(true|false)$/.test(value.trim()) ? value.trim() : quoted}`
 }
 
-const VIEW_ICONS: Record<string, string> = { table: 'table', cards: 'layout-grid', list: 'list', board: 'kanban' }
+const VIEW_ICONS: Record<string, string> = { table: 'table', cards: 'layout-grid', list: 'list', board: 'kanban', calendar: 'calendar-days' }
 
 export interface BaseHost {
   app: App
@@ -217,7 +218,7 @@ export function mountBase(el: HTMLElement, host: BaseHost, initial: string): Mou
       'div',
       { class: 'base-body' },
       !render
-        ? h('div', { class: 'base-error' }, `Неизвестный тип представления «${view.type}». Доступны: table, cards, list, board.`)
+        ? h('div', { class: 'base-error' }, `Неизвестный тип представления «${view.type}». Доступны: table, cards, list, board, calendar.`)
         : shown.rows.length
           ? render(ctx)
           : h('div', { class: 'base-empty' }, needle ? 'Ничего не найдено.' : 'Под условия базы не подходит ни одна заметка.'),
@@ -268,54 +269,46 @@ export function mountBase(el: HTMLElement, host: BaseHost, initial: string): Mou
     const pop = (side: 'left' | 'right', ...children: (Node | null)[]) => h('div', { class: `base-pop ${side}` }, ...children)
 
     if (open === 'views') {
-      const addView = h(
-        'select',
-        {
-          class: 'base-add-view',
-          title: 'Добавить представление',
-          onchange: () => {
-            const type = addView.value
-            active = views.length
-            open = 'view'
-            save(editBase(source, (doc) => doc.addIn(['views'], doc.createNode({ type, name: viewLabel(type) }))))
-          },
-        },
-        h('option', { value: '', hidden: true, selected: true }, '+ Добавить представление'),
-        ...VIEW_TYPES.map(({ type, label }) => h('option', { value: type }, label)),
-      )
-      return pop(
-        'left',
+      const add = (type: string) => {
+        active = views.length
+        open = 'view'
+        save(editBase(source, (doc) => doc.addIn(['views'], doc.createNode({ type, name: viewLabel(type) }))))
+      }
+      const rows = views.map((v, i) =>
         h(
           'div',
-          { class: 'base-tabs', role: 'tablist' },
-          ...views.map((v, i) =>
-            h(
-              'div',
-              { class: 'base-view-row' },
-              h(
-                'button',
-                {
-                  class: i === active ? 'active' : '',
-                  role: 'tab',
-                  onclick: () => {
-                    active = i
-                    open = null
-                    draw()
-                  },
-                },
-                app.icons.draw(VIEW_ICONS[v.type] ?? 'table'),
-                v.name ?? viewLabel(v.type),
-              ),
-              h('a', { class: 'base-view-edit', title: 'Настроить представление', onclick: () => ((active = i), (open = 'view'), draw()) }, '›'),
-            ),
+          { class: 'base-view-row' },
+          h(
+            'button',
+            {
+              class: i === active ? 'active' : '',
+              role: 'tab',
+              onclick: () => {
+                active = i
+                open = null
+                draw()
+              },
+            },
+            app.icons.draw(VIEW_ICONS[v.type] ?? 'table'),
+            v.name ?? viewLabel(v.type),
           ),
+          h('a', { class: 'base-view-edit', title: 'Настроить представление', onclick: () => ((active = i), (open = 'view'), draw()) }, '›'),
         ),
-        addView,
       )
+      const find = h('input', {
+        type: 'text',
+        class: 'base-props-search',
+        placeholder: 'Введите поисковый запрос…',
+        oninput: () => rows.forEach((row, i) => (row.hidden = !(views[i].name ?? viewLabel(views[i].type)).toLowerCase().includes(find.value.trim().toLowerCase()))),
+      })
+      // The kinds of view appear under the button once it is pressed.
+      const kinds = h('div', { class: 'base-add-types', hidden: true }, ...VIEW_TYPES.map(({ type, label }) => h('button', { class: 'base-add-type', onclick: () => add(type) }, app.icons.draw(VIEW_ICONS[type] ?? 'table'), label)))
+      const addView = h('button', { class: 'base-pop-add base-add-view', onclick: () => (kinds.hidden = !kinds.hidden) }, app.icons.draw('plus'), 'Добавить представление')
+      return pop('left', find, h('div', { class: 'base-tabs', role: 'tablist' }, ...rows), h('div', { class: 'base-pop-line' }), addView, kinds)
     }
 
     if (open === 'view') {
-      const name = h('input', { type: 'text', value: view.name ?? '', onchange: () => updateView({ name: name.value.trim() }) })
+      const name = h('input', { type: 'text', class: 'base-view-name', value: view.name ?? '', onchange: () => updateView({ name: name.value.trim() }) })
       const type = h('select', { onchange: () => updateView({ type: type.value }) }, ...VIEW_TYPES.map((t) => h('option', { value: t.type, selected: t.type === view.type }, t.label)))
       const limit = h('input', {
         type: 'number',
@@ -324,29 +317,68 @@ export function mountBase(el: HTMLElement, host: BaseHost, initial: string): Mou
         value: view.limit ? String(view.limit) : '',
         onchange: () => updateView({ limit: limit.value ? Math.max(1, Number(limit.value)) : undefined }),
       })
+      const stacked = (label: string, ...controls: (Node | null)[]) => h('label', { class: 'base-setting stacked' }, h('span', {}, label), ...controls)
+      /** A slider with its value beside it; the base is written when the slider is let go. */
+      const slider = (value: number, min: number, max: number, step: number, change: (next: number) => void) => {
+        const shown = h('span', { class: 'base-slider-value' }, String(value))
+        const range = h('input', { type: 'range', min: String(min), max: String(max), step: String(step), value: String(value), oninput: () => (shown.textContent = range.value), onchange: () => change(Number(range.value)) })
+        return h('div', { class: 'base-slider' }, shown, range)
+      }
+      const cardsLike = view.type === 'cards' || view.type === 'board'
       const image = h('select', { onchange: () => updateView({ image: image.value || undefined }) }, ...options(view.image, 'нет'))
-      return pop(
-        'left',
-        h('div', { class: 'base-pop-title' }, h('a', { class: 'base-view-edit', onclick: () => ((open = 'views'), draw()) }, '‹'), 'Представление'),
-        field('Название', name),
-        field('Вид', type),
-        field('Лимит', limit),
-        view.type === 'cards' || view.type === 'board' ? field('Обложка', image) : null,
-        views.length > 1
-          ? h(
-              'button',
+      const fit = h(
+        'select',
+        { onchange: () => updateView({ imageFit: fit.value === 'cover' ? undefined : fit.value }) },
+        h('option', { value: 'cover', selected: view.imageFit !== 'contain' }, 'Обложка'),
+        h('option', { value: 'contain', selected: view.imageFit === 'contain' }, 'Вместить целиком'),
+      )
+      const date = h('select', { onchange: () => updateView({ date: date.value || undefined }) }, ...options(view.date, 'сама: первое свойство с датой'))
+      const removeView = () => {
+        const index = active
+        active = Math.max(0, active - 1)
+        open = 'views'
+        save(editBase(source, (doc) => void doc.deleteIn(['views', index])))
+      }
+      const more = h(
+        'button',
+        {
+          class: 'base-pop-remove',
+          title: 'Ещё',
+          onclick: (event: MouseEvent) =>
+            app.menus.show(event, 'base-view', view, [
               {
-                class: 'base-delete',
-                onclick: () => {
-                  const index = active
-                  active = Math.max(0, active - 1)
-                  open = 'views'
-                  save(editBase(source, (doc) => void doc.deleteIn(['views', index])))
+                icon: 'copy',
+                title: 'Дублировать представление',
+                onClick: () => {
+                  open = 'view'
+                  active = views.length
+                  save(editBase(source, (doc) => doc.addIn(['views'], doc.createNode({ ...view, name: `${view.name ?? viewLabel(view.type)} 2` }))))
                 },
               },
-              'Удалить это представление',
-            )
-          : null,
+              { icon: 'trash', title: 'Удалить представление', danger: true, section: 'danger', disabled: views.length < 2, onClick: removeView },
+            ]),
+        },
+        app.icons.draw('ellipsis-vertical'),
+      )
+      return pop(
+        'left',
+        h(
+          'div',
+          { class: 'base-pop-title' },
+          h('a', { class: 'base-view-edit', title: 'К списку представлений', onclick: () => ((open = 'views'), draw()) }, '‹'),
+          h('span', { class: 'base-grow' }, 'Настройка представления'),
+          more,
+          h('button', { class: 'base-pop-remove', title: 'Закрыть', onclick: () => ((open = null), draw()) }, app.icons.draw('x')),
+        ),
+        name,
+        stacked('Расположение', type),
+        view.type === 'cards' ? stacked('Размер карты', slider(Number(view.cardSize) || 170, 100, 400, 10, (next) => updateView({ cardSize: next }))) : null,
+        cardsLike ? stacked('Свойство изображения', image) : null,
+        cardsLike && view.image ? stacked('Подгонка изображения', fit) : null,
+        cardsLike && view.image ? stacked('Соотношение сторон изображения', slider(Number(view.imageAspectRatio) || 0.55, 0.25, 2.5, 0.05, (next) => updateView({ imageAspectRatio: next }))) : null,
+        view.type === 'calendar' ? stacked('Свойство с датой', date) : null,
+        stacked('Лимит записей', limit),
+        views.length > 1 ? h('button', { class: 'base-delete', onclick: removeView }, 'Удалить это представление') : null,
       )
     }
 

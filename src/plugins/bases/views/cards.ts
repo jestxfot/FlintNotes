@@ -12,7 +12,8 @@ function cover(ctx: ViewContext, row: Row): HTMLElement | null {
   const local = target ? ctx.app.metadata.resolve(target, row.path) : null
   const src = /^https?:/i.test(target) ? target : local ? ctx.app.vault.url(local) : ''
   const ratio = Number(ctx.view.imageAspectRatio)
-  const style = ratio > 0 ? `height:auto;aspect-ratio:${1 / ratio}` : undefined
+  const fit = ctx.view.imageFit === 'contain' ? 'object-fit:contain;' : ''
+  const style = ratio > 0 ? `${fit}height:auto;aspect-ratio:${1 / ratio}` : fit || undefined
   // A view with pictures keeps their place on every card, so the cards line up; a note without one gets a blank.
   return src ? h('img', { class: 'base-cover', src, alt: '', loading: 'lazy', style }) : h('div', { class: 'base-cover base-cover-empty', style })
 }

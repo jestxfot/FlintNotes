@@ -161,9 +161,21 @@ export async function run(t) {
   await wait(700)
   ok('the settings panel adds a property', /name: Дорогие[\s\S]*rating/.test(read('Library.md')), read('Library.md').slice(-260))
   await openViews()
-  await base.locator('.base-add-view').selectOption('cards')
+  await base.locator('.base-add-view').click()
+  await base.locator('.base-add-type', { hasText: 'Карточки' }).click()
   await wait(700)
   ok('a view can be added from the toolbar', (await base.locator('.base-view-switch b').innerText()) === 'Карточки' && /- type: cards\n\s+name: Карточки/.test(read('Library.md')), read('Library.md').slice(-120))
+  // The settings of the new view: its size and its pictures.
+  await base.locator('.base-setting', { hasText: 'Размер карты' }).locator('input').evaluate((input) => {
+    input.value = '240'
+    input.dispatchEvent(new Event('input', { bubbles: true }))
+    input.dispatchEvent(new Event('change', { bubbles: true }))
+  })
+  await wait(700)
+  ok('a view is set up in its panel: name, layout, card size', /name: Карточки\n\s+cardSize: 240/.test(read('Library.md')) && (await t.flat(base.locator('.base-pop'))).includes('Настройка представления') && (await base.locator('.base-setting', { hasText: 'Расположение' }).count()) === 1, read('Library.md').slice(-160))
+  await base.locator('.base-setting', { hasText: 'Расположение' }).locator('select').selectOption('calendar')
+  await wait(700)
+  ok('the calendar layout puts notes on their days', (await base.locator('.base-calendar-grid .base-calendar-day').count()) >= 28 && (await base.locator('.base-calendar-note').count()) >= 1 && (await t.flat(base.locator('.base-calendar-by'))).includes('по'), await t.flat(base.locator('.base-calendar')).catch(() => 'none'))
   await base.locator('.base-delete').click()
   await wait(700)
   ok('and removed again', (await base.locator('.base-tabs button').count()) === 4 && (await base.locator('.base-delete').count()) === 0 && !/name: Карточки/.test(read('Library.md')))

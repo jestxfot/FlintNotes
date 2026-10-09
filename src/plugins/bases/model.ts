@@ -25,6 +25,10 @@ export interface ViewConfig {
   cardSize?: number
   /** Cards: height of the picture as a share of its width. */
   imageAspectRatio?: number
+  /** Cards: `cover` fills the frame and crops, `contain` shows the whole picture. */
+  imageFit?: string
+  /** Calendar: the property whose date puts a note on its day. */
+  date?: string
 }
 
 /** A base, as written in YAML. The format follows Obsidian Bases. */
@@ -43,6 +47,7 @@ export const VIEW_TYPES = [
   { type: 'cards', label: 'Карточки' },
   { type: 'list', label: 'Список' },
   { type: 'board', label: 'Доска' },
+  { type: 'calendar', label: 'Календарь' },
 ]
 
 export const viewLabel = (type: string) => VIEW_TYPES.find((v) => v.type === type)?.label ?? type
