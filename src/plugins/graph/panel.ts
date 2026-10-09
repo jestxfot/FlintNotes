@@ -7,7 +7,7 @@ type Key = keyof GraphSettings
  * display, forces. `changed` is called with the name of every setting that
  * was changed, so the graph can redo only what depends on it.
  */
-export function buildPanel(host: HTMLElement, settings: GraphSettings, changed: (key: Key) => void, animate: () => void): () => void {
+export function buildPanel(host: HTMLElement, settings: GraphSettings, changed: (key: Key) => void, animate: () => void, stats: () => string): () => void {
   const el = <K extends keyof HTMLElementTagNameMap>(parent: HTMLElement, tag: K, className = '', text = '') => {
     const node = parent.appendChild(document.createElement(tag))
     if (className) node.className = className
@@ -163,6 +163,7 @@ export function buildPanel(host: HTMLElement, settings: GraphSettings, changed: 
       option.selected = settings.gpuLayout === value
     }
     gpu.onchange = () => set('gpuLayout', gpu.value as GraphSettings['gpuLayout'])
+    el(forces, 'div', 'graph-stats', stats())
   }
 
   open.onclick = () => {
@@ -172,7 +173,13 @@ export function buildPanel(host: HTMLElement, settings: GraphSettings, changed: 
   // Clicks and the wheel in the panel are the panel's, not the graph's.
   for (const type of ['pointerdown', 'wheel', 'dblclick'] as const) panel.addEventListener(type, (event) => event.stopPropagation())
   draw()
+  // What the graph is busy with, in numbers: how big it is, who lays it out, how long a step and a frame take.
+  const meter = setInterval(() => {
+    const line = panel.querySelector('.graph-stats')
+    if (line && !panel.hidden) line.textContent = stats()
+  }, 500)
   return () => {
+    clearInterval(meter)
     open.remove()
     panel.remove()
   }

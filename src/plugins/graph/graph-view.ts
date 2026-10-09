@@ -13,6 +13,7 @@ import {
 import { path as paths, type App, type FileView, type Off } from '../../api'
 import { GlRenderer, LINK_SIZE, NODE_SIZE, rgba, type Frame } from './gl'
 import { GpuLayout, type LayoutInput } from './gpu-layout'
+import type { FromWorker, ToWorker } from './layout-worker'
 import { buildPanel } from './panel'
 import { compileQuery, cssColor, DEFAULTS, type GraphSettings } from './settings'
 
@@ -37,6 +38,8 @@ const DRAG_THRESHOLD = 4
 const FORCES = new Set<keyof GraphSettings>(['centerStrength', 'repelStrength', 'linkStrength', 'linkDistance', 'nodeSizeMultiplier', 'gpuLayout'])
 /** From this many dots on, the layout is worked out by the graphics card unless the settings say otherwise. */
 const GPU_FROM = 1200
+/** From this many dots on, a layout the graphics card does not do is done on a thread of its own. */
+const OFF_THREAD_FROM = 500
 const FILTERS = new Set<keyof GraphSettings>(['showTags', 'showAttachments', 'hideUnresolved', 'showOrphans', 'colorFolders'])
 
 /** The graph tab: notes as dots, links as lines, laid out by a force simulation. */
@@ -49,9 +52,25 @@ export class GraphView implements FileView {
   /** Names are drawn on a canvas of their own, over the one the graphics card draws into. */
   private labels = document.createElement('canvas')
   private gl: GlRenderer | null = null
-  /** The layout on the graphics card, made when first needed; `onGpu` says whether it is in charge now. */
+  /** The layout on the graphics card, made when first needed. */
   private gpu: GpuLayout | null = null
-  private onGpu = false
+  /** Who works the layout out: the page's own thread, the graphics card, or a thread of the processor. */
+  private engine: 'page' | 'gpu' | 'worker' = 'page'
+  private worker: Worker | null = null
+  private loaded: { input: LayoutInput; decay: number } | null = null
+  private generation = 0
+  /** Places the dots glide between while the layout thread works on the next ones. */
+  private from: Float32Array = new Float32Array(0)
+  private to: Float32Array = new Float32Array(0)
+  private arrived = 0
+  private pace = 100
+  private gliding = false
+  private stepTime = 0
+  private drawTime = 0
+  /** Whether links or dots changed since the last picture; panning and zooming leave them as they are. */
+  private stale = true
+  private frameData: Frame | null = null
+  private remember: ReturnType<typeof setTimeout> | undefined
   private positions = new Float32Array(0)
   private alpha = 0
   private alphaTarget = 0
@@ -62,6 +81,7 @@ export class GraphView implements FileView {
   private linkData = new Float32Array(0)
   private nodeData = new Float32Array(0)
   /** Widths of names at the base text size, measured once. */
+  private byDegree: GraphNode[] = []
   private widths = new Map<string, number>()
   private simulation: Simulation<GraphNode, GraphLink>
   // Pan and zoom: screen = graph * k + (x, y), measured from the canvas centre.
@@ -80,6 +100,10 @@ export class GraphView implements FileView {
     private settings: GraphSettings,
     /** Called when the user changed a setting in the panel. */
     private onChange: () => void,
+    /** Places remembered from the last time, by note. */
+    private remembered: Record<string, [number, number]> = {},
+    /** Called with the places of all dots once the layout has come to rest. */
+    private onSettle: (places: Record<string, [number, number]>) => void = () => {},
   ) {
     this.el.className = 'graph-view'
     this.labels.className = 'graph-labels'
@@ -94,18 +118,19 @@ export class GraphView implements FileView {
       .velocityDecay(0.5)
       .on('tick', () => {
         if (this.autoFit) this.fit()
-        this.draw()
+        this.moved()
       })
+      .on('end', () => this.settled())
 
     const resized = new ResizeObserver(() => this.resize())
     resized.observe(this.el)
     this.cleanups.push(
       () => resized.disconnect(),
       app.metadata.on('resolved', () => this.rebuild()),
-      app.workspace.on('active-change', () => this.draw()),
+      app.workspace.on('active-change', () => this.moved()),
     )
     this.bindPointer()
-    this.cleanups.push(buildPanel(this.el, this.settings, (key) => this.changed(key), () => this.heat(1)))
+    this.cleanups.push(buildPanel(this.el, this.settings, (key) => this.changed(key), () => this.heat(1), () => this.stats()))
     this.rebuild()
   }
 
@@ -124,7 +149,7 @@ export class GraphView implements FileView {
       this.applyForces()
       this.heat(0.5)
     } else if (FILTERS.has(key)) this.rebuild()
-    else this.draw()
+    else this.moved()
   }
 
 
@@ -169,14 +194,17 @@ export class GraphView implements FileView {
       // A big vault settles in a couple of hundred steps instead of simmering for a minute.
       .alphaDecay(big ? 0.05 : this.nodes.length > 600 ? 0.035 : 0.0228)
 
-    // ---- the same forces for the graphics card, which takes over when the graph is big
+    // ---- who works the layout out. A small graph stays with the simulation above, on
+    // the page's own thread. A big one goes to the graphics card; where that has shown
+    // itself to be slow (no real card behind the browser), to a thread of its own.
     const mode = this.settings.gpuLayout
-    // "Auto" trusts the graphics card with a big graph, unless it has shown itself to be slow
-    // (no real card behind the browser: the same work is then done faster by the processor).
-    const wanted = !!this.gl && mode !== 'off' && (mode === 'on' || (this.nodes.length > GPU_FROM && !this.slowCard))
-    if (wanted) this.gpu ??= GpuLayout.create(this.gl!.gl)
-    this.onGpu = wanted && !!this.gpu
-    if (!this.onGpu || !this.gpu) return
+    const bigEnough = this.nodes.length > OFF_THREAD_FROM
+    const card = !!this.gl && mode !== 'off' && (mode === 'on' || (this.nodes.length > GPU_FROM && !this.slowCard))
+    if (card) this.gpu ??= GpuLayout.create(this.gl!.gl)
+    const engine: typeof this.engine = card && this.gpu ? 'gpu' : bigEnough ? 'worker' : 'page'
+    if (engine !== 'worker') this.worker?.postMessage({ type: 'stop' } satisfies ToWorker)
+    this.engine = engine
+    if (engine === 'page') return
     this.simulation.stop()
     const count = this.nodes.length
     const index = new Map(this.nodes.map((n, i) => [n, i]))
@@ -205,59 +233,129 @@ export class GraphView implements FileView {
       input.radius[i] = this.radius(n) + 2
       input.degree[i] = n.degree
     })
-    this.gpu.load(input)
-    this.timed = []
+    this.from = this.positions.slice()
+    this.to = this.positions.slice()
+    if (engine === 'gpu') {
+      this.gpu!.load(input)
+      this.timed = []
+    } else {
+      this.loaded = { input, decay: big ? 0.05 : 0.035 }
+    }
+  }
+
+  /** The thread that works the layout out for big graphs when the graphics card does not. */
+  private thread(): Worker {
+    if (this.worker) return this.worker
+    this.worker = new Worker(new URL('./layout-worker.ts', import.meta.url), { type: 'module' })
+    this.worker.onmessage = (event: MessageEvent<FromWorker>) => {
+      const { positions, alpha, took, generation } = event.data
+      if (this.engine !== 'worker' || generation !== this.generation || positions.length !== this.positions.length) return
+      // The dots glide from where they are drawn now to the places that have just arrived.
+      this.from = this.positions.slice()
+      this.to = positions
+      this.arrived = performance.now()
+      this.pace = Math.min(400, Math.max(30, took + 20))
+      this.alpha = alpha
+      this.stepTime = took
+      this.run()
+    }
+    return this.worker
   }
 
   /** Sets the layout moving again; `alpha` is how much (1 is a fresh start). */
   private heat(alpha: number): void {
-    if (!this.onGpu) return void this.simulation.alpha(alpha).restart()
+    if (this.engine === 'page') return void this.simulation.alpha(alpha).restart()
     this.alpha = Math.max(this.alpha, alpha)
+    if (this.engine === 'worker') {
+      const worker = this.thread()
+      if (this.loaded) {
+        this.generation++
+        worker.postMessage({ type: 'load', ...this.loaded, alpha } satisfies ToWorker)
+        this.loaded = null
+      } else worker.postMessage({ type: 'heat', alpha } satisfies ToWorker)
+    }
     this.run()
   }
 
   /** Keeps the layout moving while something is dragged (`target` above zero), and lets it rest after. */
   private hold(target: number): void {
-    if (this.onGpu) {
-      this.alphaTarget = target
-      return this.run()
+    if (this.engine === 'page') {
+      this.simulation.alphaTarget(target)
+      if (target) this.simulation.restart()
+      return
     }
-    this.simulation.alphaTarget(target)
-    if (target) this.simulation.restart()
+    this.alphaTarget = target
+    if (this.engine === 'worker') this.worker?.postMessage({ type: 'hold', target } satisfies ToWorker)
+    this.run()
   }
 
-  /** The loop of the layout on the graphics card: one step and one picture per frame, until it has cooled. */
+  /**
+   * The loop of a layout that is not worked out on the page's thread: each frame
+   * the dots take their new places (a step of the graphics card, or a glide
+   * towards what the layout thread sent last) and the picture is drawn.
+   */
   private run(): void {
     if (this.frame) return
     const step = () => {
       this.frame = 0
-      if (!this.onGpu || !this.gpu) return
-      this.alpha += (this.alphaTarget - this.alpha) * 0.03
       const pinned = this.nodes.findIndex((n) => n.fx !== null && n.fx !== undefined)
-      const began = performance.now()
-      this.gpu.step(this.alpha, 0.5, this.positions, pinned, this.nodes[pinned]?.fx ?? 0, this.nodes[pinned]?.fy ?? 0)
-      // The first steps are timed. A card that needs longer than a frame or two for one
-      // step is no card at all, and the layout goes back to the processor.
-      this.timed.push(performance.now() - began)
-      // (The very first step also pays for building the shader, so the second is the one judged.)
-      if (this.timed.length === 3 && this.settings.gpuLayout === 'auto') {
-        const typical = Math.min(this.timed[1], this.timed[2])
-        if (typical > 45) {
+      if (this.engine === 'gpu' && this.gpu) {
+        this.alpha += (this.alphaTarget - this.alpha) * 0.03
+        const began = performance.now()
+        this.gpu.step(this.alpha, 0.5, this.positions, pinned, this.nodes[pinned]?.fx ?? 0, this.nodes[pinned]?.fy ?? 0)
+        this.stepTime = performance.now() - began
+        // The first steps are timed. A card that needs most of a frame for one step is
+        // no card at all, and the layout goes to a thread of the processor instead.
+        // (The very first step also pays for building the shader, so the later ones are judged.)
+        this.timed.push(this.stepTime)
+        if (this.timed.length === 3 && this.settings.gpuLayout === 'auto' && Math.min(this.timed[1], this.timed[2]) > 12) {
           this.slowCard = true
-          for (let i = 0; i < this.nodes.length; i++) Object.assign(this.nodes[i], { x: this.positions[i * 2], y: this.positions[i * 2 + 1] })
+          this.place(this.positions)
           this.applyForces()
           return this.heat(this.alpha)
         }
-      }
-      for (let i = 0; i < this.nodes.length; i++) {
-        this.nodes[i].x = this.positions[i * 2]
-        this.nodes[i].y = this.positions[i * 2 + 1]
-      }
+        this.place(this.positions)
+      } else if (this.engine === 'worker') {
+        if (pinned >= 0) this.worker?.postMessage({ type: 'pin', index: pinned, x: this.nodes[pinned].fx!, y: this.nodes[pinned].fy! } satisfies ToWorker)
+        const t = Math.min(1, (performance.now() - this.arrived) / this.pace)
+        for (let i = 0; i < this.positions.length; i++) this.positions[i] = this.from[i] + (this.to[i] - this.from[i]) * t
+        if (pinned >= 0) this.positions.set([this.nodes[pinned].fx!, this.nodes[pinned].fy!], pinned * 2)
+        this.place(this.positions)
+        this.gliding = t < 1
+      } else return
       if (this.autoFit) this.fit()
-      this.draw()
-      if (this.alpha > 0.002 || this.alphaTarget) this.frame = requestAnimationFrame(step)
+      this.moved()
+      const active = this.alpha > 0.002 || !!this.alphaTarget || (this.engine === 'worker' && this.gliding)
+      if (active) this.frame = requestAnimationFrame(step)
+      else this.settled()
     }
     this.frame = requestAnimationFrame(step)
+  }
+
+  private place(positions: Float32Array): void {
+    for (let i = 0; i < this.nodes.length; i++) {
+      this.nodes[i].x = positions[i * 2]
+      this.nodes[i].y = positions[i * 2 + 1]
+    }
+  }
+
+  /** The dots have moved (or look different): the next picture is built anew. */
+  private moved(): void {
+    this.stale = true
+    this.draw()
+  }
+
+  /** The layout has come to rest: it is remembered, so that the graph opens laid out next time. */
+  private settled(): void {
+    clearTimeout(this.remember)
+    this.remember = setTimeout(() => this.onSettle(Object.fromEntries(this.nodes.map((n) => [n.id, [Math.round(n.x ?? 0), Math.round(n.y ?? 0)]]))), 1500)
+  }
+
+  /** What the panel shows about the work being done. */
+  stats(): string {
+    const who = this.engine === 'gpu' ? 'видеокарта' : this.engine === 'worker' ? 'отдельный поток' : 'страница'
+    const moving = this.engine === 'page' ? this.simulation.alpha() > this.simulation.alphaMin() : this.alpha > 0.002
+    return `${this.nodes.length} точек, ${this.links.length} связей · раскладка: ${who}${moving ? `, шаг ${this.stepTime.toFixed(0)} мс` : ', готова'} · кадр ${this.drawTime.toFixed(1)} мс${this.gl ? '' : ' (без WebGL)'}`
   }
 
   /** Reads the notes and links again; dots that remain keep their place. */
@@ -267,10 +365,13 @@ export class GraphView implements FileView {
     const unresolved = !hideUnresolved
     const previous = new Map(this.nodes.map((node) => [node.id, node]))
     const nodes = new Map<string, GraphNode>()
+    let known = 0
     const node = (id: string, label: string, exists: boolean) => {
       let found = nodes.get(id)
       if (!found) {
-        found = previous.get(id) ?? { id, label, exists, degree: 0, group: '' }
+        const spot = previous.has(id) || !Object.hasOwn(this.remembered, id) ? null : this.remembered[id]
+        if (spot) known++
+        found = previous.get(id) ?? { id, label, exists, degree: 0, group: '', ...(spot ? { x: spot[0], y: spot[1] } : {}) }
         Object.assign(found, { label, exists, degree: 0, group: exists && id.includes('/') ? id.slice(0, id.indexOf('/')) : '' })
         nodes.set(id, found)
       }
@@ -328,6 +429,7 @@ export class GraphView implements FileView {
     links.push(...shown)
 
     this.nodes = [...kept].filter((n) => orphans || n.degree > 0)
+    this.byDegree = []
     this.links = links
     this.neighbours = new Map()
     for (const { source, target } of links as { source: GraphNode; target: GraphNode }[]) {
@@ -353,12 +455,17 @@ export class GraphView implements FileView {
     this.simulation.nodes(this.nodes)
     this.applyForces()
     // A gentle nudge when the graph merely changed, a full layout the first time.
-    this.heat(previous.size ? 0.3 : 1)
+    // A graph whose dots were mostly placed last time only needs a touch-up, not a layout from scratch.
+    const familiar = !previous.size && known > this.nodes.length * 0.8
+    this.stale = true
+    this.heat(previous.size ? 0.3 : familiar ? 0.08 : 1)
   }
 
   destroy(): void {
     this.simulation.stop()
     cancelAnimationFrame(this.frame)
+    clearTimeout(this.remember)
+    this.worker?.terminate()
     this.cleanups.forEach((off) => off())
     this.gpu?.destroy()
     this.gl?.destroy()
@@ -386,59 +493,89 @@ export class GraphView implements FileView {
       canvas.width = clientWidth * ratio
       canvas.height = clientHeight * ratio
     }
-    this.draw()
+    this.moved()
   }
 
-  /** Draws the graph: lines and dots on the graphics card, names over them. */
+  /**
+   * Draws the graph: lines and dots on the graphics card, names over them.
+   * The rows of numbers the card draws from are built only when something
+   * moved or changed its look; panning and zooming reuse what the card has.
+   */
   draw(): void {
     const { canvas, view, hovered, settings } = this
     if (!canvas.width || !canvas.height) return
+    const began = performance.now()
     const style = getComputedStyle(this.el)
-    const color = (name: string) => (name.startsWith('--') ? style.getPropertyValue(name).trim() : name)
+    const values = new Map<string, string>()
+    const color = (name: string) => {
+      if (!name.startsWith('--')) return name
+      let value = values.get(name)
+      if (value === undefined) values.set(name, (value = style.getPropertyValue(name).trim()))
+      return value
+    }
     const ratio = window.devicePixelRatio || 1
     const near = hovered ? this.neighbours.get(hovered) : undefined
     const lit = (node: GraphNode) => !hovered || node === hovered || near?.has(node)
-    const activePath = this.app.workspace.active?.path
-    type Ends = { source: GraphNode; target: GraphNode }
-    const links = this.links as Ends[]
+    const fresh = this.stale || !this.frameData
 
-    // ---- what every link and dot looks like, as rows of numbers
-    if (this.linkData.length < links.length * LINK_SIZE) this.linkData = new Float32Array(links.length * LINK_SIZE * 2)
-    if (this.nodeData.length < this.nodes.length * NODE_SIZE) this.nodeData = new Float32Array(this.nodes.length * NODE_SIZE * 2)
-    const [plain, accent] = [rgba(color('--border')), rgba(color('--accent'))]
-    let at = 0
-    for (const { source, target } of links) {
-      const on = !!hovered && (source === hovered || target === hovered)
-      // The hundreds of links of a hub would paint over everything; each of them is drawn fainter.
-      const busy = Math.max(source.degree, target.degree)
-      const alpha = hovered ? (on ? 1 : 0.15) : busy > 150 ? 0.18 : busy > 40 ? 0.45 : 1
-      const [r, g, b, a] = on ? accent : plain
-      this.linkData.set([source.x!, source.y!, target.x!, target.y!, r, g, b, a * alpha, this.radius(target)], at)
-      at += LINK_SIZE
+    if (fresh) {
+      const activePath = this.app.workspace.active?.path
+      const links = this.links as { source: GraphNode; target: GraphNode }[]
+      if (this.linkData.length < links.length * LINK_SIZE) this.linkData = new Float32Array(links.length * LINK_SIZE * 2)
+      if (this.nodeData.length < this.nodes.length * NODE_SIZE) this.nodeData = new Float32Array(this.nodes.length * NODE_SIZE * 2)
+      const [plain, accent] = [rgba(color('--border')), rgba(color('--accent'))]
+      const data = this.linkData
+      let at = 0
+      for (const { source, target } of links) {
+        const on = !!hovered && (source === hovered || target === hovered)
+        // The hundreds of links of a hub would paint over everything; each of them is drawn fainter.
+        const busy = Math.max(source.degree, target.degree)
+        const alpha = hovered ? (on ? 1 : 0.15) : busy > 150 ? 0.18 : busy > 40 ? 0.45 : 1
+        const tint = on ? accent : plain
+        data[at] = source.x!
+        data[at + 1] = source.y!
+        data[at + 2] = target.x!
+        data[at + 3] = target.y!
+        data[at + 4] = tint[0]
+        data[at + 5] = tint[1]
+        data[at + 6] = tint[2]
+        data[at + 7] = tint[3] * alpha
+        data[at + 8] = this.radius(target)
+        at += LINK_SIZE
+      }
+      const dots = this.nodeData
+      at = 0
+      for (const node of this.nodes) {
+        const alpha = lit(node) ? (node.exists ? 1 : 0.5) : 0.15
+        const tint = rgba(color(node === hovered || node.id === activePath ? '--accent' : (node.color ?? this.groupColors.get(node.group) ?? '--text-muted')))
+        dots[at] = node.x!
+        dots[at + 1] = node.y!
+        dots[at + 2] = this.radius(node)
+        dots[at + 3] = tint[0]
+        dots[at + 4] = tint[1]
+        dots[at + 5] = tint[2]
+        dots[at + 6] = tint[3] * alpha
+        at += NODE_SIZE
+      }
+      this.stale = false
     }
-    at = 0
-    for (const node of this.nodes) {
-      const alpha = lit(node) ? (node.exists ? 1 : 0.5) : 0.15
-      const [r, g, b, a] = rgba(color(node === hovered || node.id === activePath ? '--accent' : (node.color ?? this.groupColors.get(node.group) ?? '--text-muted')))
-      this.nodeData.set([node.x!, node.y!, this.radius(node), r, g, b, a * alpha], at)
-      at += NODE_SIZE
-    }
-    const frame: Frame = {
+    const frame: Frame = (this.frameData = {
       width: canvas.width / ratio,
       height: canvas.height / ratio,
       ratio,
       view,
       links: this.linkData,
-      linkCount: links.length,
+      linkCount: this.links.length,
       nodes: this.nodeData,
       nodeCount: this.nodes.length,
       lineWidth: settings.lineSizeMultiplier,
       // Arrowheads are drawn when one is close enough to tell them apart.
       arrows: settings.showArrow && view.k > 0.35,
-    }
-    if (this.gl) this.gl.draw(frame)
+    })
+    if (this.gl) this.gl.draw(frame, fresh)
     else this.draw2d(frame)
     this.drawLabels(frame, lit, color)
+    this.drawTime = this.drawTime * 0.8 + (performance.now() - began) * 0.2
   }
 
   /** The same picture without a graphics card: slower, for browsers that have no WebGL 2. */
@@ -494,21 +631,30 @@ export class GraphView implements FileView {
     // The slider moves the zoom at which names appear: to the right they show from further away.
     const threshold = 0.9 * 2 ** -settings.textFadeMultiplier
     const few = this.nodes.length <= 40
-    // The pointed note and its neighbours come first, then the open note, then by number of links.
-    const rank = (node: GraphNode) => (node === hovered ? 3e6 : near?.has(node) ? 2e6 : node.id === activePath ? 1e6 : 0) + node.degree
-    const wanted: GraphNode[] = []
-    for (const node of this.nodes) {
+    // The pointed note and its neighbours come first, then the open note, then the rest by
+    // number of links. That last order is kept from one picture to the next, so a frame
+    // costs a walk along it and no sorting; in the smart mode the walk stops at the first
+    // note too small to be named at this zoom, since all after it are smaller still.
+    const onScreen = (node: GraphNode) => {
       const x = width / 2 + view.x + node.x! * view.k
       const y = height / 2 + view.y + node.y! * view.k
-      if (x < -60 || x > width + 60 || y < -20 || y > height + 20 || !lit(node)) continue
-      const special = node === hovered || near?.has(node) || node.id === activePath
-      if (settings.labelMode === 'hover' && !special) continue
-      // A big note is named from far away, a small one only up close.
-      if (!special && !few && settings.labelMode === 'smart' && view.k * (1 + Math.sqrt(node.degree) / 3) < threshold) continue
-      if (!special && !few && settings.labelMode === 'all' && view.k < threshold / 3) continue
-      wanted.push(node)
+      return x > -60 && x < width + 60 && y > -20 && y < height + 20
     }
-    wanted.sort((a, b) => rank(b) - rank(a))
+    const wanted: GraphNode[] = []
+    const special = new Set<GraphNode>()
+    for (const node of [hovered, ...(near ?? []), this.nodes.find((n) => n.id === activePath)]) {
+      if (node && !special.has(node) && onScreen(node)) wanted.push(node)
+      if (node) special.add(node)
+    }
+    if (settings.labelMode !== 'hover') {
+      if (this.byDegree.length !== this.nodes.length) this.byDegree = [...this.nodes].sort((a, b) => b.degree - a.degree)
+      for (const node of this.byDegree) {
+        if (wanted.length >= settings.labelLimit * 3) break
+        if (!few && settings.labelMode === 'smart' && view.k * (1 + Math.sqrt(node.degree) / 3) < threshold) break
+        if (!few && settings.labelMode === 'all' && view.k < threshold / 3) break
+        if (!special.has(node) && lit(node) && onScreen(node)) wanted.push(node)
+      }
+    }
 
     // Places already taken, as cells of a coarse grid; a name that would cover a taken cell is skipped.
     const cell = Math.max(8, size * 0.9)
@@ -591,7 +737,7 @@ export class GraphView implements FileView {
         if (over !== this.hovered) {
           this.hovered = over
           this.el.classList.toggle('over-node', !!over)
-          this.draw()
+          this.moved()
         }
       }
     }

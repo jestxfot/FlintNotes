@@ -1,4 +1,6 @@
 import { parse as parseYaml } from 'yaml'
+import { moment } from './moment'
+import { expandVariables } from './variables'
 import { Events } from './events'
 import { basename, dirname, extname, join, normalize, stripExt } from './path'
 import type { Vault, VaultEntry } from './vault'
@@ -273,13 +275,27 @@ export class MetadataCache extends Events<MetadataEvents> {
    * anywhere (same folder first, then the shortest path).
    */
   resolve(target: string, source: string): string | null {
-    const text = target.trim()
+    const text = this.expandTarget(target, source).trim()
     if (!text) return source
     // The answer depends on the target and on the folder of the linking note.
     const key = `${dirname(source)}\n${text}`
     let answer = this.resolved.get(key)
     if (answer === undefined) this.resolved.set(key, (answer = this.find(text, source)))
     return answer
+  }
+
+  /**
+   * A link whose target is written with a date variable, `[[{{date+1d:YYYY-MM-DD}}|tomorrow]]`,
+   * in a note named after a day, points to the day counted from that note's own.
+   * Obsidian's core templates leave such variables unexpanded when they create a
+   * daily note (only Periodic Notes and Calendar work them out), so vaults are
+   * full of these links; here they lead where they were meant to.
+   */
+  expandTarget(target: string, source: string): string {
+    if (!target.includes('{{')) return target
+    const name = basename(source).replace(/\.md$/i, '')
+    const day = moment(/\d{4}-\d{2}-\d{2}/.exec(name)?.[0] ?? '')
+    return day.isValid() ? expandVariables(target, name, day) : target
   }
 
   private find(text: string, source: string): string | null {
@@ -400,7 +416,7 @@ export class MetadataCache extends Events<MetadataEvents> {
           count(this.resolvedLinks, source, dest)
           count(this.backlinkIndex, dest, source)
         } else {
-          count(this.unresolvedLinks, source, link.target)
+          count(this.unresolvedLinks, source, this.expandTarget(link.target, source))
         }
       }
       for (const tag of meta.tags) {

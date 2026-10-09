@@ -3,6 +3,7 @@ import { GraphView } from './graph-view'
 import { loadSettings, saveSettings } from './settings'
 import './style.css'
 
+const LAYOUT = '.flint/graph-layout.json'
 const VIEW = 'graph'
 
 export default class Graph extends Plugin {
@@ -12,7 +13,14 @@ export default class Graph extends Plugin {
       VIEW,
       async ({ app, containerEl }) => {
         const settings = await loadSettings(app)
-        const view = new GraphView(app, containerEl, settings, () => saveSettings(app, settings))
+        // Where the dots came to rest last time: the graph opens laid out instead of exploding from the centre.
+        let places: Record<string, [number, number]> = {}
+        try {
+          places = JSON.parse((await app.vault.readOptional(LAYOUT)) ?? '{}')
+        } catch {
+          // A broken file only costs one layout from scratch.
+        }
+        const view = new GraphView(app, containerEl, settings, () => saveSettings(app, settings), places, (settled) => void app.vault.write(LAYOUT, JSON.stringify(settled)).catch(() => {}))
         views.add(view)
         const destroy = view.destroy.bind(view)
         view.destroy = () => {

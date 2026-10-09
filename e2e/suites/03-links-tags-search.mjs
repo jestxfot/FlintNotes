@@ -9,6 +9,9 @@ export const vault = {
     'A.md': '# A\n\nSee [[B]] and [[B|alias]] and [[Missing]].\n\n#project #area/sub\n\n![[pic.png|50]]\n\n`[[NotALink]]`\n\nend\n',
     'B.md': '---\ntags: [meta]\n---\n# B\n\nBack to [[A]]. Also [md](A.md). #project\n',
     'Sub/C.md': 'links [[A]] and [[B#B]] and [up](../B.md)\nneedle haystack\n',
+    // As Obsidian's core daily notes leave them: the year filled in, the neighbouring days not.
+    'Days/2026-10-08.md': '[[{{date-1d:YYYY-MM-DD}}|← yesterday]] | [[2026]] | [[{{date+1d:YYYY-MM-DD}}|tomorrow →]]\n\nend\n',
+    'Days/2026-10-09.md': 'the next day\n',
   },
 }
 
@@ -30,7 +33,7 @@ export async function run(t) {
   ok('image embed rendered', img?.width === 50 && img?.natural === 40, JSON.stringify(img))
   ok('tags rendered as pills', (await count('.lp-tag')) === 2)
   const tabTitles = await page.locator('aside.left .widget-tab').evaluateAll((tabs) => tabs.map((tab) => tab.title))
-  ok('file list stays the first sidebar tab', JSON.stringify(tabTitles) === JSON.stringify(['Файлы', 'Теги', 'Поиск']), JSON.stringify(tabTitles))
+  ok('file list stays the first sidebar tab', tabTitles[0] === 'Файлы' && [...tabTitles].sort().join() === ['Поиск', 'Теги', 'Файлы'].join(), JSON.stringify(tabTitles))
   ok('backlinks of A', /Обратные ссылки\s*2/i.test(await backlinks()) && (await backlinks()).includes('Back to [[A]]') && (await backlinks()).includes('links [[A]] and [[B#B]]'), await backlinks())
 
   await page.locator(`${leaf} .lp-wikilink`, { hasText: /^B$/ }).click()
@@ -128,4 +131,25 @@ export async function run(t) {
   await wait(200)
   ok('disabling the links plugin restores plain text', (await count('.lp-wikilink')) === 0 && (await t.text()).includes('[[Beta]]'))
   ok('disabling backlinks removes the right sidebar', (await t.count('aside.right')) === 0)
+
+  // ---- links written with a date variable, as Obsidian leaves them in daily notes
+  // The checks above end with plugins switched off and the search panel in front.
+  await page.evaluate(async () => {
+    await app.plugins.enable('links')
+    app.panels.reveal('files')
+  })
+  await wait(600)
+  await t.row('Days').click()
+  await t.open('2026-10-08')
+  const next = page.locator(`${leaf} .lp-wikilink`, { hasText: 'tomorrow →' })
+  ok('a link with a date variable leads to the day counted from the note', (await next.count()) === 1 && !(await next.getAttribute('class')).includes('missing'), await next.getAttribute('class').catch(() => 'none'))
+  ok('and the note it leads to knows it is linked', [...(await page.evaluate(() => [...app.metadata.backlinks('Days/2026-10-09.md').keys()]))].join() === 'Days/2026-10-08.md')
+  ok('no stray note stands for the variable itself', !(await page.evaluate(() => [...(app.metadata.unresolvedLinks.get('Days/2026-10-08.md')?.keys() ?? [])].join())).includes('{{'), await page.evaluate(() => [...(app.metadata.unresolvedLinks.get('Days/2026-10-08.md')?.keys() ?? [])].join()))
+  await next.click()
+  await wait(600)
+  ok('a click opens that day', (await t.activeTab()) === '2026-10-09', await t.activeTab())
+  await t.open('2026-10-08')
+  await page.locator(`${leaf} .lp-wikilink`, { hasText: '← yesterday' }).click()
+  await wait(1200)
+  ok('a day that has no note yet is created under its date, not under the variable', exists('Days/2026-10-07.md') && !exists('{{date-1d:YYYY-MM-DD}}.md') && (await t.activeTab()) === '2026-10-07', await t.activeTab())
 }

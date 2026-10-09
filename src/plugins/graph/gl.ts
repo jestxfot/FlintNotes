@@ -177,7 +177,8 @@ export class GlRenderer {
     gl.blendFunc(gl.ONE, gl.ONE_MINUS_SRC_ALPHA)
   }
 
-  draw(frame: Frame): void {
+  /** Draws a frame. With `fresh: false` the links and dots are as in the last one, and only the view has moved. */
+  draw(frame: Frame, fresh = true): void {
     const { gl } = this
     gl.viewport(0, 0, gl.drawingBufferWidth, gl.drawingBufferHeight)
     gl.clearColor(0, 0, 0, 0)
@@ -189,8 +190,10 @@ export class GlRenderer {
       return program
     }
     if (frame.linkCount) {
-      gl.bindBuffer(gl.ARRAY_BUFFER, this.buffers.links)
-      gl.bufferData(gl.ARRAY_BUFFER, frame.links.subarray(0, frame.linkCount * LINK_SIZE), gl.DYNAMIC_DRAW)
+      if (fresh) {
+        gl.bindBuffer(gl.ARRAY_BUFFER, this.buffers.links)
+        gl.bufferData(gl.ARRAY_BUFFER, frame.links.subarray(0, frame.linkCount * LINK_SIZE), gl.DYNAMIC_DRAW)
+      }
       // Never thinner than one device pixel, or lines would flicker in and out.
       gl.uniform1f(gl.getUniformLocation(use(this.programs.line), 'u_half'), Math.max(frame.lineWidth, 1 / frame.ratio) / 2)
       gl.bindVertexArray(this.arrays.line)
@@ -202,8 +205,10 @@ export class GlRenderer {
       }
     }
     if (frame.nodeCount) {
-      gl.bindBuffer(gl.ARRAY_BUFFER, this.buffers.nodes)
-      gl.bufferData(gl.ARRAY_BUFFER, frame.nodes.subarray(0, frame.nodeCount * NODE_SIZE), gl.DYNAMIC_DRAW)
+      if (fresh) {
+        gl.bindBuffer(gl.ARRAY_BUFFER, this.buffers.nodes)
+        gl.bufferData(gl.ARRAY_BUFFER, frame.nodes.subarray(0, frame.nodeCount * NODE_SIZE), gl.DYNAMIC_DRAW)
+      }
       use(this.programs.node)
       gl.bindVertexArray(this.arrays.node)
       gl.drawArraysInstanced(gl.TRIANGLE_STRIP, 0, 4, frame.nodeCount)
