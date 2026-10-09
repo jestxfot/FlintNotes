@@ -31,6 +31,16 @@ export function renderInline(app: App, text: string, sourcePath: string): Docume
       if (dest) app.workspace.openFile(dest)
       else app.notice(`Заметка «${href}» не найдена`)
     }
+    // The icon of the note the link leads to, as before links in a note's text.
+    if (wiki && app.icons.inNotes) {
+      const dest = app.metadata.resolve(href.split('#')[0], sourcePath)
+      const look = dest ? app.icons.look('file', dest) : undefined
+      if (look?.icon) {
+        const icon = app.icons.draw(look.icon, look.color)
+        icon.classList.add('inline-link-icon')
+        a.prepend(icon)
+      }
+    }
     return a
   }
 

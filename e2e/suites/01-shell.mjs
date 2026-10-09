@@ -163,4 +163,28 @@ export async function run(t) {
   ok('tabs restored after reload', (await t.count('.tab')) === 2 && (await t.activeTab()) === 'Вложенная')
   ok('plugins restored after reload', /слов/.test(await status()), await status())
   ok('theme restored after reload', (await page.evaluate(() => document.documentElement.dataset.theme)) === 'dark')
+
+  // ---- many tabs come back, in order, each with its own note and nothing lying over another
+  t.write('T1.md', 'first tab\n')
+  t.write('T2.md', 'second tab\n')
+  t.write('T3.md', 'third tab\n')
+  await wait(1200)
+  for (const name of ['T1', 'T2', 'T3']) await t.open(name)
+  const names = async () => (await page.locator('.tab .tab-title').allInnerTexts()).map((n) => n.trim()).join(',')
+  const before = await names()
+  await wait(800)
+  await page.reload()
+  await page.waitForSelector(`${t.leaf} .cm-content`)
+  await wait(1000)
+  ok('five tabs come back in their order', (await names()) === before && before.split(',').length === 5 && (await t.activeTab()) === 'T3', `${before} -> ${await names()}`)
+  ok('only the open tab is loaded, in one view', (await t.count('.leaf-view')) === 1 && (await t.text()).includes('third tab'), await t.count('.leaf-view'))
+  await t.tab('T1').click()
+  await wait(800)
+  ok('another tab loads when it is shown', (await t.text()).includes('first tab') && (await t.count(`${t.leaf} .leaf-view`)) === 1 && (await t.count('.leaf:not([hidden])')) === 1)
+  // A reload in the middle of restoring must not lose the tabs that were not shown yet.
+  await page.reload()
+  await page.reload()
+  await page.waitForSelector(`${t.leaf} .cm-content`)
+  await wait(1000)
+  ok('and a reload right after a reload keeps them all', (await names()) === before, await names())
 }

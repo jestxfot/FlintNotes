@@ -61,8 +61,8 @@ export default class QuickSwitcher extends Plugin {
           createLabel: (name) => `Создать заметку «${name}»`,
           onCreate: async (name) => {
             try {
-              const entry = await app.vault.create(`${path.normalize(name)}.md`)
-              app.workspace.openFile(entry.path)
+              const entry = await app.creation.create(`${path.normalize(name)}.md`)
+              if (entry) app.workspace.openFile(entry.path)
             } catch (err) {
               app.notice(`Не удалось создать заметку: ${errorMessage(err)}`)
             }

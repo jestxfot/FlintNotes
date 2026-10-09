@@ -116,6 +116,11 @@ export class Vault extends Events<VaultEvents> {
     return ((await res.json()) as { output: string }).output
   }
 
+  /** Asks the server to make a web request, which a page itself may not make to another site. */
+  async requestUrl(options: { url: string; method?: string; headers?: Record<string, string>; body?: string; contentType?: string }): Promise<{ status: number; headers: Record<string, string>; text: string }> {
+    return (await request('/api/request', { method: 'POST', headers: { 'content-type': 'application/json' }, body: JSON.stringify(options) })).json()
+  }
+
   /** What a web page says about itself: title, description, picture. */
   async unfurl(address: string): Promise<{ url: string; title: string; description: string; image: string; favicon: string }> {
     return (await request(`/api/unfurl?url=${encodeURIComponent(address)}`)).json()

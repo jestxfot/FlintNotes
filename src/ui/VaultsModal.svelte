@@ -89,7 +89,7 @@
     max-height: calc(100vh - 32px);
     padding: 20px 24px;
     border: 1px solid var(--border);
-    border-radius: 12px;
+    border-radius: var(--radius-xl);
     background: var(--bg);
     color: var(--text);
     box-shadow: var(--shadow);
@@ -115,7 +115,7 @@
     right: 12px;
     width: 28px;
     height: 28px;
-    border-radius: 6px;
+    border-radius: var(--radius-m);
     color: var(--text-muted);
     font-size: 20px;
   }
@@ -161,7 +161,7 @@
   button:not(.close) {
     padding: 5px 12px;
     border: 1px solid var(--border);
-    border-radius: 6px;
+    border-radius: var(--radius-m);
   }
 
   button:hover:not(:disabled) {
@@ -190,7 +190,7 @@
     min-width: 0;
     padding: 6px 10px;
     border: 1px solid var(--border);
-    border-radius: 6px;
+    border-radius: var(--radius-m);
     background: var(--bg);
   }
 

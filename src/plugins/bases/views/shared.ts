@@ -7,7 +7,10 @@ export interface ViewContext {
   app: App
   engine: BaseEngine
   view: ViewConfig
+  /** The records to draw: all of them, or the first part of a long list. */
   result: ViewResult
+  /** All the records of the view, for what is counted over the whole of it (totals under a table). */
+  total?: ViewResult
   /** The properties to show. */
   columns: string[]
   /** The note containing the base. */

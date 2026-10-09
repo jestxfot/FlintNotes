@@ -134,7 +134,7 @@ export const table: ViewRenderer = (ctx) => {
     }
   }
 
-  const summaries = columns.map((property) => engine.summary(view, property, result.rows))
+  const summaries = columns.map((property) => engine.summary(view, property, (ctx.total ?? result).rows))
   const foot = summaries.some(Boolean)
     ? h(
         'tfoot',

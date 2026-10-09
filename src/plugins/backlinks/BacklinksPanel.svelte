@@ -72,7 +72,7 @@
   button {
     display: block;
     width: 100%;
-    border-radius: 5px;
+    border-radius: var(--radius-m);
     text-align: left;
   }
 

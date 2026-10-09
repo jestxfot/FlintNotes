@@ -54,7 +54,7 @@
     max-height: min(680px, calc(100vh - 32px));
     padding: 20px 24px;
     border: 1px solid var(--border);
-    border-radius: 12px;
+    border-radius: var(--radius-xl);
     background: var(--bg);
     color: var(--text);
     box-shadow: var(--shadow);
@@ -88,7 +88,7 @@
     right: 12px;
     width: 28px;
     height: 28px;
-    border-radius: 6px;
+    border-radius: var(--radius-m);
     color: var(--text-muted);
     font-size: 20px;
   }
@@ -104,7 +104,7 @@
   code {
     padding: 1px 6px;
     border: 1px solid var(--border);
-    border-radius: 4px;
+    border-radius: var(--radius-s);
     background: var(--bg-alt);
     font: 12px var(--font-mono);
     white-space: nowrap;

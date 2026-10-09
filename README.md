@@ -41,7 +41,11 @@ node release/server.mjs "D:/Мои заметки"      # или FlintNotes.bat 
 | `<% ... %>`, `<%+ ... %>` | Шаблоны | Templater |
 | ```` ```chart ````, `window.renderChart` | Графики | Charts |
 | значки и цвета файлов, папок, тегов, свойств | Значки и цвета | Iconic (тот же `data.json` в папке настроек Obsidian) |
+| свои значки (PNG и JPG превращаются в SVG) | Значки и цвета | Add Custom Icons (SVG в `custom-icons` в папке настроек Obsidian) |
 | ```` ```tracker ```` | Трекер | Tracker |
+| ```` ```mermaid ```` | Диаграммы Mermaid | встроено в Obsidian (та же библиотека Mermaid) |
+| блок HTML (`<div>…</div>` на своих строках) | ядро | встроено в Obsidian; скрипты и обработчики `on…` вырезаются |
+| свои значки приложения `flint-*` | Значки и цвета | при выборе кладутся SVG-файлом в `custom-icons`, чтобы их видел и Obsidian |
 | свои кнопки и макросы | Быстрые кнопки и команды | Commander (формат его `data.json`, файл `.flint/commander.json`) |
 | настройки графа | Граф | `graph.json` Obsidian (те же имена, хранятся в `.flint/workspace.json`) |
 

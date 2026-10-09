@@ -1,12 +1,12 @@
 import { path as paths, type Look, type LookKind } from '../../api'
 
-interface Condition {
+export interface Condition {
   source: string
   operator: string
   value: string
 }
 
-interface Rule extends Look {
+export interface Rule extends Look {
   id: string
   name: string
   match: 'all' | 'any' | 'none'

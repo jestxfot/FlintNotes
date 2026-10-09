@@ -1,0 +1,144 @@
+/* The rulebook in the plugin's settings. */
+.iconic-rules {
+  display: flex;
+  flex-direction: column;
+  gap: 18px;
+  width: 100%;
+}
+
+.iconic-rule-section {
+  display: flex;
+  flex-direction: column;
+  gap: 8px;
+}
+
+.iconic-rule-head {
+  display: flex;
+  align-items: center;
+  justify-content: space-between;
+}
+
+.iconic-rule-head h4 {
+  margin: 0;
+  font-size: 14px;
+}
+
+.iconic-rule-add,
+.iconic-condition-add {
+  padding: 4px 10px;
+  border-radius: var(--radius-m);
+  color: var(--text-muted);
+}
+
+.iconic-rule-add {
+  border: 1px solid var(--border);
+}
+
+.iconic-condition-add {
+  align-self: flex-start;
+  margin-left: 30px;
+  font-size: 13px;
+}
+
+.iconic-rule-add:hover,
+.iconic-condition-add:hover,
+.iconic-rule-tool:hover:not(:disabled),
+.iconic-rule-look:hover {
+  background: var(--bg-hover);
+  color: var(--text);
+}
+
+.iconic-rule-none {
+  color: var(--text-faint);
+  font-size: 13px;
+}
+
+.iconic-rule {
+  display: flex;
+  flex-direction: column;
+  gap: 6px;
+  padding: 10px 12px;
+  border: 1px solid var(--border);
+  border-radius: var(--radius-l);
+  background: var(--bg);
+}
+
+.iconic-rule.off {
+  opacity: 0.55;
+}
+
+.iconic-rule-line,
+.iconic-condition {
+  display: flex;
+  align-items: center;
+  gap: 8px;
+}
+
+.iconic-condition {
+  padding-left: 30px;
+}
+
+.iconic-rule-on {
+  width: 16px;
+  height: 16px;
+  margin: 0;
+  accent-color: var(--accent);
+}
+
+.iconic-rule-look {
+  display: flex;
+  flex: none;
+  align-items: center;
+  justify-content: center;
+  width: 30px;
+  height: 30px;
+  border: 1px solid var(--border);
+  border-radius: var(--radius-m);
+  font-size: 17px;
+}
+
+.iconic-rule-name,
+.iconic-rule-value,
+.iconic-rule-select {
+  min-width: 0;
+  padding: 5px 8px;
+  border: 1px solid var(--border);
+  border-radius: var(--radius-m);
+  background: var(--bg-alt);
+  color: inherit;
+  font: inherit;
+  font-size: 13px;
+}
+
+.iconic-rule-name,
+.iconic-rule-value {
+  flex: 1;
+}
+
+.iconic-rule-word,
+.iconic-rule-count {
+  flex: none;
+  color: var(--text-muted);
+  font-size: 13px;
+}
+
+.iconic-rule-count {
+  min-width: 26px;
+  padding: 1px 7px;
+  border-radius: 2em;
+  background: var(--bg-hover);
+  text-align: center;
+  font-variant-numeric: tabular-nums;
+}
+
+.iconic-rule-tool {
+  flex: none;
+  width: 24px;
+  height: 24px;
+  border-radius: var(--radius-s);
+  color: var(--text-muted);
+}
+
+.iconic-rule-tool:disabled {
+  opacity: 0.3;
+}

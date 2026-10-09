@@ -80,7 +80,7 @@
     width: 100%;
     padding: 6px 10px;
     border: 1px solid var(--border);
-    border-radius: 6px;
+    border-radius: var(--radius-m);
     background: var(--bg);
     outline: none;
   }
@@ -105,7 +105,7 @@
   button {
     display: flex;
     width: 100%;
-    border-radius: 5px;
+    border-radius: var(--radius-m);
     text-align: left;
   }
 

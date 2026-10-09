@@ -244,7 +244,7 @@
     height: min(760px, calc(100vh - 48px));
     padding: 0;
     border: 1px solid var(--border);
-    border-radius: 12px;
+    border-radius: var(--radius-xl);
     background: var(--bg);
     color: var(--text);
     box-shadow: var(--shadow);
@@ -273,7 +273,7 @@
     margin-bottom: 4px;
     padding: 7px 10px;
     border: 1px solid var(--border);
-    border-radius: 6px;
+    border-radius: var(--radius-m);
     background: var(--bg);
   }
 
@@ -293,7 +293,7 @@
     align-items: center;
     gap: 9px;
     padding: 5px 10px;
-    border-radius: 6px;
+    border-radius: var(--radius-m);
     color: var(--text-muted);
     text-align: left;
   }
@@ -323,7 +323,7 @@
     right: 12px;
     width: 28px;
     height: 28px;
-    border-radius: 6px;
+    border-radius: var(--radius-m);
     color: var(--text-muted);
     font-size: 20px;
   }
@@ -359,7 +359,7 @@
   /* Settings of one page sit in a panel, one under another with a line between. */
   .card {
     padding: 0 18px;
-    border-radius: 10px;
+    border-radius: var(--radius-xl);
     background: var(--bg-alt);
   }
 
@@ -398,7 +398,7 @@
     margin-left: 6px;
     padding: 1px 6px;
     border: 1px solid var(--border);
-    border-radius: 10px;
+    border-radius: var(--radius-xl);
     color: var(--text-muted);
     font-size: 11px;
     font-style: normal;
@@ -409,7 +409,7 @@
   input[type='text'] {
     padding: 6px 10px;
     border: 1px solid var(--border);
-    border-radius: 6px;
+    border-radius: var(--radius-m);
     background: var(--bg-hover);
   }
 
@@ -421,7 +421,7 @@
     flex: 0 0 55%;
     padding: 6px 8px;
     border: 1px solid var(--border);
-    border-radius: 6px;
+    border-radius: var(--radius-m);
     background: var(--bg);
     color: inherit;
     font: 12.5px/1.5 var(--font-mono);
@@ -436,7 +436,7 @@
     min-width: 96px;
     padding: 4px 10px;
     border: 1px solid var(--border);
-    border-radius: 6px;
+    border-radius: var(--radius-m);
     background: var(--bg-hover);
     color: var(--text-muted);
     font-size: 12.5px;
@@ -450,7 +450,7 @@
   .reset {
     width: 24px;
     height: 24px;
-    border-radius: 5px;
+    border-radius: var(--radius-m);
     color: var(--text-faint);
   }
 
@@ -465,7 +465,7 @@
     flex: 0 0 40px;
     height: 22px;
     margin: 0;
-    border-radius: 11px;
+    border-radius: var(--radius-xl);
     background: var(--border);
     cursor: pointer;
     transition: background 0.15s;

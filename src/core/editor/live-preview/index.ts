@@ -1,3 +1,4 @@
+import { htmlBlock } from './elements/html'
 import { syntaxTree } from '@codemirror/language'
 import { Compartment, StateEffect, StateField, type EditorState, type Extension, type Line, type Range } from '@codemirror/state'
 import { Decoration, EditorView, ViewPlugin, WidgetType, type DecorationSet, type ViewUpdate } from '@codemirror/view'
@@ -265,6 +266,8 @@ export class LivePreview {
 
   init(): void {
     this.renderers.push(...builtinRenderers(this.app))
+    // HTML written in a note is part of Markdown, so it is drawn without any plugin.
+    this.blockRenderers.set('HTMLBlock', htmlBlock)
     this.enabled = this.app.settings.get<string>('core', 'editorMode') !== 'source'
     this.app.settings.on('change', (scope, key) => {
       if (scope !== 'core' || key !== 'editorMode') return

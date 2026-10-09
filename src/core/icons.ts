@@ -1,4 +1,5 @@
 import { Events, type Off } from './events'
+import { FLINT_ICONS } from './icon-set'
 
 /** What an item looks like: an icon (see `Icons.draw`) and a colour (a name such as `red`, or any CSS colour). */
 export interface Look {
@@ -38,6 +39,8 @@ export class Icons extends Events<{ change: [] }> {
   /** Icons Lucide has renamed or redrawn since, by their old names: the inside of their `<svg>`. */
   private legacy: Record<string, string> = {}
   private loading: Promise<Nodes> | null = null
+  /** Icons drawn as "unknown", by name: one of them may turn out to be a picture of the user's own. */
+  private waiting = new Set<WeakRef<HTMLElement>>()
   /** Whether icons are also shown inside notes: before links to notes and beside a note's title. Set from a plugin's setting. */
   inNotes = true
   /** Opens the choice of an icon for an item; set by the plugin that keeps the icons. */
@@ -65,6 +68,17 @@ export class Icons extends Events<{ change: [] }> {
   /** Names of those pictures, for the icon picker; set by the same plugin. */
   customNames: () => string[] = () => []
 
+  /**
+   * Keeps a picture the user brought as an icon of their own and returns its name;
+   * set by the plugin that keeps the icons. `null`: there is nowhere to keep one.
+   */
+  upload: ((file: File) => Promise<string | null>) | null = null
+
+  /** The icon and colour given to this very item, not one it has by a rule; set by the plugin that keeps the icons. */
+  own: ((kind: LookKind, id: string) => Look | undefined) | null = null
+  /** Gives an item an icon and a colour of its own, and remembers that; set by the same plugin. */
+  assign: ((kind: LookKind, id: string, look: Look) => Promise<void>) | null = null
+
   provide(provider: Provider): Off {
     this.providers.push(provider)
     this.trigger('change')
@@ -76,6 +90,18 @@ export class Icons extends Events<{ change: [] }> {
 
   /** Tells everything that shows icons to draw them again. */
   refresh(): void {
+    // Icons drawn before their picture was known get it now, wherever they are shown.
+    for (const ref of this.waiting) {
+      const el = ref.deref()
+      const picture = el && this.custom(el.dataset.icon ?? '')
+      if (!el) this.waiting.delete(ref)
+      if (!el || !picture) continue
+      const img = document.createElement('img')
+      img.src = picture
+      img.alt = ''
+      el.replaceChildren(img)
+      this.waiting.delete(ref)
+    }
     this.trigger('change')
   }
 
@@ -99,6 +125,17 @@ export class Icons extends Events<{ change: [] }> {
     }))
   }
 
+  /** The icons drawn for this app: name and the words they are found by. */
+  ownIcons(): { name: string; label: string }[] {
+    return Object.entries(FLINT_ICONS).map(([name, { label }]) => ({ name, label }))
+  }
+
+  /** An icon of the app's own as a file, for apps that know icons only as SVG files; `null` if the name is not one of them. */
+  ownSvg(name: string): string | null {
+    if (!Object.hasOwn(FLINT_ICONS, name)) return null
+    return `<svg xmlns="http://www.w3.org/2000/svg" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round">${FLINT_ICONS[name].svg}</svg>\n`
+  }
+
   /** Names of all Lucide icons (after `load`). */
   names(): string[] {
     return Object.keys(this.nodes ?? {})
@@ -110,7 +147,8 @@ export class Icons extends Events<{ change: [] }> {
     el.className = 'icon'
     el.style.color = this.css(color)
     const name = icon.replace(/^lucide-/, '')
-    const picture = icon.startsWith('url:') ? icon.slice(4) : this.custom(icon)
+    // The app's own icons are drawn as lines in the current colour even when a copy of them lies among the user's pictures.
+    const picture = icon.startsWith('url:') ? icon.slice(4) : Object.hasOwn(FLINT_ICONS, name) ? undefined : this.custom(icon)
     if (picture) {
       const img = el.appendChild(document.createElement('img'))
       img.src = picture
@@ -123,7 +161,16 @@ export class Icons extends Events<{ change: [] }> {
         const svg = el.appendChild(document.createElementNS(SVG, 'svg'))
         svg.setAttribute('viewBox', '0 0 24 24')
         // A name found nowhere still gets a picture, so that no button or row is left blank.
-        if (!shapes) return void (svg.innerHTML = old ?? (Object.hasOwn(OWN, name) ? OWN[name] : UNKNOWN))
+        if (!shapes) {
+          const own = Object.hasOwn(OWN, name) ? OWN[name] : Object.hasOwn(FLINT_ICONS, name) ? FLINT_ICONS[name].svg : null
+          svg.innerHTML = old ?? own ?? UNKNOWN
+          // It may be a picture of the user's own whose list has not been read yet: it is drawn once it is known.
+          if (!old && !own) {
+            el.dataset.icon = icon
+            this.waiting.add(new WeakRef(el))
+          }
+          return
+        }
         for (const [tag, attrs] of shapes) {
           const shape = svg.appendChild(document.createElementNS(SVG, tag))
           for (const [key, value] of Object.entries(attrs)) shape.setAttribute(key, value)
@@ -137,4 +184,28 @@ export class Icons extends Events<{ change: [] }> {
     }
     return el
   }
+}
+
+/**
+ * Turns a picture (PNG, JPEG, WebP, GIF) into an SVG icon: the picture, made no
+ * larger than an icon needs, is put inside a square SVG of the size Obsidian's
+ * icons have (100x100), centred, with its proportions kept. The shapes are not
+ * traced: a photo stays a photo.
+ */
+export async function pictureToSvg(file: Blob, size = 128): Promise<string> {
+  const bitmap = await createImageBitmap(file)
+  const longest = Math.max(bitmap.width, bitmap.height)
+  const scale = Math.min(1, size / longest)
+  const canvas = document.createElement('canvas')
+  canvas.width = Math.max(1, Math.round(bitmap.width * scale))
+  canvas.height = Math.max(1, Math.round(bitmap.height * scale))
+  const context = canvas.getContext('2d')!
+  context.imageSmoothingQuality = 'high'
+  context.drawImage(bitmap, 0, 0, canvas.width, canvas.height)
+  bitmap.close()
+  const width = +((100 * canvas.width) / Math.max(canvas.width, canvas.height)).toFixed(2)
+  const height = +((100 * canvas.height) / Math.max(canvas.width, canvas.height)).toFixed(2)
+  // PNG keeps what is transparent in the picture.
+  const data = canvas.toDataURL('image/png')
+  return `<svg xmlns="http://www.w3.org/2000/svg" xmlns:xlink="http://www.w3.org/1999/xlink" viewBox="0 0 100 100"><image x="${(100 - width) / 2}" y="${(100 - height) / 2}" width="${width}" height="${height}" href="${data}" xlink:href="${data}"/></svg>\n`
 }

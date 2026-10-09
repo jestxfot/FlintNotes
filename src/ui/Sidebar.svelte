@@ -209,7 +209,7 @@
     justify-content: center;
     width: 28px;
     height: 26px;
-    border-radius: 5px;
+    border-radius: var(--radius-m);
     color: var(--text-faint);
     font-size: 13px;
     font-weight: 600;
@@ -252,7 +252,7 @@
   .dragging .gap {
     height: 14px;
     margin: 0 6px;
-    border-radius: 4px;
+    border-radius: var(--radius-s);
   }
 
   .gap.over,
@@ -268,7 +268,7 @@
     justify-content: center;
     margin: 6px;
     border: 2px dashed var(--border);
-    border-radius: 8px;
+    border-radius: var(--radius-l);
     color: var(--text-faint);
     font-size: 13px;
   }

@@ -43,7 +43,7 @@ export function buildVault(dir, { files = {}, plugins = [], settings = {}, exter
   }
   for (const [file, content] of Object.entries(files)) write(file, content)
   // The suites were written with one tab per note; opening in place has checks of its own.
-  write('.flint/settings.json', JSON.stringify({ ...settings, core: { reuseTab: false, enabledPlugins: plugins, ...settings.core } }))
+  write('.flint/settings.json', JSON.stringify({ ...settings, core: { reuseTab: false, confirmLeave: false, enabledPlugins: plugins, ...settings.core } }))
   for (const [id, parts] of Object.entries(externalPlugins)) {
     for (const [file, content] of Object.entries(parts)) write(`.flint/plugins/${id}/${file}`, content)
   }
@@ -58,7 +58,7 @@ export function tools(page, vault, results) {
     leaf,
     /** Records a check. `extra` is shown when it fails. */
     ok(name, cond, extra = '') {
-      results.push({ name, pass: !!cond, extra: cond ? '' : String(extra).slice(0, 500) })
+      results.push({ name, pass: !!cond, extra: cond ? "" : String(extra).slice(0, 1500) })
     },
     read: (file) => fs.readFileSync(path.join(vault, file), 'utf8'),
     write: (file, text) => fs.writeFileSync(path.join(vault, file), text),

@@ -46,6 +46,8 @@ export interface TaskFields {
 }
 
 export interface Task extends TaskFields {
+  /** Not a task but an ordinary line that carries a reminder, `(@2026-10-10 14:00)`: it only reminds. */
+  plain?: boolean
   path: string
   /** Zero-based line in the file. */
   line: number
@@ -66,6 +68,41 @@ const REMINDER = /⏰️?\s*((?:\d{4}-\d{2}-\d{2}[ T])?\d{1,2}:\d{2}|\d{4}-\d{2}
 const REMINDER_AT = /\(@(\d{4}-\d{2}-\d{2})(?:[ T](\d{1,2}:\d{2}))?\)/u
 const OTHER = /[🆔⛔🏁]️?\s*[\w,-]+/gu
 const TAG = /(?<![\p{L}\p{N}_/#&;])#([\p{L}\p{N}_/-]+)/gu
+
+/** The 🆔 of a task, by which other tasks name it. */
+export const taskId = (task: TaskFields) => /🆔️?\s*([\w-]+)/u.exec(task.extra ?? '')?.[1] ?? ''
+/** The ids after ⛔: tasks that must be done before this one. */
+export const dependsOn = (task: TaskFields) => (/⛔️?\s*([\w,-]+)/u.exec(task.extra ?? '')?.[1] ?? '').split(',').filter(Boolean)
+/** The `extra` of a task with its id and the ids it waits for replaced; what else is there (🏁) stays. */
+export function withLinks(task: TaskFields, id: string, waits: string[]): string | undefined {
+  const other = (task.extra ?? '').replace(/[🆔⛔]️?\s*[\w,-]+/gu, '').trim()
+  return [other, id && `🆔 ${id}`, waits.length && `⛔ ${waits.join(',')}`].filter(Boolean).join(' ') || undefined
+}
+/** A new id, made the way Obsidian Tasks makes them: six letters and digits. */
+export function newTaskId(taken: Set<string>): string {
+  const letters = 'abcdefghijklmnopqrstuvwxyz0123456789'
+  for (;;) {
+    const id = Array.from({ length: 6 }, () => letters[Math.floor(Math.random() * letters.length)]).join('')
+    if (!taken.has(id)) return id
+  }
+}
+
+/**
+ * Reads a reminder from a line that is not a task: any text with `(@2026-10-10 14:00)`
+ * in it. What is left of the line, without list and heading marks, is what to remind of.
+ */
+export function parsePlainReminder(raw: string): TaskFields | null {
+  const at = REMINDER_AT.exec(raw)
+  if (!at) return null
+  const description = raw
+    .replace(REMINDER_AT, ' ')
+    .replace(/^\s*(?:>\s?)*(?:#{1,6}\s+|(?:[-*+]|\d+[.)])\s+)?/, '')
+    .replace(/\s+/g, ' ')
+    .trim()
+  return { status: ' ', description: description || 'Напоминание', priority: NO_PRIORITY, reminder: `${at[1]}${at[2] ? ` ${at[2]}` : ''}`, reminderAt: true }
+}
+/** The same line with its reminder moved to another moment. */
+export const movePlainReminder = (raw: string, stamp: string) => raw.replace(REMINDER_AT, `(@${stamp})`)
 
 export const isDone = (task: TaskFields) => task.status.toLowerCase() === 'x'
 export const isCancelled = (task: TaskFields) => task.status === '-'

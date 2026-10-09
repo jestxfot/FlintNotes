@@ -75,13 +75,17 @@
     z-index: 50;
     display: flex;
     flex-direction: column;
-    min-width: 200px;
-    max-width: 320px;
+    min-width: 170px;
+    max-width: 300px;
     max-height: calc(100vh - 12px);
-    padding: 6px;
+    padding: 4px;
+    font-family: var(--font-ui, inherit);
+    font-size: 13px;
+    font-weight: 400;
+    line-height: 1.35;
     overflow-y: auto;
     border: 1px solid var(--border);
-    border-radius: 8px;
+    border-radius: var(--radius-m);
     background: var(--bg-alt);
     box-shadow: var(--shadow);
     visibility: hidden;
@@ -94,9 +98,10 @@
   button {
     display: flex;
     align-items: center;
-    gap: 8px;
-    padding: 5px 8px;
+    gap: 9px;
+    padding: 4px 9px;
     border-radius: 5px;
+    font-size: inherit;
     text-align: left;
   }
 
@@ -117,10 +122,10 @@
   .menu-icon {
     display: flex;
     flex: none;
-    width: 16px;
-    height: 16px;
+    width: 15px;
+    height: 15px;
     color: var(--text-muted);
-    font-size: 16px;
+    font-size: 15px;
   }
 
   .danger .menu-icon {
@@ -139,8 +144,8 @@
   }
 
   hr {
-    width: calc(100% + 12px);
-    margin: 5px -6px;
+    width: calc(100% + 8px);
+    margin: 4px -4px;
     border: none;
     border-top: 1px solid var(--border);
   }

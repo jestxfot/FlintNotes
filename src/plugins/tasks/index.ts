@@ -48,6 +48,13 @@ export default class Tasks extends Plugin {
         type: 'toggle',
         default: true,
       },
+      {
+        key: 'remindPlain',
+        name: 'Напоминать и по обычным строкам',
+        desc: 'Любая строка с «(@2026-10-10 14:00)» напомнит о себе, даже без флажка задачи. Сам Reminder в Obsidian напоминает только по строкам с флажком',
+        type: 'toggle',
+        default: true,
+      },
       { key: 'defaultTime', name: 'Время таких напоминаний', type: 'text', default: '09:00', placeholder: '09:00' },
       {
         key: 'maxAgeDays',
@@ -93,13 +100,23 @@ export default class Tasks extends Plugin {
     /** A reminder set in the form is written the way the settings say, unless the task already had one written otherwise. */
     const styled = (before: TaskFields, after: TaskFields): TaskFields => ({ ...after, reminderAt: before.reminder ? before.reminderAt : this.getSetting<string>('reminderStyle') === 'at' })
     const openDialog = (task: TaskFields, title: string, save: (fields: TaskFields) => void) => {
-      const onsave = (fields: TaskFields) => save(styled(task, fields))
+      // Tasks chosen as "before" or "after" this one get an id or a ⛔ written into their own lines first.
+      const onsave = async (fields: TaskFields, others: { task: Task; extra: string | undefined }[] = []) => {
+        for (const other of others) {
+          await store.edit(other.task, (raw) => {
+            const parsed = parseTaskLine(raw)
+            return parsed ? [formatTaskLine({ ...parsed, extra: other.extra }, parsed.prefix)] : [raw]
+          })
+        }
+        save(styled(task, fields))
+      }
       const target = document.body.appendChild(document.createElement('div'))
       const dialog = mount(TaskDialog, {
         target,
         props: {
           task,
           title,
+          tasks: store.all(),
           onsave,
           onclose: () => {
             void unmount(dialog)

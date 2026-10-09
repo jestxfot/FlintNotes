@@ -18,7 +18,7 @@
 
 .commander-add {
   padding: 3px 8px;
-  border-radius: 5px;
+  border-radius: var(--radius-m);
   color: var(--accent);
   font-size: 12.5px;
 }
@@ -43,7 +43,7 @@
   min-width: 0;
   padding: 4px 8px;
   border: 1px solid var(--border);
-  border-radius: 5px;
+  border-radius: var(--radius-m);
   background: var(--bg);
 }
 
@@ -60,7 +60,7 @@
   justify-content: center;
   width: 26px;
   height: 26px;
-  border-radius: 5px;
+  border-radius: var(--radius-m);
   color: var(--text-muted);
   font-size: 15px;
 }
@@ -90,7 +90,7 @@
   width: 70px;
   padding: 2px 6px;
   border: 1px solid var(--border);
-  border-radius: 5px;
+  border-radius: var(--radius-m);
   background: var(--bg);
 }
 

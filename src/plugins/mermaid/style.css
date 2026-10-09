@@ -1,0 +1,20 @@
+.mermaid-block {
+  display: flex;
+  justify-content: center;
+  padding: 8px 0;
+  overflow-x: auto;
+}
+
+.mermaid-block svg {
+  max-width: 100%;
+  height: auto;
+}
+
+.mermaid-error {
+  padding: 8px 12px;
+  border-radius: var(--radius-m);
+  background: color-mix(in srgb, var(--color-red) 12%, transparent);
+  color: var(--color-red);
+  font: 13px/1.45 var(--font-mono);
+  white-space: pre-wrap;
+}

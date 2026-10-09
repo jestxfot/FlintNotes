@@ -33,7 +33,7 @@ export async function run(t) {
 
   await t.open('A')
   await wait(1000)
-  const embeds = page.locator(`${leaf} > .cm-editor > .cm-scroller > .cm-content > .cm-line > .lp-embed`)
+  const embeds = page.locator(`${leaf} > .leaf-view > .cm-editor > .cm-scroller > .cm-content > .cm-line > .lp-embed`)
   ok('four embeds in A', (await embeds.count()) === 4, await embeds.count())
   const first = await embeds.nth(0).innerText()
   const second = await embeds.nth(1).innerText()
@@ -124,7 +124,7 @@ export async function run(t) {
   const plug = (name) => page.locator('label.item', { hasText: name }).locator('input')
   await plug('Номера строк').check()
   await wait(500)
-  ok('editor plugins skip embedded previews', (await page.locator(`${leaf} > .cm-editor > .cm-scroller > .cm-gutters`).count()) === 1 && (await page.locator(`${leaf} .lp-embed .cm-lineNumbers`).count()) === 0)
+  ok('editor plugins skip embedded previews', (await page.locator(`${leaf} > .leaf-view > .cm-editor > .cm-scroller > .cm-gutters`).count()) === 1 && (await page.locator(`${leaf} .lp-embed .cm-lineNumbers`).count()) === 0)
   await plug('Просмотр PDF').uncheck()
   await wait(500)
   await page.keyboard.press('Escape')

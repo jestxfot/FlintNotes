@@ -153,7 +153,7 @@
 
   .title button {
     padding: 0 2px;
-    border-radius: 4px;
+    border-radius: var(--radius-s);
   }
 
   .title button:hover {
@@ -167,7 +167,7 @@
   .nav,
   .today {
     padding: 2px 7px;
-    border-radius: 5px;
+    border-radius: var(--radius-m);
     color: var(--text-muted);
   }
 
@@ -215,7 +215,7 @@
     flex-direction: column;
     align-items: center;
     padding: 4px 0 3px;
-    border-radius: 5px;
+    border-radius: var(--radius-m);
     font-size: 13.5px;
     line-height: 1.2;
   }

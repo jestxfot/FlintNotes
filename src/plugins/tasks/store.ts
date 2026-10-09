@@ -1,9 +1,12 @@
 import { Events, type App, type Off } from '../../api'
 import { today } from './dates'
-import { parseTaskLine, toggleTaskLine, type Task } from './task'
+import { parsePlainReminder, parseTaskLine, toggleTaskLine, type Task } from './task'
 
-/** Finds the tasks of one note. Lines inside code blocks are not tasks. */
-export function parseTasks(path: string, text: string, headings: { text: string; line: number }[]): Task[] {
+/**
+ * Finds the tasks of one note. Lines inside code blocks are not tasks. Ordinary
+ * lines that carry a reminder are collected into `plain`, when a list is given.
+ */
+export function parseTasks(path: string, text: string, headings: { text: string; line: number }[], plain?: Task[]): Task[] {
   const tasks: Task[] = []
   let fence: string | null = null
   let heading = 0
@@ -18,8 +21,12 @@ export function parseTasks(path: string, text: string, headings: { text: string;
       return
     }
     const parsed = parseTaskLine(raw)
-    if (!parsed) return
     while (heading < headings.length && headings[heading].line < line) heading++
+    if (!parsed) {
+      const reminder = plain && raw.includes('(@') ? parsePlainReminder(raw) : null
+      if (reminder) plain!.push({ ...reminder, plain: true, tags: [], path, line, raw, heading: headings[heading - 1]?.text })
+      return
+    }
     const { prefix: _, ...fields } = parsed
     tasks.push({ ...fields, path, line, raw, heading: headings[heading - 1]?.text })
   })
@@ -28,8 +35,9 @@ export function parseTasks(path: string, text: string, headings: { text: string;
 
 /** Every task in the vault, kept current through the note index. */
 export class TaskStore extends Events<{ change: [] }> {
-  private cache = new Map<string, { text: string; tasks: Task[]; lines: string }>()
+  private cache = new Map<string, { text: string; tasks: Task[]; plain: Task[]; lines: string }>()
   private list: Task[] | null = null
+  private plainList: Task[] = []
 
   constructor(private app: App) {
     super()
@@ -66,8 +74,9 @@ export class TaskStore extends Events<{ change: [] }> {
     let entry = this.cache.get(path)
     // Only notes whose text changed are parsed again.
     if (entry?.text !== text) {
-      const tasks = parseTasks(path, text, metadata.get(path)?.headings ?? [])
-      entry = { text, tasks, lines: tasks.map((task) => `${task.line}\t${task.raw}`).join('\n') }
+      const plain: Task[] = []
+      const tasks = parseTasks(path, text, metadata.get(path)?.headings ?? [], plain)
+      entry = { text, tasks, plain, lines: [...tasks, ...plain].map((task) => `${task.line}\t${task.raw}`).join('\n') }
       this.cache.set(path, entry)
     }
     return entry
@@ -77,12 +86,22 @@ export class TaskStore extends Events<{ change: [] }> {
     if (this.list) return this.list
     const seen = new Set<string>()
     const tasks: Task[] = []
+    const plain: Task[] = []
     for (const path of this.app.metadata.notes()) {
       seen.add(path)
-      tasks.push(...this.parse(path).tasks)
+      const entry = this.parse(path)
+      tasks.push(...entry.tasks)
+      if (entry.plain.length) plain.push(...entry.plain)
     }
     for (const path of this.cache.keys()) if (!seen.has(path)) this.cache.delete(path)
+    this.plainList = plain
     return (this.list = tasks)
+  }
+
+  /** Ordinary lines that carry a reminder: they are not tasks and appear in no task list. */
+  plain(): Task[] {
+    this.all()
+    return this.plainList
   }
 
   /** Rewrites a task's line in its file; `edit` may return several lines. */

@@ -37,6 +37,8 @@ export interface Leaf {
   viewType: string
   el: HTMLElement
   view: FileView | null
+  /** Counts the times a view was put into the tab: a view that finishes loading late knows it is no longer wanted. */
+  mounts?: number
 }
 
 type WorkspaceEvents = {
@@ -77,6 +79,8 @@ export class Workspace extends Events<WorkspaceEvents> {
   redirect: ((path: string) => boolean) | null = null
   /** Whether the click or Enter being handled right now asks for a new tab (Ctrl or the middle button). */
   private aside = false
+  /** Whether the tabs of the last session have been brought back; until then nothing is saved over them. */
+  private restored = false
 
   constructor(private app: App) {
     super()
@@ -180,17 +184,17 @@ export class Workspace extends Events<WorkspaceEvents> {
       this.changed()
       return Object.assign(current, { ready })
     }
-    const el = document.createElement('div')
-    el.className = 'leaf'
-    this.containerEl.append(el)
-    const leaf: Leaf = { id: this.nextId++, path, title, viewType: '', el, view: null }
+    const leaf = this.create(path, title)
     this.leaves.push(leaf)
+    const ready = this.mount(leaf, focus)
     this.setActive(leaf)
-    return Object.assign(leaf, { ready: this.mount(leaf, focus) })
+    return Object.assign(leaf, { ready })
   }
 
   setActive(leaf: Leaf | null): void {
     this.active = leaf
+    // A tab brought back from the last session is loaded when it is first looked at.
+    if (leaf && !leaf.mounts) void this.mount(leaf, true)
     this.show()
     leaf?.view?.focus?.()
     this.changed()
@@ -203,6 +207,7 @@ export class Workspace extends Events<WorkspaceEvents> {
     leaf.view?.destroy()
     leaf.view = null
     leaf.el.remove()
+    this.mounting.delete(leaf)
     this.leaves.splice(index, 1)
     if (this.active === leaf) this.setActive(this.leaves[index] ?? this.leaves[index - 1] ?? null)
     else this.changed()
@@ -213,14 +218,35 @@ export class Workspace extends Events<WorkspaceEvents> {
     await Promise.all([...this.leaves, ...this.embedded].map((shown) => shown.view?.flush?.(unloading)))
   }
 
-  /** Reopens the tabs of the previous session. */
+  /**
+   * Reopens the tabs of the previous session, in their order. A tab that something
+   * opened while the app was starting (a plugin showing today's note) stays, after
+   * them, and stays the one on screen.
+   */
   restore(): void {
     const { tabs, active } = this.app.state.get<{ tabs?: { path: string; title?: string }[]; active?: string }>('tabs', {})
+    const early = this.leaves
+    const wanted = this.active
+    this.leaves = []
     for (const { path, title } of tabs ?? []) {
-      if (path.startsWith(VIEW_PREFIX) || this.app.vault.get(path)) this.open(path, title, true)
+      if (!path.startsWith(VIEW_PREFIX) && !this.app.vault.get(path)) continue
+      const open = early.find((leaf) => leaf.path === path)
+      if (open) this.leaves.push(open)
+      else if (!this.leaves.some((leaf) => leaf.path === path)) this.leaves.push(this.create(path, title))
     }
-    const leaf = this.leaves.find((l) => l.path === active)
-    if (leaf) this.setActive(leaf)
+    for (const leaf of early) if (!this.leaves.includes(leaf)) this.leaves.push(leaf)
+    this.restored = true
+    // Only the tab on screen is loaded now; the others load when they are first shown.
+    this.setActive(wanted ?? this.leaves.find((leaf) => leaf.path === active) ?? this.leaves[0] ?? null)
+  }
+
+  /** A tab that is not loaded yet. */
+  private create(path: string, title?: string): Leaf {
+    const el = document.createElement('div')
+    el.className = 'leaf'
+    el.hidden = true
+    this.containerEl.append(el)
+    return { id: this.nextId++, path, title, viewType: '', el, view: null, mounts: 0 }
   }
 
   private viewTypeFor(path: string): string {
@@ -231,7 +257,7 @@ export class Workspace extends Events<WorkspaceEvents> {
 
   private remountStale(): void {
     for (const leaf of this.leaves) {
-      if (leaf.viewType !== this.viewTypeFor(leaf.path)) void this.mount(leaf)
+      if (leaf.mounts && leaf.viewType !== this.viewTypeFor(leaf.path)) void this.mount(leaf)
     }
   }
 
@@ -246,29 +272,43 @@ export class Workspace extends Events<WorkspaceEvents> {
     for (const leaf of this.leaves) leaf.el.hidden = leaf !== this.shown
   }
 
+  /**
+   * Puts a view into the tab. Every view gets an element of its own, so a view
+   * that is replaced while it is still loading (the tab was given another note,
+   * or a plugin took over its file type) is taken away whole and can never be
+   * left lying over the next one.
+   */
   private async mount(leaf: Leaf, focus = false): Promise<void> {
+    const turn = (leaf.mounts = (leaf.mounts ?? 0) + 1)
     leaf.view?.destroy()
     leaf.view = null
     leaf.el.replaceChildren()
+    const host = leaf.el.appendChild(document.createElement('div'))
+    host.className = 'leaf-view'
     const path = leaf.path
     const type = (leaf.viewType = this.viewTypeFor(path))
     const creator = this.views.get(type) ?? unsupportedView
+    const current = () => this.leaves.includes(leaf) && leaf.mounts === turn
     let view: FileView
     this.mounting.add(leaf)
     this.show()
     try {
-      view = await creator({ app: this.app, path: leaf.path, containerEl: leaf.el })
+      view = await creator({ app: this.app, path, containerEl: host })
     } catch (err) {
-      leaf.el.innerHTML = '<div class="leaf-message"></div>'
-      leaf.el.firstElementChild!.textContent = `Не удалось открыть файл: ${errorMessage(err)}`
+      if (current()) {
+        host.innerHTML = '<div class="leaf-message"></div>'
+        host.firstElementChild!.textContent = `Не удалось открыть файл: ${errorMessage(err)}`
+      }
       return
     } finally {
-      this.mounting.delete(leaf)
-      this.show()
+      if (current()) {
+        this.mounting.delete(leaf)
+        this.show()
+      }
     }
-    // The tab may have been closed, or given another view or note, while this one loaded.
-    if (!this.leaves.includes(leaf) || leaf.viewType !== type || leaf.path !== path || leaf.view) {
+    if (!current()) {
       view.destroy()
+      host.remove()
       return
     }
     leaf.view = view
@@ -280,6 +320,8 @@ export class Workspace extends Events<WorkspaceEvents> {
 
   private changed(): void {
     this.trigger('layout-change')
+    // Until the saved tabs are back, what is open is not the whole picture and must not replace them.
+    if (!this.restored) return
     this.app.state.set('tabs', { tabs: this.leaves.map(({ path, title }) => ({ path, title })), active: this.active?.path })
   }
 }

@@ -1,6 +1,6 @@
 import { path as paths, renderInline, type Off, type Plugin } from '../../api'
 import type { TaskStore } from './store'
-import { formatTaskLine, isOpen, parseTaskLine, reminderTime, type Task } from './task'
+import { formatTaskLine, isOpen, movePlainReminder, parseTaskLine, reminderTime, type Task } from './task'
 
 const MINUTE = 60_000
 const CHECK_EVERY = 15_000
@@ -129,6 +129,11 @@ export class Reminders {
     return this.plugin.getSetting<T>(key)
   }
 
+  /** What may remind: every task, and ordinary lines with a reminder unless the settings leave those out. */
+  private candidates(): Task[] {
+    return this.setting<boolean>('remindPlain') === false ? this.store.all() : [...this.store.all(), ...this.store.plain()]
+  }
+
   private marks(key: 'acknowledged' | 'snoozed'): Record<string, number> {
     return { ...(this.setting<Record<string, number> | undefined>(key) ?? {}) }
   }
@@ -141,7 +146,7 @@ export class Reminders {
     const defaultTime = this.setting<boolean>('remindDue') ? this.setting<string>('defaultTime') : null
     const oldest = now - this.setting<number>('maxAgeDays') * 24 * 60 * MINUTE
     const result: Due[] = []
-    for (const task of this.store.all()) {
+    for (const task of this.candidates()) {
       if (!isOpen(task)) continue
       const at = reminderTime(task, /^\d{1,2}:\d{2}$/.test(defaultTime ?? '') ? defaultTime : null)
       if (!at || at.getTime() > now || at.getTime() < oldest) continue
@@ -166,7 +171,7 @@ export class Reminders {
     if (this.setting<boolean>('sound')) this.beeper.start(this.setting<number>('repeatSeconds'))
     if (this.setting<boolean>('system') && globalThis.Notification?.permission === 'granted') {
       for (const { key, task } of fresh) {
-        new Notification('Напоминание о задаче', { body: task.description, tag: key, requireInteraction: true })
+        new Notification(task.plain ? 'Напоминание' : 'Напоминание о задаче', { body: task.description, tag: key, requireInteraction: true })
       }
     }
   }
@@ -205,6 +210,7 @@ export class Reminders {
   private later(due: Due, at: Date): void {
     if (!due.task.reminder) return this.snooze([due.key], at.getTime())
     void this.store.edit(due.task, (raw) => {
+      if (due.task.plain) return [movePlainReminder(raw, stamp(at))]
       const parsed = parseTaskLine(raw)
       return parsed ? [formatTaskLine({ ...parsed, reminder: stamp(at) }, parsed.prefix)] : [raw]
     })
@@ -214,7 +220,7 @@ export class Reminders {
   upcoming(): Due[] {
     const defaultTime = this.setting<boolean>('remindDue') ? this.setting<string>('defaultTime') : null
     const result: Due[] = []
-    for (const task of this.store.all()) {
+    for (const task of this.candidates()) {
       if (!isOpen(task)) continue
       const at = reminderTime(task, /^\d{1,2}:\d{2}$/.test(defaultTime ?? '') ? defaultTime : null)
       if (at) result.push({ key: `${task.path}|${task.description}|${at.getTime()}`, task, at })
@@ -261,9 +267,10 @@ export class Reminders {
       const actions = item.appendChild(document.createElement('div'))
       actions.className = 'alert-actions'
       actions.append(
-        button('✓ Выполнено', 'primary', () => {
+        // An ordinary line has no box to tick: its reminder is simply over.
+        button(task.plain ? '✓ Готово' : '✓ Выполнено', 'primary', () => {
           this.acknowledge([key])
-          void this.store.toggle(task)
+          if (!task.plain) void this.store.toggle(task)
         }),
         // "Remind me later": the choices come from the settings.
         ...this.laterOptions().map((option) => button(`Через ${option.label}`.replace(/^Через (через|завтра|послезавтра|in |tomorrow|next )/i, '$1').replace(/^./, (c) => c.toUpperCase()), 'later', () => this.later(one, option.at))),

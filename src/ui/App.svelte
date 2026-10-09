@@ -115,7 +115,9 @@
     try {
       const folder = newNoteFolder()
       if (folder && !app.vault.get(folder)) await app.vault.createFolder(folder)
-      const entry = await app.vault.create(app.vault.uniquePath(folder, 'Без названия', 'md'))
+      const entry = await app.creation.create(app.vault.uniquePath(folder, 'Без названия', 'md'))
+      // No template was chosen, or one was not filled in to the end: there is no note.
+      if (!entry) return
       workspace.openFile(entry.path, inNewTab || settings.get<string>('core', 'newNoteTab') === 'new' ? { newTab: true } : {})
       // The name is selected, ready to be typed over.
       setTimeout(() => document.querySelector<HTMLInputElement>('.leaf:not([hidden]) .inline-title')?.select(), 250)
@@ -225,8 +227,46 @@
         ] as [string, string, string, () => unknown][]
       ).map(([id, name, icon, callback]) => app.commands.add({ id, name, icon, callback: () => void callback() })),
     ]
+    // In full screen the browser lets a page have its own Ctrl+W, Ctrl+T and Ctrl+Tab (the
+    // Keyboard Lock API of Chrome and Edge); outside it those keys never reach the page.
+    const keyboard = (navigator as Navigator & { keyboard?: { lock?: (keys: string[]) => Promise<void>; unlock?: () => void } }).keyboard
+    const onFullscreen = () => {
+      if (document.fullscreenElement) void keyboard?.lock?.(['KeyW', 'KeyT', 'KeyN', 'Tab', 'Escape']).catch(() => {})
+      else keyboard?.unlock?.()
+    }
+    document.addEventListener('fullscreenchange', onFullscreen)
+    offs.push(
+      () => document.removeEventListener('fullscreenchange', onFullscreen),
+      app.commands.add({
+        id: 'core:fullscreen',
+        name: 'Во весь экран (в нём Ctrl+W закрывает вкладку заметки)',
+        icon: 'maximize',
+        hotkey: 'Alt+Enter',
+        callback: () => void (document.fullscreenElement ? document.exitFullscreen() : document.documentElement.requestFullscreen()).catch((err) => app.notice(errorMessage(err))),
+      }),
+    )
+    const LOCKED: Record<string, string> = { 'Mod+W': 'core:close-tab', 'Mod+T': 'core:new-note', 'Mod+Tab': 'core:next-tab', 'Mod+Shift+Tab': 'core:previous-tab' }
     // Capture phase: app shortcuts take priority over the focused editor's keymap.
-    const onKey = (event: KeyboardEvent) => void app.commands.handleKey(event)
+    const onKey = (event: KeyboardEvent) => {
+      if (document.fullscreenElement && (event.ctrlKey || event.metaKey) && !event.altKey) {
+        const id = LOCKED[`Mod+${event.shiftKey ? 'Shift+' : ''}${event.code === 'Tab' ? 'Tab' : event.code.replace(/^Key/, '')}`]
+        if (id) {
+          event.preventDefault()
+          event.stopPropagation()
+          return void app.commands.run(id)
+        }
+      }
+      void app.commands.handleKey(event)
+    }
+    // A slip of the hand (Ctrl+W, which the browser keeps for itself) must not close the app
+    // with its tabs: the browser asks first. It only does so after the page has been used.
+    const onLeave = (event: BeforeUnloadEvent) => {
+      if (!settings.get<boolean>('core', 'confirmLeave') || !workspace.leaves.length) return
+      event.preventDefault()
+      event.returnValue = ''
+    }
+    window.addEventListener('beforeunload', onLeave)
+    offs.push(() => window.removeEventListener('beforeunload', onLeave))
     const onHide = () => {
       if (document.visibilityState !== 'hidden') return
       void workspace.flushAll(true)
@@ -405,7 +445,7 @@
     flex: 0 1 200px;
     align-self: stretch;
     min-width: 90px;
-    border-radius: 8px 8px 0 0;
+    border-radius: var(--radius-l) var(--radius-l) 0 0;
     color: var(--text-muted);
   }
 
@@ -429,7 +469,7 @@
     position: absolute;
     inset: 3px 3px 4px;
     z-index: 0;
-    border-radius: 6px;
+    border-radius: var(--radius-m);
     background: var(--bg-hover);
   }
 
@@ -477,7 +517,7 @@
     justify-content: center;
     width: 28px;
     height: 28px;
-    border-radius: 5px;
+    border-radius: var(--radius-m);
     color: var(--text-muted);
   }
 
@@ -543,7 +583,7 @@
   .tab-close {
     margin-right: 6px;
     padding: 0 5px;
-    border-radius: 4px;
+    border-radius: var(--radius-s);
     color: var(--text-faint);
     font-size: 16px;
     line-height: 20px;
@@ -579,7 +619,7 @@
     margin-left: 6px;
     padding: 1px 5px;
     border: 1px solid var(--border);
-    border-radius: 4px;
+    border-radius: var(--radius-s);
     color: var(--text-muted);
     font: 11px var(--font-mono);
   }

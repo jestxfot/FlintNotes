@@ -1,4 +1,6 @@
-import { errorMessage, path as paths, pickLook, Plugin, type Look, type LookKind, type VaultEntry } from '../../api'
+import { errorMessage, path as paths, pickLook, pictureToSvg, Plugin, type Look, type LookKind, type VaultEntry } from '../../api'
+import { drawRules } from './rules'
+import './style.css'
 import { ownLook, renameLooks, ruleLook, setLook, type IconicData } from './data'
 
 /**
@@ -25,6 +27,18 @@ export default class Iconic extends Plugin {
     const { app } = this
     this.addSettings([
       { key: 'inNotes', name: 'Значки в самих заметках', desc: 'Показывать значок заметки перед ссылками на неё и рядом с её названием над текстом', type: 'toggle', default: true },
+      {
+        key: 'rules',
+        section: 'Правила',
+        name: 'Свод правил',
+        desc: 'Правило даёт значок и цвет всем файлам или папкам, которые подходят под его условия. Действует первое подходящее сверху; значок, заданный самой заметке, сильнее правил. Хранятся в файле Iconic и работают в Obsidian',
+        type: 'custom',
+        render: (el) => {
+          const holder = el.appendChild(document.createElement('div'))
+          void this.read().then(() => drawRules(holder, app, () => this.data, () => this.save()))
+          return () => holder.remove()
+        },
+      },
     ])
     const inNotes = () => {
       app.icons.inNotes = this.getSetting<boolean>('inNotes') !== false
@@ -53,9 +67,19 @@ export default class Iconic extends Plugin {
     const previousNames = app.icons.customNames
     app.icons.custom = (name) => this.custom.get(name)
     app.icons.customNames = () => [...this.custom.keys()]
+    app.icons.upload = (file) => this.upload(file)
+    app.icons.own = (kind, id) => ownLook(this.data, kind, id)
+    app.icons.assign = async (kind, id, look) => {
+      await this.read()
+      setLook(this.data, kind, id, look)
+      await this.save()
+    }
     this.register(() => {
       app.icons.custom = previous
       app.icons.customNames = previousNames
+      app.icons.upload = null
+      app.icons.own = null
+      app.icons.assign = null
     })
 
     // Obsidian may change the file while this app is in the background.
@@ -80,6 +104,26 @@ export default class Iconic extends Plugin {
     this.registerMenu('tag', (tag: string, add) => add(item('tag', tag, `#${tag}`)))
     this.registerMenu('property', (key: string, add) => add(item('property', key, key)))
 
+    this.addCommand({
+      id: 'upload-icon',
+      name: 'Загрузить свой значок',
+      icon: 'upload',
+      callback: () => {
+        const input = document.createElement('input')
+        input.type = 'file'
+        input.multiple = true
+        input.accept = 'image/png,image/jpeg,image/webp,image/gif,image/svg+xml'
+        input.onchange = async () => {
+          const names: string[] = []
+          for (const file of input.files ?? []) {
+            const name = await this.upload(file)
+            if (name) names.push(name)
+          }
+          if (names.length) app.notice(`Добавлены значки: ${names.join(', ')}`)
+        }
+        input.click()
+      },
+    })
     this.addCommand({
       id: 'active-file',
       name: 'Значок и цвет открытой заметки',
@@ -112,8 +156,26 @@ export default class Iconic extends Plugin {
     }
   }
 
+  /**
+   * Obsidian knows icons that are not Lucide's only as SVG files among the custom icons.
+   * So every icon of this app's own that the data names gets such a file, under its own name.
+   */
+  private async shareOwnIcons(): Promise<void> {
+    const named = new Set<string>()
+    for (const section of [this.data.fileIcons, this.data.tagIcons, this.data.propertyIcons]) for (const look of Object.values(section ?? {})) if (look?.icon) named.add(look.icon)
+    for (const rule of [...(this.data.fileRules ?? []), ...(this.data.folderRules ?? [])]) if (rule.icon) named.add(rule.icon)
+    for (const name of named) {
+      const svg = this.app.icons.ownSvg(name)
+      if (!svg || this.custom.has(name)) continue
+      const path = `${this.config}/custom-icons/${name}.svg`
+      await this.app.vault.write(path, svg)
+      this.custom.set(name, this.app.vault.url(path))
+    }
+  }
+
   private async save(): Promise<void> {
     try {
+      await this.shareOwnIcons()
       // Written the way Obsidian writes plugin data, so the file differs only where something changed.
       this.raw = JSON.stringify(this.data, null, 2)
       await this.app.vault.write(this.file, this.raw)
@@ -123,11 +185,43 @@ export default class Iconic extends Plugin {
     }
   }
 
+  /**
+   * Keeps a picture as an icon of the user's own. It becomes an SVG in `custom-icons`,
+   * where the "Add Custom Icons" plugin keeps its icons, so Obsidian sees it too.
+   * A PNG or JPEG is converted; an SVG is kept as it is. Returns the icon's name.
+   */
+  private async upload(file: File): Promise<string | null> {
+    try {
+      const svg = /svg/i.test(file.type) || /\.svg$/i.test(file.name) ? await file.text() : await pictureToSvg(file)
+      // The name Iconic keeps in its data is the id "Add Custom Icons" gives the file:
+      // the file's name in small letters, with `_` for spaces and dots.
+      const base =
+        file.name
+          .replace(/\.[^.]*$/, '')
+          .replace(/[\\/:*?"<>|]+/g, ' ')
+          .trim()
+          .replace(/\s+/g, '_')
+          .toLowerCase()
+          .replace(/\./g, '_') || 'icon'
+      // A name Lucide has would be drawn as Lucide's icon in Obsidian, and a taken one would replace a picture.
+      let name = base
+      for (let n = 2; this.custom.has(name) || this.app.icons.names().includes(name); n++) name = `${base}_${n}`
+      const path = `${this.config}/custom-icons/${name}.svg`
+      await this.app.vault.write(path, svg)
+      this.custom.set(name, this.app.vault.url(path))
+      this.app.icons.refresh()
+      return name
+    } catch (err) {
+      this.app.notice(`Значки: не удалось добавить «${file.name}»: ${errorMessage(err)}`)
+      return null
+    }
+  }
+
   /** Pictures of the "Add Custom Icons" plugin: every SVG in `custom-icons` is an icon named like its file. */
   private async readCustomIcons(): Promise<void> {
     const folder = `${this.config}/custom-icons`
     const files = await this.app.vault.list(folder).catch(() => [])
-    this.custom = new Map(files.filter((name) => /\.svg$/i.test(name)).map((name) => [name.replace(/\.svg$/i, '').toLowerCase(), this.app.vault.url(`${folder}/${name}`)]))
+    this.custom = new Map(files.filter((name) => /\.svg$/i.test(name)).map((name) => [name.replace(/\.svg$/i, '').replace(/\s+/g, '_').toLowerCase().replace(/\./g, '_'), this.app.vault.url(`${folder}/${name}`)]))
     if (this.custom.size) this.app.icons.refresh()
   }
 }

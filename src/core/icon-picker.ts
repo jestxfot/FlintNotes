@@ -27,8 +27,30 @@ export function pickLook(app: App, title: string, current: Look, custom: string[
     const preview = el(head, 'span', 'iconic-preview')
     el(head, 'h2', '', title)
 
-    const search = el(dialog, 'input', 'iconic-search')
+    const bar = el(dialog, 'div', 'iconic-bar')
+    const search = el(bar, 'input', 'iconic-search')
     search.placeholder = 'Найти значок или вставить эмодзи…'
+    // A picture of the user's own: it is kept as an icon and chosen at once.
+    if (app.icons.upload) {
+      const file = el(dialog, 'input')
+      file.type = 'file'
+      file.accept = 'image/png,image/jpeg,image/webp,image/gif,image/svg+xml'
+      file.hidden = true
+      const upload = el(bar, 'button', 'iconic-upload')
+      upload.title = 'Загрузить свой значок: PNG, JPG или SVG'
+      upload.append(app.icons.draw('lucide-upload'), 'Свой…')
+      upload.onclick = () => file.click()
+      file.onchange = async () => {
+        const picked = file.files?.[0]
+        file.value = ''
+        const name = picked && (await app.icons.upload?.(picked))
+        if (!name) return
+        if (!custom.includes(name)) custom = [name, ...custom]
+        look.icon = name
+        search.value = ''
+        draw()
+      }
+    }
     const grid = el(dialog, 'div', 'iconic-grid')
 
     const colors = el(dialog, 'div', 'iconic-colors')
@@ -80,11 +102,16 @@ export function pickLook(app: App, title: string, current: Look, custom: string[
         }
       }
       // Text that is not a name (an emoji typed or pasted into the field) is itself the icon.
-      if (query && /[^\x00-\x7f]/.test(query)) add(search.value.trim(), 'Эмодзи')
+      if (query && /\p{Extended_Pictographic}|\p{Regional_Indicator}/u.test(query)) add(search.value.trim(), 'Эмодзи')
       let left = SHOWN
       for (const name of custom) {
         if (left <= 0) break
-        if (name.includes(query)) add(name, name), left--
+        if (name.includes(query) && !app.icons.ownSvg(name)) add(name, name), left--
+      }
+      // The app's own icons are found by what they are for, in Russian, as well as by name.
+      for (const { name, label } of app.icons.ownIcons()) {
+        if (left <= 0) break
+        if (name.includes(query) || label.includes(query)) add(name, `${name.slice(6)} · ${label}`), left--
       }
       for (const name of app.icons.names()) {
         if (left <= 0) break

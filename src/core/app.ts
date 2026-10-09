@@ -1,3 +1,4 @@
+import { NoteCreation } from './creation'
 import { Commands } from './commands'
 import { EditorExtensions } from './editor/extensions'
 import { LivePreview } from './editor/live-preview'
@@ -116,6 +117,7 @@ const coreSettings: SettingsSection = {
       ],
     },
     { key: 'newNoteFolder', group: 'Файлы и ссылки', name: 'Папка для новых заметок', desc: 'Используется, когда выше выбрана «Указанная папка»', type: 'text', default: '', placeholder: 'Заметки' },
+    { key: 'confirmLeave', group: 'Интерфейс', name: 'Спрашивать перед закрытием страницы', desc: 'Пока открыты вкладки заметок, браузер переспросит «Покинуть сайт?» — случайный Ctrl+W не закроет приложение. Сам Ctrl+W браузер странице не отдаёт: вкладку заметки закрывает Alt+W, а в режиме «Во весь экран» (Alt+Enter) — и Ctrl+W', type: 'toggle', default: true },
     { key: 'confirmDelete', group: 'Файлы и ссылки', name: 'Спрашивать перед удалением', desc: 'Удалённое в любом случае попадает в папку .trash хранилища', type: 'toggle', default: true },
     {
       key: 'obsidianConfig',
@@ -149,6 +151,7 @@ export class App {
   readonly router = new Router(this)
   readonly docked = new DockedNotes(this)
   readonly icons = new Icons()
+  readonly creation = new NoteCreation(this)
   readonly menus = new Menus()
   readonly toolbars = new Toolbars()
   readonly notice = notice

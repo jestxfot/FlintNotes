@@ -92,6 +92,9 @@ export interface MountedBase {
   destroy(): void
 }
 
+/** How many records of a base are drawn at first. */
+const PAGE = 120
+
 /** Draws a base (its views, toolbar and settings) into `el` and keeps it current. */
 export function mountBase(el: HTMLElement, host: BaseHost, initial: string): MountedBase {
   const { app } = host
@@ -107,6 +110,17 @@ export function mountBase(el: HTMLElement, host: BaseHost, initial: string): Mou
   let search = ''
   let stale = false
   let offscreen = false
+  /** How many records are drawn. A large base is drawn a part at a time, more as the reader gets near the end. */
+  let limit = PAGE
+  /** What the limit was counted for: another view or another search starts from the first part again. */
+  let limitFor = ''
+  /** How long the last drawing took: a heavy base is redrawn less often while notes are changing. */
+  let cost = 0
+  const more = new IntersectionObserver((entries) => {
+    if (!entries.some((entry) => entry.isIntersecting)) return
+    limit *= 2
+    draw()
+  }, { rootMargin: '600px' })
 
   const save = (next: string) => {
     source = next
@@ -121,6 +135,8 @@ export function mountBase(el: HTMLElement, host: BaseHost, initial: string): Mou
       return
     }
     offscreen = false
+    const started = performance.now()
+    more.disconnect()
     const scroll = el.querySelector('.base-body')?.scrollTop ?? 0
     const { config, error } = parseBase(source)
     if (error) {
@@ -164,7 +180,28 @@ export function mountBase(el: HTMLElement, host: BaseHost, initial: string): Mou
     const needle = search.trim().toLowerCase()
     const matches = (row: Row) => row.file.basename.toLowerCase().includes(needle) || columns.some((property) => expr.toText(engine.value(row, property)).toLowerCase().includes(needle))
     const shown: ViewResult = needle ? { ...result, rows: result.rows.filter(matches), groups: result.groups.map((group) => ({ ...group, rows: group.rows.filter(matches) })).filter((group) => group.rows.length) } : result
-    ctx.result = shown
+    // Only a part of a long list is drawn; totals and the count still speak of all of it.
+    const part = `${active}|${needle}|${view.type}`
+    if (part !== limitFor) {
+      limitFor = part
+      limit = PAGE
+    }
+    const paged = view.type !== 'calendar' && shown.rows.length > limit
+    let left = limit
+    ctx.total = shown
+    ctx.result = !paged
+      ? shown
+      : {
+          ...shown,
+          rows: shown.rows.slice(0, limit),
+          groups: shown.groups
+            .map((group) => {
+              const rows = group.rows.slice(0, Math.max(0, left))
+              left -= rows.length
+              return { ...group, rows }
+            })
+            .filter((group) => group.rows.length),
+        }
 
     const icon = (name: string) => app.icons.draw(name)
     const tool = (id: Exclude<typeof open, null>, glyph: string, label: string, on = false) =>
@@ -223,9 +260,25 @@ export function mountBase(el: HTMLElement, host: BaseHost, initial: string): Mou
           ? render(ctx)
           : h('div', { class: 'base-empty' }, needle ? 'Ничего не найдено.' : 'Под условия базы не подходит ни одна заметка.'),
     )
-    el.replaceChildren(h('div', { class: 'base-head' }, toolbar), ...(open ? [popover(ctx, config, views)] : []), ...result.errors.map((message) => h('div', { class: 'base-error' }, message)), body)
+    const rest = paged
+      ? h(
+          'button',
+          {
+            class: 'base-more',
+            onclick: () => {
+              limit *= 2
+              draw()
+            },
+          },
+          `Показано ${limit} из ${shown.rows.length} · показать ещё`,
+        )
+      : null
+    el.replaceChildren(h('div', { class: 'base-head' }, toolbar), ...(open ? [popover({ ...ctx, result: shown }, config, views)] : []), ...result.errors.map((message) => h('div', { class: 'base-error' }, message)), body, ...(rest ? [rest] : []))
     body.scrollTop = scroll
     placePanel()
+    // The next part is drawn by itself when the end of this one comes near.
+    if (rest) more.observe(rest)
+    cost = performance.now() - started
   }
 
   /**
@@ -547,10 +600,11 @@ export function mountBase(el: HTMLElement, host: BaseHost, initial: string): Mou
   let timer: ReturnType<typeof setTimeout> | undefined
   const refresh = () => {
     clearTimeout(timer)
+    // A base that takes long to draw waits longer for the changes to settle (notes are still being read at startup).
     timer = setTimeout(() => {
       if (busy()) stale = true
       else draw()
-    }, 150)
+    }, Math.min(4000, Math.max(150, cost * 8)))
   }
   const off = app.metadata.on('resolved', refresh)
   // A click anywhere outside the open panel and the toolbar closes the panel.
@@ -587,6 +641,7 @@ export function mountBase(el: HTMLElement, host: BaseHost, initial: string): Mou
       clearTimeout(timer)
       off()
       visible.disconnect()
+      more.disconnect()
       el.removeEventListener('focusout', onFocusOut)
       document.removeEventListener('pointerdown', onPointer, true)
       window.removeEventListener('scroll', onScroll, true)

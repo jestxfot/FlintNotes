@@ -1,14 +1,23 @@
 <script lang="ts">
   import { onMount } from 'svelte'
   import { addDays, fromIso, iso, parseDateSpec, today } from './dates'
-  import { NO_PRIORITY, PRIORITIES, type TaskFields } from './task'
+  import { dependsOn, isOpen, newTaskId, NO_PRIORITY, PRIORITIES, taskId, withLinks, type Task, type TaskFields } from './task'
 
   let {
     task,
     title,
+    tasks = [],
     onsave,
     onclose,
-  }: { task: TaskFields; title: string; onsave: (task: TaskFields) => void; onclose: () => void } = $props()
+  }: {
+    task: TaskFields
+    title: string
+    /** Every task of the vault: the ones this task can be put before or after. */
+    tasks?: Task[]
+    /** `others` are tasks whose own lines change with this one: they get an id, or start waiting for this task. */
+    onsave: (task: TaskFields, others: { task: Task; extra: string | undefined }[]) => void
+    onclose: () => void
+  } = $props()
 
   /** The dates of a task, in the order of the form: three that plan it, three that record what happened. */
   const PLANNED = [
@@ -41,9 +50,46 @@
     reminder: task.reminder?.includes('-') ? task.reminder.replace(' ', 'T') : '',
     reminderTime: task.reminder && !task.reminder.includes('-') ? task.reminder : '',
     // The id of the task and the ids it waits for, kept among the fields this app does not use otherwise.
-    id: /🆔️?\s*([\w-]+)/u.exec(task.extra ?? '')?.[1] ?? '',
-    dependsOn: /⛔️?\s*([\w,-]+)/u.exec(task.extra ?? '')?.[1] ?? '',
+    id: taskId(task),
   })
+  // svelte-ignore state_referenced_locally
+  const self = 'path' in task ? (task as Task) : null
+  // svelte-ignore state_referenced_locally
+  const others = tasks.filter((other) => !self || other.path !== self.path || other.line !== self.line)
+  // svelte-ignore state_referenced_locally
+  const waited = dependsOn(task)
+  /** Tasks to be done before this one (it waits for them, ⛔) and after it (they wait for it). */
+  // A repeating task leaves its done copies behind with the same id: one task stands for an id, an open one first.
+  let after = $state.raw(
+    waited.flatMap((id) => {
+      const named = others.filter((other) => taskId(other) === id)
+      return named.length ? [named.find(isOpen) ?? named[0]] : []
+    }),
+  )
+  // svelte-ignore state_referenced_locally
+  let before = $state.raw(form.id ? others.filter((other) => dependsOn(other).includes(form.id)) : [])
+  const wasBefore = before
+  /** Ids this task waits for that belong to no task found: kept as they are. */
+  const unknown = waited.filter((id) => !after.some((other) => taskId(other) === id))
+  const search = $state({ after: '', before: '' })
+
+  const same = (a: Task, b: Task) => a.path === b.path && a.line === b.line
+  function found(kind: 'after' | 'before'): Task[] {
+    const query = search[kind].trim().toLowerCase()
+    if (!query) return []
+    const chosen = kind === 'after' ? after : before
+    return others.filter((other) => isOpen(other) && other.description.toLowerCase().includes(query) && !chosen.some((one) => same(one, other))).slice(0, 8)
+  }
+  function choose(kind: 'after' | 'before', other: Task) {
+    if (kind === 'after') after = [...after, other]
+    else before = [...before, other]
+    search[kind] = ''
+  }
+  function drop(kind: 'after' | 'before', other: Task) {
+    if (kind === 'after') after = after.filter((one) => !same(one, other))
+    else before = before.filter((one) => !same(one, other))
+  }
+  const where = (other: Task) => other.path.replace(/^.*\//, '').replace(/\.md$/, '')
   /** What is typed in the words field of each date, until it is understood. */
   const words = $state<Record<string, string>>({})
   let futureOnly = $state(true)
@@ -88,10 +134,39 @@
     const description = form.description.replace(/\s*\n\s*/g, ' ').trim()
     if (!description) return
     for (const [key] of [...PLANNED, ...RECORDED]) typed(key)
-    const { reminderTime, id, dependsOn, ...fields } = form
-    const other = (task.extra ?? '').replace(/[🆔⛔]️?\s*[\w,-]+/gu, '').trim()
-    const extra = [other, id.trim() && `🆔 ${id.trim()}`, dependsOn.trim() && `⛔ ${dependsOn.replace(/\s+/g, '')}`].filter(Boolean).join(' ')
-    onsave({
+    const { reminderTime, id: typedId, ...fields } = form
+    // Links between tasks are kept the way Obsidian Tasks keeps them: the earlier task has an id (🆔),
+    // the later one names it after ⛔. A task that is pointed at and has no id yet gets one.
+    const taken = new Set(tasks.map(taskId).filter(Boolean))
+    const changed = new Map<Task, { id: string; waits: string[] }>()
+    const edit = (other: Task) => changed.get(other) ?? changed.set(other, { id: taskId(other), waits: dependsOn(other) }).get(other)!
+    const fresh = () => {
+      const made = newTaskId(taken)
+      taken.add(made)
+      return made
+    }
+    const id = typedId.trim() || (before.length ? fresh() : '')
+    const waits = [...unknown]
+    for (const other of after) {
+      const link = edit(other)
+      link.id ||= fresh()
+      waits.push(link.id)
+    }
+    for (const other of before) {
+      const link = edit(other)
+      if (!link.waits.includes(id)) link.waits.push(id)
+    }
+    for (const other of wasBefore) {
+      if (!before.some((one) => same(one, other))) edit(other).waits = edit(other).waits.filter((one) => one !== taskId(task))
+    }
+    // A renamed id is followed by the tasks that waited for the old one.
+    if (taskId(task) && id !== taskId(task)) for (const other of before) edit(other).waits = edit(other).waits.filter((one) => one !== taskId(task))
+    const rewritten = [...changed]
+      .filter(([other, link]) => link.id !== taskId(other) || link.waits.join() !== dependsOn(other).join())
+      .map(([other, link]) => ({ task: other, extra: withLinks(other, link.id, link.waits) }))
+    const extra = withLinks(task, id, [...new Set(waits)])
+    onsave(
+      {
       ...fields,
       description,
       priority: Number(form.priority),
@@ -102,9 +177,11 @@
       done: form.done || undefined,
       cancelled: form.cancelled || undefined,
       recurrence: form.recurrence?.trim() || undefined,
-      reminder: form.reminder.replace('T', ' ') || reminderTime || undefined,
-      extra: extra || undefined,
-    })
+        reminder: form.reminder.replace('T', ' ') || reminderTime || undefined,
+        extra,
+      },
+      rewritten,
+    )
     dialog.close()
   }
 
@@ -128,6 +205,47 @@
     />
     <span class="emoji" aria-hidden="true">{emoji}</span>
     <input type="date" aria-label={label} bind:value={form[key]} />
+  </div>
+{/snippet}
+
+{#snippet links(kind: 'after' | 'before', label: string, placeholder: string, chosen: Task[])}
+  <div class="row top links">
+    <label for="task-{kind}">{label}</label>
+    <div class="grow">
+      <input
+        id="task-{kind}"
+        class="search"
+        {placeholder}
+        autocomplete="off"
+        bind:value={search[kind]}
+        onkeydown={(event) => {
+          if (event.key !== 'Enter') return
+          // Enter takes the first task found, and must not apply the whole form.
+          event.preventDefault()
+          const first = found(kind)[0]
+          if (first) choose(kind, first)
+        }}
+      />
+      {#if search[kind].trim()}
+        <div class="found">
+          {#each found(kind) as other (other.path + other.line)}
+            <button type="button" class="found-task" onclick={() => choose(kind, other)}>
+              <span class="found-text">{other.description}</span>
+              <span class="found-where">{where(other)}</span>
+            </button>
+          {:else}
+            <div class="found-none">Задач не найдено</div>
+          {/each}
+        </div>
+      {/if}
+      {#each chosen as other (other.path + other.line)}
+        <div class="linked">
+          <span class="found-text">{other.description}</span>
+          <span class="found-where">{where(other)}</span>
+          <button type="button" class="unlink" aria-label="Убрать связь" title="Убрать связь" onclick={() => drop(kind, other)}>×</button>
+        </div>
+      {/each}
+    </div>
   </div>
 {/snippet}
 
@@ -191,10 +309,8 @@
       <label for="task-id">Номер задачи</label>
       <input id="task-id" class="grow" placeholder="🆔 по нему на эту задачу ссылаются другие" bind:value={form.id} />
     </div>
-    <div class="row">
-      <label for="task-depends">Ждёт задач</label>
-      <input id="task-depends" class="grow" placeholder="⛔ номера задач через запятую, которые должны быть сделаны раньше" bind:value={form.dependsOn} />
-    </div>
+    {@render links('before', 'Перед этой', 'Найти задачу, которая ждёт эту…', before)}
+    {@render links('after', 'После этой', 'Найти задачу, которую эта ждёт…', after)}
 
     <hr />
     <div class="row">
@@ -223,7 +339,7 @@
     max-height: calc(100vh - 32px);
     padding: 16px 18px 18px;
     border: 1px solid var(--border);
-    border-radius: 10px;
+    border-radius: var(--radius-xl);
     background: var(--bg-alt);
     color: var(--text);
     box-shadow: var(--shadow);
@@ -250,7 +366,7 @@
     min-width: 0;
     padding: 6px 9px;
     border: 1px solid var(--border);
-    border-radius: 6px;
+    border-radius: var(--radius-m);
     background: var(--bg);
     color: inherit;
     font: inherit;
@@ -297,6 +413,74 @@
 
   .grow {
     flex: 1;
+  }
+
+  .links .search {
+    width: 100%;
+  }
+
+  .links > label {
+    padding-top: 6px;
+  }
+
+  .found {
+    margin-top: 4px;
+    overflow: hidden;
+    border: 1px solid var(--border);
+    border-radius: var(--radius-l);
+    background: var(--bg);
+  }
+
+  .found-task,
+  .linked {
+    display: flex;
+    align-items: baseline;
+    gap: 8px;
+    width: 100%;
+    padding: 5px 9px;
+    text-align: left;
+  }
+
+  .found-task {
+    border: none;
+    border-radius: 0;
+    background: none;
+    font-weight: inherit;
+  }
+
+  .found-task:hover {
+    background: var(--bg-hover);
+  }
+
+  .linked {
+    margin-top: 4px;
+    border-radius: var(--radius-l);
+    background: var(--bg-hover);
+  }
+
+  .found-text {
+    flex: 1;
+    min-width: 0;
+    overflow: hidden;
+    text-overflow: ellipsis;
+    white-space: nowrap;
+  }
+
+  .found-where,
+  .found-none {
+    color: var(--text-faint);
+    font-size: 12.5px;
+  }
+
+  .found-none {
+    padding: 6px 9px;
+  }
+
+  .unlink {
+    padding: 0 6px;
+    border: none;
+    background: none;
+    color: var(--text-muted);
   }
 
   .emoji {
@@ -361,7 +545,7 @@
   button {
     padding: 7px 22px;
     border: 1px solid var(--border);
-    border-radius: 6px;
+    border-radius: var(--radius-m);
     background: var(--bg-hover);
   }
 

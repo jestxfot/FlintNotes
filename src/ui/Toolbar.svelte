@@ -60,7 +60,7 @@
     justify-content: center;
     width: 28px;
     height: 28px;
-    border-radius: 5px;
+    border-radius: var(--radius-m);
     color: var(--text-muted);
     font-size: 17px;
   }

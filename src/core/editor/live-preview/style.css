@@ -2,7 +2,7 @@
 
 .cm-editor .lp-inline-code {
   padding: 1px 0;
-  border-radius: 4px;
+  border-radius: var(--radius-s);
   background: var(--bg-alt);
   font-family: var(--font-mono);
   font-size: 0.9em;
@@ -56,16 +56,16 @@
 
 .cm-editor .cm-line.lp-code-first {
   padding-top: 4px;
-  border-radius: 6px 6px 0 0;
+  border-radius: var(--radius-m) var(--radius-m) 0 0;
 }
 
 .cm-editor .cm-line.lp-code-last {
   padding-bottom: 4px;
-  border-radius: 0 0 6px 6px;
+  border-radius: 0 0 var(--radius-m) var(--radius-m);
 }
 
 .cm-editor .cm-line.lp-code-first.lp-code-last {
-  border-radius: 6px;
+  border-radius: var(--radius-m);
 }
 
 /* A fence line keeps the height of a line of code whether its ``` is shown or hidden.
@@ -91,7 +91,7 @@
 .cm-editor .lp-image {
   max-width: 100%;
   height: auto;
-  border-radius: 4px;
+  border-radius: var(--radius-s);
   vertical-align: bottom;
 }
 
@@ -110,12 +110,12 @@
 
 .cm-editor .cm-line.lp-frontmatter-first {
   padding-top: 4px;
-  border-radius: 6px 6px 0 0;
+  border-radius: var(--radius-m) var(--radius-m) 0 0;
 }
 
 .cm-editor .cm-line.lp-frontmatter-last {
   padding-bottom: 4px;
-  border-radius: 0 0 6px 6px;
+  border-radius: 0 0 var(--radius-m) var(--radius-m);
 }
 
 /* A code block rendered by a processor. Padding, not margin: the editor
@@ -144,7 +144,7 @@
   justify-content: center;
   width: 28px;
   height: 26px;
-  border-radius: 5px;
+  border-radius: var(--radius-m);
   color: var(--text-muted);
   font: 600 12px var(--font-mono);
   letter-spacing: -0.5px;
@@ -164,7 +164,7 @@
 
 .cm-editor .lp-block-error {
   padding: 8px 12px;
-  border-radius: 6px;
+  border-radius: var(--radius-m);
   background: var(--bg-alt);
   color: var(--accent);
   font-family: var(--font-mono);
@@ -176,7 +176,7 @@
   display: block;
   margin: 2px 0;
   border: 1px solid var(--border);
-  border-radius: 8px;
+  border-radius: var(--radius-l);
   overflow: hidden;
 }
 
@@ -226,7 +226,7 @@
 
 .cm-editor .cm-line.lp-callout-title {
   padding-top: 4px;
-  border-radius: 0 6px 0 0;
+  border-radius: 0 var(--radius-m) 0 0;
   color: var(--callout);
   font-weight: 650;
 }
@@ -239,4 +239,16 @@
 /* With Ctrl held, a link shown as written can be followed too. */
 .lp-wikilink-source:hover {
   cursor: text;
+}
+
+/* HTML written in a note, shown as the page it describes. */
+.cm-editor .lp-html img,
+.cm-editor .lp-html video {
+  max-width: 100%;
+  height: auto;
+}
+
+.cm-editor .lp-html iframe {
+  max-width: 100%;
+  border: none;
 }

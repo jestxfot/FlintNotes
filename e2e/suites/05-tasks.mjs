@@ -101,4 +101,47 @@ export async function run(t) {
   await noDate.click()
   await wait(1200)
   ok('unticking removes it', read('Work.md').includes('- [ ] No date task 🔽\n'), read('Work.md'))
+
+  // ---- "after this" and "before this": tasks are found by their words, the ids are written for the user
+  await t.open('Query')
+  await wait(400)
+  const edit = async (name) => {
+    const row = page.locator(`${leaf} .tasks-block`).nth(0).locator('.task-row', { hasText: name })
+    await row.hover()
+    await row.locator('.task-edit').click()
+    await wait(300)
+  }
+  await edit('Write report')
+  await page.locator('dialog #task-after').fill('water')
+  ok('typing in "after this" finds tasks by their words', (await page.locator('dialog .found-task').count()) === 1 && (await page.locator('dialog .found-task').innerText()).includes('Water plants'), await page.locator('dialog .found').innerText().catch(() => 'no list'))
+  await page.locator('dialog .found-task').click()
+  await page.locator('dialog #task-before').fill('buy')
+  await page.keyboard.press('Enter')
+  ok('chosen tasks are listed in the form', (await page.locator('dialog .linked').count()) === 2, await page.locator('dialog .linked').count())
+  await page.locator('dialog button.primary').click()
+  await wait(1500)
+  const report = /Write report.*/.exec(read('Work.md'))?.[0] ?? ''
+  const made = /🆔 ([a-z0-9]{6})/.exec(report)?.[1]
+  ok('the task waits for the one chosen, by its id', report.includes('⛔ abc123') && !!made, report)
+  ok('and the task chosen as later waits for this one', !!made && read('Home.md').includes(`⛔ ${made}`), read('Home.md'))
+  await edit('Write report')
+  ok('the form shows the links again', (await page.locator('dialog .linked').count()) === 2 && (await page.locator('dialog .row:has(#task-before) .linked').innerText()).includes('Buy'), await page.locator('dialog .linked').count())
+  await page.locator('dialog .row:has(#task-before) .unlink').click()
+  await page.locator('dialog button.primary').click()
+  await wait(1500)
+  ok('removing a link takes the id out of the other task', !read('Home.md').includes('⛔'), read('Home.md'))
+
+  // ---- an ordinary line with (@date time) reminds too
+  const now = new Date(Date.now() - 60_000)
+  const pad = (n) => String(n).padStart(2, '0')
+  const moment = `${now.getFullYear()}-${pad(now.getMonth() + 1)}-${pad(now.getDate())} ${pad(now.getHours())}:${pad(now.getMinutes())}`
+  t.write('Plain.md', `# Notes\n\nCall the dentist (@${moment})\n`)
+  await page.waitForSelector('.task-alert[open]', { timeout: 20000 }).catch(() => {})
+  const plain = page.locator('.task-alert .alert-task', { hasText: 'Call the dentist' })
+  ok('a line without a checkbox reminds as well', (await plain.count()) === 1 && !(await plain.innerText()).includes('(@'), await page.locator('.task-alert').innerText().catch(() => 'no alert'))
+  ok('and is not a task in the lists', !(await page.locator(`${leaf} .tasks-block`).nth(0).innerText()).includes('dentist'))
+  await plain.locator('button', { hasText: 'Завтра' }).click()
+  await wait(1500)
+  ok('"later" rewrites the time in that line', /Call the dentist \(@\d{4}-\d{2}-\d{2} \d{2}:\d{2}\)/.test(read('Plain.md')) && !read('Plain.md').includes(moment), read('Plain.md'))
+  ok('and the alert goes', (await t.count('.task-alert')) === 0)
 }

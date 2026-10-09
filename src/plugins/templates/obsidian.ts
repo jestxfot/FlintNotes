@@ -148,6 +148,18 @@ export function obsidianApp(app: App) {
         const dest = metadata.resolve(link.split('#')[0], clean(source))
         return dest ? file(dest) : null
       },
+      /** Every tag of the vault with the number of notes it is in: `{ "#tag": 3 }`. */
+      getTags: () => {
+        const counts: Record<string, number> = {}
+        for (const path of metadata.notes()) for (const tag of new Set(metadata.get(path)?.tags ?? [])) counts[`#${tag}`] = (counts[`#${tag}`] ?? 0) + 1
+        return counts
+      },
+      /** How a link to the note is written: its name, or its path when another note has the same name. */
+      fileToLinktext: (target: TFile, _source = '', omitMdExtension = true) => {
+        const unique = vault.files().filter((f) => paths.basename(f.path) === paths.basename(target.path)).length < 2
+        const text = unique ? paths.basename(target.path) : target.path
+        return omitMdExtension ? text.replace(/\.md$/, '') : text
+      },
       get resolvedLinks() {
         return Object.fromEntries([...metadata.resolvedLinks].map(([source, links]) => [source, Object.fromEntries(links)]))
       },
@@ -170,6 +182,7 @@ export function obsidianApp(app: App) {
         if (Object.keys(changes).length) await setProperties(app, target.path, changes)
       },
       renameFile: (target: TAbstractFile, newPath: string) => vault.rename(target.path, clean(newPath)),
+      trashFile: (target: TAbstractFile) => vault.trash(target.path),
     },
 
     workspace: {
@@ -180,6 +193,27 @@ export function obsidianApp(app: App) {
       openLinkText: async (link: string, source = '') => {
         const dest = metadata.resolve(link.split('#')[0], clean(source))
         if (dest) app.workspace.openFile(dest)
+      },
+      /** The open note and its editor, as far as templates use them: reading and replacing the text. */
+      get activeEditor() {
+        const view = app.workspace.activeEditor
+        const path = app.workspace.active?.path
+        if (!view || !path) return null
+        return {
+          file: file(path),
+          editor: {
+            getValue: () => view.state.doc.toString(),
+            setValue: (text: string) => view.dispatch({ changes: { from: 0, to: view.state.doc.length, insert: text } }),
+            getSelection: () => view.state.sliceDoc(view.state.selection.main.from, view.state.selection.main.to),
+            replaceSelection: (text: string) => view.dispatch(view.state.replaceSelection(text)),
+            getCursor: () => {
+              const line = view.state.doc.lineAt(view.state.selection.main.head)
+              return { line: line.number - 1, ch: view.state.selection.main.head - line.from }
+            },
+            getLine: (n: number) => view.state.doc.line(n + 1).text,
+            lineCount: () => view.state.doc.lines,
+          },
+        }
       },
       getLeaf: () => ({ openFile: async (target: TFile) => app.workspace.openFile(target.path) }),
     },

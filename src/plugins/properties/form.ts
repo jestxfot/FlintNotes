@@ -156,20 +156,7 @@ export function propertiesForm(source: string, root: HTMLElement, ctx: CodeBlock
 
       row.append(editor(key, value, kind))
 
-      const type = row.appendChild(el('select', 'props-type'))
-      type.title = 'Тип значения'
-      for (const { kind: k, label } of KINDS) type.append(new Option(label, k, false, k === kind))
-      type.onchange = () => {
-        setYamlValue(doc, key, convert(value, type.value as Kind))
-        save()
-      }
-
-      const remove = row.appendChild(el('button', 'props-remove', '×'))
-      remove.title = 'Удалить свойство'
-      remove.onclick = () => {
-        doc.delete(key)
-        save()
-      }
+      // The type and deleting are in the row's menu (a right click, or a click on the icon's menu): the row itself stays clean.
       return row
     })
 

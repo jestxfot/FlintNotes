@@ -59,7 +59,7 @@
     display: flex;
     width: 100%;
     padding: 4px 8px;
-    border-radius: 5px;
+    border-radius: var(--radius-m);
     color: var(--text-muted);
     text-align: left;
   }

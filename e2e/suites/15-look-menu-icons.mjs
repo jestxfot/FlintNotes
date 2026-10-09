@@ -1,3 +1,6 @@
+import path from 'node:path'
+import { ROOT } from '../helpers.mjs'
+const fixturePath = (name) => path.join(ROOT, 'e2e/fixtures', name)
 // Obsidian's look: tab strip, path header, inline title; the context menu; icons and colours in Iconic's format.
 const iconic = {
   showAllFileIcons: false,
@@ -177,4 +180,21 @@ export async function run(t) {
   await wait(1500)
   ok('editing the heading renames the note', t.exists('Renamed.md') && !t.exists('Plain.md') && (await t.activeTab()) === 'Renamed', `typed "${typed}", tab "${await t.activeTab()}", focus ${await page.evaluate(() => document.activeElement?.className)}, text ${(await t.text()).slice(0, 80)}`)
   ok('and its icon follows', JSON.parse(read('.obsidian/plugins/iconic/data.json')).fileIcons['Renamed.md']?.icon === 'lucide-star')
+
+  // ---- a picture of the user's own becomes an SVG icon that is kept
+  await t.row('Renamed').click({ button: 'right' })
+  await page.locator('.menu button', { hasText: /значок…/ }).click()
+  const own = page.locator('.iconic-dialog')
+  await own.locator('input[type=file]').setInputFiles(fixturePath('pic.png'))
+  await wait(1500)
+  const svg = t.exists('.obsidian/custom-icons/pic.svg') ? read('.obsidian/custom-icons/pic.svg') : ''
+  ok('an uploaded PNG is kept as an SVG among the custom icons', svg.startsWith('<svg xmlns="http://www.w3.org/2000/svg"') && svg.includes('viewBox="0 0 100 100"') && svg.includes('href="data:image/png;base64,'), svg.slice(0, 120))
+  ok('and is chosen in the picker at once', (await own.locator('.iconic-icon.selected').getAttribute('title')) === 'pic' && (await own.locator('.iconic-preview img').count()) === 1)
+  await own.locator('button', { hasText: 'Готово' }).click()
+  await wait(1200)
+  ok('the note takes it', JSON.parse(read('.obsidian/plugins/iconic/data.json')).fileIcons['Renamed.md']?.icon === 'pic' && (await t.row('Renamed').locator('.row-icon img').evaluate((img) => img.complete && img.naturalWidth > 0)))
+  await page.reload()
+  await page.waitForSelector('.tree .row')
+  await wait(1500)
+  ok('and it is still there after a reload', (await t.row('Renamed').locator('.row-icon img').evaluate((img) => img.naturalWidth > 0).catch(() => false)) === true, await t.row('Renamed').innerHTML().catch(() => 'no row'))
 }

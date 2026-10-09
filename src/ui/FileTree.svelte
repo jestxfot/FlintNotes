@@ -146,8 +146,9 @@
     try {
       const entry =
         kind === 'file'
-          ? await vault.create(vault.uniquePath(folder, 'Без названия', 'md'))
+          ? await app.creation.create(vault.uniquePath(folder, 'Без названия', 'md'))
           : await vault.createFolder(vault.uniquePath(folder, 'Новая папка'))
+      if (!entry) return
       if (folder) expanded.add(folder)
       // The name field keeps the focus so the new item can be named right away.
       if (kind === 'file') workspace.openFile(entry.path, { focus: false, ...(app.settings.get<string>('core', 'newNoteTab') === 'new' ? { newTab: true } : {}) })
@@ -349,7 +350,7 @@
   .header button {
     width: 26px;
     height: 26px;
-    border-radius: 5px;
+    border-radius: var(--radius-m);
     color: var(--text-muted);
   }
 
@@ -380,7 +381,7 @@
     align-items: center;
     width: 100%;
     padding: 4px 8px;
-    border-radius: 5px;
+    border-radius: var(--radius-m);
     color: var(--text-muted);
     text-align: left;
   }
@@ -430,7 +431,7 @@
     margin: 1px 0;
     padding: 3px 6px;
     border: 1px solid var(--accent);
-    border-radius: 5px;
+    border-radius: var(--radius-m);
     background: var(--bg);
     outline: none;
   }

@@ -1,4 +1,4 @@
-import { cm, errorMessage, expandVariables, path as paths, Plugin, type Moment, type VaultEntry } from '../../api'
+import { cm, errorMessage, expandVariables, path as paths, Plugin, type Draft, type Moment, type VaultEntry } from '../../api'
 import { prompt } from './dialogs'
 import { execute, TemplateError } from './engine'
 import { obsidianApp } from './obsidian'
@@ -25,6 +25,9 @@ const CURSOR = /<%\s*tp\.file\.cursor\(\s*(-?\d*\.?\d*)\s*\)\s*%>/g
 
 export default class Templates extends Plugin {
   private obsidian = obsidianApp(this.app)
+  /** How many templates are running, and the global `app` to put back when the last one ends. */
+  private running = 0
+  private ownApp: unknown
   /** Notes this plugin is creating itself; the "new note" rule must not fire for them. */
   private creating = new Set<string>()
   private scriptCache = new Map<string, { mtime: number; value: unknown }>()
@@ -137,6 +140,8 @@ export default class Templates extends Plugin {
     }
 
     this.register(app.vault.on('created-here', (entry) => void this.onCreated(entry)))
+    app.creation.prepare = (path) => this.prepare(path)
+    this.register(() => (app.creation.prepare = null))
 
     for (const name of lines(this.getSetting<string>('startup'))) {
       const path = this.resolve(name)
@@ -300,8 +305,19 @@ export default class Templates extends Plugin {
     const expanded = expandVariables(text, title, run.date)
     if (!expanded.includes('<%')) return { text: expanded, target: run.target }
     const moment = (globalThis as any).moment
-    const out = await execute(expanded, { tp: buildTp(run), app: this.obsidian, moment })
-    return { text: out, target: run.target }
+    // Code a template builds itself (`new Function(code)`, the way long scripts are run) sees only the
+    // global `app`, so while templates run that name too stands for Obsidian's app, as it does in Obsidian.
+    const scope = globalThis as { app?: unknown }
+    if (!this.running++) {
+      this.ownApp = scope.app
+      scope.app = this.obsidian
+    }
+    try {
+      const out = await execute(expanded, { tp: buildTp(run), app: this.obsidian, moment })
+      return { text: out, target: run.target }
+    } finally {
+      if (!--this.running) scope.app = this.ownApp
+    }
   }
 
   /** Runs what templates asked to be run after everything has been written. */
@@ -401,31 +417,77 @@ export default class Templates extends Plugin {
     })
   }
 
-  /** A note was just created here: an empty one is filled in by the first rule that fits. */
-  private async onCreated(entry: VaultEntry): Promise<void> {
+  /** The template the rules name for a note at this path, and whether templates apply there at all. */
+  private ruled(path: string): { applies: boolean; template: string | null } {
+    const inFolder = (folder: string) => !!folder && `${path}/`.startsWith(`${folder}/`)
+    if (!this.getSetting<boolean>('onCreate') || paths.extname(path) !== 'md') return { applies: false, template: null }
+    if (inFolder(this.folder) || lines(this.getSetting<string>('excluded')).map(paths.normalize).some(inFolder)) return { applies: false, template: null }
+    const name = templateFor(parseRules(this.getSetting<string>('rules')), path)
+    const template = name ? this.resolve(name) : null
+    if (name && !template) this.app.notice(`Шаблон «${name}» из правил не найден`)
+    return { applies: true, template }
+  }
+
+  /**
+   * A note is about to be created: the user chooses its template, the template
+   * asks what it needs, and only then is there a note. Backing out of the
+   * choice or of a question, or a mistake in the template, leaves nothing behind.
+   */
+  private async prepare(path: string): Promise<Draft | null> {
     const { app } = this
-    if (this.creating.delete(entry.path)) return
-    if (!this.getSetting<boolean>('onCreate') || paths.extname(entry.path) !== 'md' || entry.size > 0) return
-    const inFolder = (folder: string) => !!folder && (`${entry.path}/`.startsWith(`${folder}/`))
-    if (inFolder(this.folder) || lines(this.getSetting<string>('excluded')).map(paths.normalize).some(inFolder)) return
-    const name = templateFor(parseRules(this.getSetting<string>('rules')), entry.path)
-    const ruled = name ? this.resolve(name) : null
-    if (name && !ruled) app.notice(`Шаблон «${name}» из правил не найден`)
+    const empty: Draft = { path, text: '' }
+    const { applies, template: ruled } = this.ruled(path)
+    if (!applies) return empty
     const all = this.list()
-    if (!this.getSetting<boolean>('ask') || !all.length) {
-      if (ruled) this.fill(entry, ruled)
-      return
+    let template: string | null | undefined = ruled
+    if (this.getSetting<boolean>('ask') && all.length) {
+      // The template the rules name comes first, so Enter is "as usual".
+      const choices: (string | null)[] = [...(ruled ? [ruled] : []), ...all.filter((one) => one !== ruled), null]
+      const label = (one: string | null) => (one === null ? 'Без шаблона' : paths.stripExt(one.slice(this.folder.length + 1)))
+      template = await new Promise<string | null | undefined>((resolve) => {
+        app.suggest<string | null>({
+          placeholder: `Шаблон для «${paths.stripExt(paths.basename(path))}»…`,
+          items: (query) => choices.filter((one) => label(one).toLowerCase().includes(query.trim().toLowerCase())),
+          label,
+          detail: (one) => (one !== null && one === ruled ? 'по правилам' : undefined),
+          icon: (one) => (one ? app.icons.look('file', one) : undefined),
+          onChoose: (one) => resolve(one),
+          // Closed without a choice: no note.
+          onCancel: () => resolve(undefined),
+        })
+      })
+      if (template === undefined) return null
     }
-    // The user chooses: the template the rules name comes first, so Enter is "as usual".
-    const choices: (string | null)[] = [...(ruled ? [ruled] : []), ...all.filter((path) => path !== ruled), null]
-    const label = (path: string | null) => (path === null ? 'Без шаблона' : paths.stripExt(path.slice(this.folder.length + 1)))
-    app.suggest<string | null>({
-      placeholder: `Шаблон для «${paths.stripExt(paths.basename(entry.path))}»…`,
-      items: (query) => choices.filter((path) => label(path).toLowerCase().includes(query.trim().toLowerCase())),
-      label,
-      detail: (path) => (path !== null && path === ruled ? 'по правилам' : undefined),
-      onChoose: (path) => path && this.fill(entry, path),
-    })
+    if (!template) return empty
+    const hooks: Run['hooks'] = []
+    const from = template
+    try {
+      const made = await this.run(await app.vault.read(from), { template: from, target: path, mode: 'CreateNewFromTemplate', hooks })
+      const target = app.vault.get(made.target) ? app.vault.uniquePath(paths.dirname(made.target), paths.stripExt(paths.basename(made.target)), 'md') : made.target
+      this.creating.add(target)
+      return {
+        path: target,
+        text: made.text,
+        after: async (entry) => {
+          // A note made from a template that has an icon wears that icon, whatever the rules for its folder say.
+          const look = app.icons.own?.('file', from)
+          if (look) await app.icons.assign?.('file', entry.path, look)
+          setTimeout(() => app.workspace.active?.path === entry.path && this.autoJump(), 300)
+          await this.finish(hooks)
+        },
+      }
+    } catch (err) {
+      // Backing out of a template's question is a decision, not a failure: nothing is said about it.
+      if (!(err instanceof TemplateError && err.message === 'отменено')) app.notice(`Шаблон «${paths.stripExt(paths.basename(from))}»: ${errorMessage(err)}. Заметка не создана`, 8000)
+      return null
+    }
+  }
+
+  /** A note created by something else here (not through the app's "new note"): an empty one is filled in by the rule that fits. */
+  private async onCreated(entry: VaultEntry): Promise<void> {
+    if (this.creating.delete(entry.path) || entry.size > 0) return
+    const { template } = this.ruled(entry.path)
+    if (template) this.fill(entry, template)
   }
 
   /** Fills a note that has just been created from a template. */
@@ -439,6 +501,8 @@ export default class Templates extends Plugin {
       if (!target || (await app.vault.read(target)).trim()) return
       await app.workspace.flushAll()
       await app.vault.write(target, made.text)
+      const look = app.icons.own?.('file', template)
+      if (look) await app.icons.assign?.('file', target, look)
       if (app.workspace.active?.path === target) this.autoJump()
       await this.finish(hooks)
     })

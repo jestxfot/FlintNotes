@@ -27,7 +27,7 @@
   align-items: center;
   gap: 6px;
   padding: 4px 8px;
-  border-radius: 6px;
+  border-radius: var(--radius-m);
   color: var(--text-muted);
   white-space: nowrap;
   cursor: pointer;
@@ -64,7 +64,7 @@
   width: 160px;
   padding: 4px 8px;
   border: 1px solid var(--border);
-  border-radius: 6px;
+  border-radius: var(--radius-m);
   background: var(--bg);
 }
 
@@ -79,7 +79,7 @@
   padding: 10px 12px;
   overflow-y: auto;
   border: 1px solid var(--border);
-  border-radius: 8px;
+  border-radius: var(--radius-l);
   background: var(--bg-alt);
   box-shadow: var(--shadow);
   font-size: 13px;
@@ -106,7 +106,7 @@
   min-width: 0;
   padding: 4px 8px;
   border: 1px solid var(--border);
-  border-radius: 5px;
+  border-radius: var(--radius-m);
   background: var(--bg);
 }
 
@@ -117,7 +117,7 @@
 .base-pop-add {
   align-self: flex-start;
   padding: 3px 6px;
-  border-radius: 5px;
+  border-radius: var(--radius-m);
   color: var(--text-muted);
 }
 
@@ -130,7 +130,7 @@
 .base-pop-remove {
   display: flex;
   padding: 4px;
-  border-radius: 5px;
+  border-radius: var(--radius-m);
   color: var(--text-faint);
   font-size: 15px;
 }
@@ -169,7 +169,7 @@
   align-items: center;
   gap: 8px;
   padding: 5px 8px;
-  border-radius: 5px;
+  border-radius: var(--radius-m);
   text-align: left;
 }
 
@@ -184,7 +184,7 @@
 
 .base-view-edit {
   padding: 2px 9px;
-  border-radius: 5px;
+  border-radius: var(--radius-m);
   color: var(--text-faint);
   font-size: 16px;
   cursor: pointer;
@@ -303,7 +303,7 @@
   min-width: 90px;
   padding: 2px 6px;
   border: 1px solid var(--accent);
-  border-radius: 4px;
+  border-radius: var(--radius-s);
   background: var(--bg);
   outline: none;
 }
@@ -326,7 +326,7 @@
   gap: 8px;
   padding: 0 0 10px;
   border: 1px solid var(--border);
-  border-radius: 8px;
+  border-radius: var(--radius-l);
   background: var(--bg);
   overflow: hidden;
 }
@@ -415,7 +415,7 @@
   gap: 8px;
   min-height: 80px;
   padding: 0 8px 8px;
-  border-radius: 8px;
+  border-radius: var(--radius-l);
   background: var(--bg-alt);
 }
 
@@ -457,7 +457,7 @@
 .base-delete {
   padding: 4px 10px;
   border: 1px solid var(--border);
-  border-radius: 6px;
+  border-radius: var(--radius-m);
   color: #d0342c;
 }
 
@@ -470,7 +470,7 @@
 .base-error {
   margin-bottom: 8px;
   padding: 8px 12px;
-  border-radius: 6px;
+  border-radius: var(--radius-m);
   background: var(--bg-alt);
   color: #d0342c;
   font-size: 13px;
@@ -499,7 +499,7 @@
 
 .base-file-head button {
   padding: 3px 10px;
-  border-radius: 6px;
+  border-radius: var(--radius-m);
   color: var(--text-muted);
   font-size: 13px;
 }
@@ -513,15 +513,16 @@
   min-height: 60vh;
   padding: 12px 14px;
   border: 1px solid var(--border);
-  border-radius: 8px;
+  border-radius: var(--radius-l);
   background: var(--bg-alt);
   color: var(--text);
   font: 13px/1.5 var(--font-mono);
   resize: vertical;
 }
 
-.lp-embed .base {
-  padding: 8px 12px;
+.lp-embed .base,
+.lp-embed.base {
+  padding: 0;
 }
 
 /* Inside a note the block's own "</>" button sits in the corner; the tools make room for it. */
@@ -555,7 +556,7 @@
   align-items: center;
   min-width: 0;
   border: 1px solid var(--border);
-  border-radius: 6px;
+  border-radius: var(--radius-m);
   background: var(--bg);
 }
 
@@ -636,7 +637,7 @@
   margin-left: 34px;
   padding: 8px;
   border: 1px solid var(--border);
-  border-radius: 6px;
+  border-radius: var(--radius-m);
 }
 
 .base-filter-how {
@@ -694,7 +695,7 @@
 .base-pop .base-check {
   gap: 9px;
   padding: 4px 6px;
-  border-radius: 5px;
+  border-radius: var(--radius-m);
   cursor: pointer;
 }
 
@@ -726,6 +727,7 @@
 }
 
 /* A base shown inside a note has no frame of its own: its toolbar and rows are part of the page. */
+.cm-editor .lp-embed.base,
 .cm-editor .lp-embed:has(.base) {
   border: none;
   border-radius: 0;
@@ -779,7 +781,7 @@
   align-items: center;
   gap: 8px;
   padding: 4px 8px;
-  border-radius: 5px;
+  border-radius: var(--radius-m);
   text-align: left;
 }
 
@@ -808,7 +810,7 @@
   height: 26px;
   padding: 0 8px;
   border: 1px solid var(--border);
-  border-radius: 6px;
+  border-radius: var(--radius-m);
   color: var(--text-muted);
 }
 
@@ -873,7 +875,7 @@
 .base-calendar-note {
   padding: 1px 5px;
   overflow: hidden;
-  border-radius: 4px;
+  border-radius: var(--radius-s);
   background: color-mix(in srgb, var(--accent) 14%, transparent);
   color: var(--text);
   font-size: 12px;
@@ -884,4 +886,20 @@
 
 .base-calendar-note:hover {
   background: color-mix(in srgb, var(--accent) 28%, transparent);
+}
+
+/* The end of the drawn part of a long base. */
+.base-more {
+  display: block;
+  width: 100%;
+  margin-top: 8px;
+  padding: 8px;
+  border-radius: var(--radius-m);
+  color: var(--text-muted);
+  font-size: 13px;
+}
+
+.base-more:hover {
+  background: var(--bg-hover);
+  color: var(--text);
 }

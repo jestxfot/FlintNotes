@@ -100,7 +100,7 @@
 
 .ft-add {
   position: absolute;
-  border-radius: 5px;
+  border-radius: var(--radius-m);
   background: var(--bg-alt);
   color: var(--text-muted);
   line-height: 1;
@@ -134,7 +134,7 @@
 
 .ft-error {
   padding: 8px 12px;
-  border-radius: 6px;
+  border-radius: var(--radius-m);
   background: var(--bg-alt);
   color: #d0342c;
   font-size: 13px;
@@ -149,7 +149,7 @@
   max-height: calc(100vh - 8px);
   padding: 4px;
   border: 1px solid var(--border);
-  border-radius: 8px;
+  border-radius: var(--radius-l);
   background: var(--bg);
   box-shadow: var(--shadow);
   overflow-y: auto;
@@ -158,7 +158,7 @@
 
 .ft-menu button {
   padding: 4px 10px;
-  border-radius: 5px;
+  border-radius: var(--radius-m);
   text-align: left;
 }
 

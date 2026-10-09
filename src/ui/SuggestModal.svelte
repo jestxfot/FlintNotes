@@ -119,7 +119,7 @@
     margin-top: 0;
     padding: 0;
     border: 1px solid var(--border);
-    border-radius: 12px;
+    border-radius: var(--radius-xl);
     background: var(--bg);
     color: var(--text);
     box-shadow: var(--shadow);
@@ -155,7 +155,7 @@
     align-items: center;
     gap: 10px;
     padding: 7px 10px;
-    border-radius: 6px;
+    border-radius: var(--radius-m);
     text-align: left;
   }
 

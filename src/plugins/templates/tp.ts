@@ -243,6 +243,25 @@ export function buildTp(run: Run) {
     obsidian: {
       moment,
       normalizePath: paths.normalize,
+      /** Obsidian's request that is not held back by the browser's cross-site rules: this app's server makes it. */
+      requestUrl: async (request: string | { url: string; method?: string; headers?: Record<string, string>; body?: string; contentType?: string; throw?: boolean }) => {
+        const options = typeof request === 'string' ? { url: request } : request
+        const answer = await app.vault.requestUrl(options)
+        if (answer.status >= 400 && options.throw !== false) throw new Error(`Request failed, status ${answer.status}`)
+        return {
+          status: answer.status,
+          headers: answer.headers,
+          text: answer.text,
+          get json() {
+            return JSON.parse(answer.text)
+          },
+          get arrayBuffer() {
+            return new TextEncoder().encode(answer.text).buffer
+          },
+        }
+      },
+      /** Tags of a note from `getFileCache`: those in the text and those in its properties. */
+      getAllTags: (cache: { tags?: { tag: string }[] } | null) => (cache ? (cache.tags ?? []).map((t) => t.tag) : null),
       Notice: class {
         constructor(message: string) {
           app.notice(String(message))

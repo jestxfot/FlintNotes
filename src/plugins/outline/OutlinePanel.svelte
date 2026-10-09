@@ -44,7 +44,7 @@
     width: 100%;
     padding: 3px 8px;
     overflow: hidden;
-    border-radius: 5px;
+    border-radius: var(--radius-m);
     color: var(--text-muted);
     font-size: 13.5px;
     text-align: left;

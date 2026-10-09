@@ -357,6 +357,36 @@ api.post('/exec', async (c) => {
 // ---- what a web page says about itself, for link cards
 const PRIVATE = /^(127\.|10\.|192\.168\.|169\.254\.|172\.(1[6-9]|2\d|3[01])\.|0\.|::1$|f[cd]|fe80)/i
 
+// A request to the open web made for the page, which the browser would not let it make itself
+// (Obsidian's `requestUrl`, used by templates). Only for the app's own page, never to this machine or the local network.
+api.post('/request', async (c) => {
+  const origin = c.req.header('origin')
+  if (!origin || new URL(origin).host !== c.req.header('host')) throw new HTTPException(403, { message: 'Только со страницы самого приложения' })
+  const { url: address, method, headers, body, contentType } = (await c.req.json()) as { url: string; method?: string; headers?: Record<string, string>; body?: string; contentType?: string }
+  let url: URL
+  try {
+    url = new URL(address)
+  } catch {
+    throw new HTTPException(400, { message: 'Это не адрес страницы' })
+  }
+  if (url.protocol !== 'http:' && url.protocol !== 'https:') throw new HTTPException(400, { message: 'Нужен адрес http или https' })
+  const addresses = await lookup(url.hostname, { all: true }).catch(() => [])
+  if (!addresses.length || addresses.some((a) => PRIVATE.test(a.address))) throw new HTTPException(400, { message: 'Адрес недоступен' })
+  try {
+    const res = await fetch(url, {
+      method: method ?? 'GET',
+      headers: { ...(contentType ? { 'content-type': contentType } : {}), ...headers },
+      body: method && method.toUpperCase() !== 'GET' ? body : undefined,
+      signal: AbortSignal.timeout(20_000),
+    })
+    const text = await res.text()
+    if (text.length > 20_000_000) throw new Error('too large')
+    return c.json({ status: res.status, headers: Object.fromEntries(res.headers), text })
+  } catch {
+    throw new HTTPException(502, { message: 'Адрес не ответил' })
+  }
+})
+
 api.get('/unfurl', async (c) => {
   let url: URL
   try {
