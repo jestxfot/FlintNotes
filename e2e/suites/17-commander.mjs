@@ -6,7 +6,10 @@ const cmdr = {
     { id: 'graph:open', icon: 'lucide-git-fork', name: 'Graph', mode: 'any' },
   ],
   pageHeader: [{ id: 'webviewer:open', icon: 'lucide-search', name: 'Web', mode: 'any' }],
-  fileMenu: [{ id: 'open-with-default-app:show', icon: 'lucide-files', name: 'Show in system explorer', mode: 'any' }],
+  fileMenu: [
+    { id: 'open-with-default-app:show', icon: 'lucide-files', name: 'Show in system explorer', mode: 'any' },
+    { id: 'graph:open', icon: 'lucide-git-fork', name: 'Graph from the menu', mode: 'any' },
+  ],
   macros: [],
 }
 export const viewport = { width: 1400, height: 900 }
@@ -30,7 +33,7 @@ export async function run(t) {
   ok('buttons of Commander appear, those of unknown commands are left out', (await ribbon.locator('button').count()) === 2 && (await ribbon.locator('button').first().getAttribute('title')) === 'Daily', await ribbon.locator('button').count())
   ok('a button keeps its colour and icon', (await ribbon.locator('button').first().evaluate((b) => b.style.color)) === 'rgb(98, 184, 249)' && (await ribbon.locator('button svg').count()) === 2)
   const saved = () => JSON.parse(read('.flint/commander.json'))
-  ok("the setup is stored in Commander's format with this app's command ids", saved().leftRibbon.map((p) => p.id).join() === 'calendar:today,graph:open' && saved().pageHeader[0].id === 'buttons:web-viewer' && saved().fileMenu[0].id === 'core:reveal-active', JSON.stringify(saved()))
+  ok("the setup is stored in Commander's format with this app's command ids", saved().leftRibbon.map((p) => p.id).join() === 'calendar:today,graph:open' && saved().pageHeader[0].id === 'buttons:web-viewer' && saved().fileMenu.map((p) => p.id).join() === 'graph:open', JSON.stringify(saved()))
   await ribbon.locator('button[title="Graph"]').click()
   await wait(600)
   ok('a button runs its command', (await t.activeTab()) === 'Граф')
@@ -84,7 +87,8 @@ export async function run(t) {
 
   // ---- items in the file menu
   await t.row('Note').click({ button: 'right' })
-  ok('a command of the user in the file menu', (await page.locator('.menu button', { hasText: 'Show in system explorer' }).count()) === 1)
+  ok('a command of the user in the file menu', (await page.locator('.menu button', { hasText: 'Graph from the menu' }).count()) === 1)
+  ok('what the menu already offers is not added a second time', (await page.locator('.menu button', { hasText: /explorer|проводник/i }).count()) === 1)
   await page.keyboard.press('Escape')
   await page.mouse.click(700, 500)
 

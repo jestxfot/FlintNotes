@@ -10,6 +10,70 @@ import type { ViewContext, ViewRenderer } from './views/shared'
 import { table } from './views/table'
 
 const RENDERERS: Record<string, ViewRenderer> = { table, cards, list, board }
+/** A condition the filter panel can show as fields: what is tested, how, and against what. */
+interface Condition {
+  subject: string
+  op: string
+  value: string
+}
+
+const FILE_OPS: [id: string, label: string][] = [
+  ['hasLink', 'ссылается на'],
+  ['inFolder', 'в папке'],
+  ['hasTag', 'имеет тег'],
+  ['hasProperty', 'имеет свойство'],
+  ['!hasLink', 'не ссылается на'],
+  ['!inFolder', 'не в папке'],
+  ['!hasTag', 'не имеет тега'],
+  ['!hasProperty', 'не имеет свойства'],
+]
+const VALUE_OPS: [id: string, label: string][] = [
+  ['==', 'равно'],
+  ['!=', 'не равно'],
+  ['contains', 'содержит'],
+  ['!contains', 'не содержит'],
+  ['startsWith', 'начинается с'],
+  ['endsWith', 'заканчивается на'],
+  ['>', 'больше'],
+  ['<', 'меньше'],
+  ['>=', 'не меньше'],
+  ['<=', 'не больше'],
+  ['isEmpty', 'пусто'],
+  ['!isEmpty', 'не пусто'],
+]
+const NO_VALUE = new Set(['isEmpty', '!isEmpty'])
+const operatorsFor = (subject: string) => (subject === 'file' ? FILE_OPS : VALUE_OPS)
+
+const literal = String.raw`("(?:[^"\\]|\\.)*"|'(?:[^'\\]|\\.)*'|-?\d+(?:\.\d+)?|true|false)`
+const name = String.raw`([\p{L}_][\p{L}\p{N}_.-]*)`
+const unquote = (text: string) => (/^["']/.test(text) ? text.slice(1, -1).replace(/\\(.)/g, '$1') : text)
+
+/** Reads a condition of one of the plain kinds; `null` for anything richer, which stays an expression. */
+function parseCondition(text: string): Condition | null {
+  const source = text.trim()
+  let m = new RegExp(`^(!?)file\\.(hasLink|inFolder|hasTag|hasProperty)\\(\\s*${literal}?\\s*\\)$`, 'u').exec(source)
+  if (m) return { subject: 'file', op: m[1] + m[2], value: m[3] ? unquote(m[3]) : '' }
+  m = new RegExp(`^(!?)${name}\\.(contains|startsWith|endsWith)\\(\\s*${literal}\\s*\\)$`, 'u').exec(source)
+  if (m && (m[1] === '' || m[3] === 'contains')) return { subject: m[2], op: m[1] + m[3], value: unquote(m[4]) }
+  m = new RegExp(`^(!?)${name}\\.isEmpty\\(\\s*\\)$`, 'u').exec(source)
+  if (m) return { subject: m[2], op: `${m[1]}isEmpty`, value: '' }
+  m = new RegExp(`^${name}\\s*(==|!=|>=|<=|>|<)\\s*${literal}$`, 'u').exec(source)
+  if (m && m[1] !== 'file') return { subject: m[1], op: m[2], value: unquote(m[3]) }
+  return null
+}
+
+/** Writes a condition as an expression of the Bases language. */
+function formatCondition({ subject, op, value }: Condition): string {
+  const not = op.startsWith('!') && op !== '!=' ? '!' : ''
+  const bare = not ? op.slice(1) : op
+  const quoted = JSON.stringify(value)
+  if (subject === 'file') return `${not}file.${bare}(${quoted})`
+  if (bare === 'isEmpty') return `${not}${subject}.isEmpty()`
+  if (['contains', 'startsWith', 'endsWith'].includes(bare)) return `${not}${subject}.${bare}(${quoted})`
+  // A number or yes/no is compared as such; anything else as text.
+  return `${subject} ${bare} ${/^-?\d+(?:\.\d+)?$|^(true|false)$/.test(value.trim()) ? value.trim() : quoted}`
+}
+
 const VIEW_ICONS: Record<string, string> = { table: 'table', cards: 'layout-grid', list: 'list', board: 'kanban' }
 
 export interface BaseHost {
@@ -36,6 +100,9 @@ export function mountBase(el: HTMLElement, host: BaseHost, initial: string): Mou
   /** Which panel of the toolbar is open. */
   let open: 'views' | 'view' | 'sort' | 'group' | 'filter' | 'props' | null = null
   let searching = false
+  /** Sections of the filter panel that are folded, and conditions the user asked to see as expressions. */
+  const folded = new Set<string>()
+  const raw = new Set<string>()
   let search = ''
   let stale = false
   let offscreen = false
@@ -155,8 +222,28 @@ export function mountBase(el: HTMLElement, host: BaseHost, initial: string): Mou
           ? render(ctx)
           : h('div', { class: 'base-empty' }, needle ? 'Ничего не найдено.' : 'Под условия базы не подходит ни одна заметка.'),
     )
-    el.replaceChildren(toolbar, ...(open ? [popover(ctx, config, views)] : []), ...result.errors.map((message) => h('div', { class: 'base-error' }, message)), body)
+    el.replaceChildren(h('div', { class: 'base-head' }, toolbar), ...(open ? [popover(ctx, config, views)] : []), ...result.errors.map((message) => h('div', { class: 'base-error' }, message)), body)
     body.scrollTop = scroll
+    placePanel()
+  }
+
+  /**
+   * Puts the open panel under the toolbar. It is fixed to the window rather than
+   * laid out inside the base, so a short base (or the edge of the note) cannot cut it off.
+   */
+  function placePanel(): void {
+    const panel = el.querySelector<HTMLElement>('.base-pop')
+    const bar = el.querySelector<HTMLElement>('.base-toolbar')
+    if (!panel || !bar) return
+    const box = bar.getBoundingClientRect()
+    const top = box.bottom + 4
+    // The toolbar's own right padding (room for the block's button) is not part of its tools.
+    const right = box.right - parseFloat(getComputedStyle(bar).paddingRight)
+    panel.style.top = `${top}px`
+    panel.style.maxHeight = `${Math.max(140, window.innerHeight - top - 12)}px`
+    panel.style.maxWidth = `${Math.min(520, window.innerWidth - 24)}px`
+    if (panel.classList.contains('right')) panel.style.right = `${Math.max(12, window.innerWidth - right)}px`
+    else panel.style.left = `${Math.max(12, box.left)}px`
   }
 
   /** The panel under the toolbar for whichever of its buttons is pressed. */
@@ -263,79 +350,123 @@ export function mountBase(el: HTMLElement, host: BaseHost, initial: string): Mou
       )
     }
 
+    /** A property and a direction joined into one control, with a bin beside it, as in Obsidian. */
+    const ruleRow = (rule: SortRule | null, none: string | null, change: (next: SortRule | null) => void) => {
+      const property = h('select', { class: 'base-rule-property', onchange: () => change(property.value ? { property: property.value, direction: rule?.direction ?? 'ASC' } : null) }, ...options(rule?.property, none))
+      return h(
+        'div',
+        { class: 'base-setting base-rule' },
+        h('div', { class: 'base-joined' }, property, rule ? direction(rule.direction, (d) => change({ ...rule, direction: d })) : null),
+        rule ? remove('Убрать', () => change(null)) : null,
+      )
+    }
+
     if (open === 'sort') {
       const rules = Array.isArray(view.sort) ? view.sort : []
       const set = (next: SortRule[]) => updateView({ sort: next })
       return pop(
         'right',
         h('div', { class: 'base-pop-title' }, 'Сортировать по'),
-        ...rules.map((rule, i) => {
-          const property = h('select', { onchange: () => set(rules.map((r, n) => (n === i ? { ...r, property: property.value } : r))) }, ...options(rule.property, null))
-          return h('div', { class: 'base-setting' }, property, direction(rule.direction, (d) => set(rules.map((r, n) => (n === i ? { ...r, direction: d } : r)))), remove('Убрать', () => set(rules.filter((_, n) => n !== i))))
-        }),
-        h('button', { class: 'base-pop-add', onclick: () => set([...rules, { property: available.find((p) => !rules.some((r) => r.property === p)) ?? available[0], direction: 'ASC' }]) }, '+ Добавить сортировку'),
+        ...rules.map((rule, i) => ruleRow(rule, null, (next) => set(next ? rules.map((r, n) => (n === i ? next : r)) : rules.filter((_, n) => n !== i)))),
+        h('div', { class: 'base-pop-line' }),
+        h('button', { class: 'base-pop-add', onclick: () => set([...rules, { property: available.find((p) => !rules.some((r) => r.property === p)) ?? available[0], direction: 'ASC' }]) }, app.icons.draw('plus'), 'Добавить сортировку'),
       )
     }
 
     if (open === 'group') {
       const group = groupRule(view)
-      const groupBy = h('select', { onchange: () => updateView({ groupBy: groupBy.value ? { property: groupBy.value, direction: group?.direction ?? 'ASC' } : undefined }) }, ...options(group?.property, 'нет'))
-      return pop('right', h('div', { class: 'base-pop-title' }, 'Группировать по'), field('Группировка', groupBy, group ? direction(group.direction, (d) => updateView({ groupBy: { property: group.property, direction: d } })) : null))
+      const row = ruleRow(group, 'Свойство', (next) => updateView({ groupBy: next ?? undefined }))
+      row.prepend(h('span', { class: 'base-hidden-label' }, 'Группировка'))
+      return pop('right', h('div', { class: 'base-pop-title' }, 'Группировать по'), row)
     }
 
     if (open === 'filter') {
-      /** One level of conditions as a list: how they combine, and each as text. */
-      const filterEditor = (title: string, node: FilterNode | undefined, write: (next: FilterNode | undefined) => void) => {
-        const mode = typeof node === 'object' && node ? (node.or ? 'or' : node.not ? 'not' : 'and') : 'and'
-        const items = (typeof node === 'string' ? [node] : node ? (node[mode] ?? []) : []).map((item) => (typeof item === 'string' ? item : JSON.stringify(item)))
-        const commit = (nextMode: string, list: string[]) => {
-          // A nested group is kept as written; it is edited in the base's text.
-          const parsed = list.map((text) => text.trim()).filter(Boolean).map((text): FilterNode => (text.startsWith('{') ? (JSON.parse(text) as FilterNode) : text))
-          write(parsed.length ? ({ [nextMode]: parsed } as FilterNode) : undefined)
+      /** One condition as three fields, or as an expression when it is not of a kind the fields can show. */
+      const conditionRow = (text: string, write: (next: string | null) => void) => {
+        const parsed = raw.has(text) ? null : parseCondition(text)
+        const bin = remove('Убрать фильтр', () => write(null))
+        if (!parsed) {
+          const input = h('input', { type: 'text', class: 'base-filter-expr', value: text, spellcheck: false, placeholder: 'выражение', onchange: () => write(input.value) })
+          const back = h('button', { class: 'base-pop-remove', title: 'Показать полями', disabled: !parseCondition(text), onclick: () => (raw.delete(text), draw()) }, app.icons.draw('wand-sparkles'))
+          return h('div', { class: 'base-setting base-condition' }, h('span', {}, 'Где'), h('div', { class: 'base-joined' }, input, back, bin))
         }
+        const commit = (next: Condition) => write(formatCondition(next))
+        const subject = h(
+          'select',
+          {
+            class: 'base-condition-subject',
+            onchange: () => commit({ subject: subject.value, op: operatorsFor(subject.value).some(([id]) => id === parsed.op) ? parsed.op : operatorsFor(subject.value)[0][0], value: parsed.value }),
+          },
+          h('option', { value: 'file', selected: parsed.subject === 'file' }, 'файл'),
+          ...[...new Set([parsed.subject, ...available])].filter((property) => property !== 'file').map((property) => h('option', { value: property, selected: property === parsed.subject }, engine.label(property))),
+        )
+        const op = h('select', { class: 'base-condition-op', onchange: () => commit({ ...parsed, op: op.value }) }, ...operatorsFor(parsed.subject).map(([id, label]) => h('option', { value: id, selected: id === parsed.op }, label)))
+        const value = NO_VALUE.has(parsed.op) ? null : h('input', { type: 'text', class: 'base-condition-value', value: parsed.value, placeholder: 'Нет значения', onchange: () => commit({ ...parsed, value: (value as HTMLInputElement).value }) })
+        const asText = h('button', { class: 'base-pop-remove', title: 'Показать выражением', onclick: () => (raw.add(text), draw()) }, app.icons.draw('code-xml'))
+        return h('div', { class: 'base-setting base-condition' }, h('span', {}, 'Где'), h('div', { class: 'base-joined' }, subject, op, value, asText, bin))
+      }
+
+      /** A group of conditions: how they combine, each of them, and groups nested in it. */
+      const groupEditor = (node: FilterNode | undefined, write: (next: FilterNode | undefined) => void, nested: boolean): HTMLElement => {
+        const mode = typeof node === 'object' && node ? (node.or ? 'or' : node.not ? 'not' : 'and') : 'and'
+        const items: FilterNode[] = typeof node === 'string' ? [node] : node ? (node[mode] ?? []) : []
+        const commit = (nextMode: string, list: FilterNode[]) => write(list.length || nested ? ({ [nextMode]: list } as FilterNode) : undefined)
+        const replace = (i: number, next: FilterNode | null | undefined) => commit(mode, next === null || next === undefined ? items.filter((_, n) => n !== i) : items.map((item, n) => (n === i ? next : item)))
         const how = h(
           'select',
-          { onchange: () => commit(how.value, items) },
+          { class: 'base-filter-mode', onchange: () => commit(how.value, items) },
           h('option', { value: 'and', selected: mode === 'and' }, 'Всё нижеследующее истинно'),
           h('option', { value: 'or', selected: mode === 'or' }, 'Любое из нижеследующего истинно'),
           h('option', { value: 'not', selected: mode === 'not' }, 'Ничто из нижеследующего не истинно'),
         )
         return h(
           'div',
-          { class: 'base-filter' },
-          h('div', { class: 'base-pop-title' }, title, items.length ? h('span', { class: 'base-pop-count' }, String(items.length)) : null),
-          items.length ? how : null,
-          ...items.map((text, i) => {
-            const input = h('input', { type: 'text', class: 'base-filter-expr', value: text, spellcheck: false, onchange: () => commit(mode, items.map((item, n) => (n === i ? input.value : item))) })
-            return h('div', { class: 'base-setting' }, h('span', {}, 'Где'), input, remove('Убрать фильтр', () => commit(mode, items.filter((_, n) => n !== i))))
-          }),
+          { class: nested ? 'base-filter-group nested' : 'base-filter-group' },
+          items.length || nested ? h('div', { class: 'base-filter-how' }, how, nested ? remove('Убрать группу', () => write(undefined)) : null) : null,
+          ...items.map((item, i) => (typeof item === 'string' ? conditionRow(item, (next) => replace(i, next)) : groupEditor(item, (next) => replace(i, next), true))),
           h(
-            'button',
-            {
-              class: 'base-pop-add',
-              onclick: () => {
-                commit(mode, [...items, 'file.name != ""'])
-                const inputs = el.querySelectorAll<HTMLInputElement>('.base-filter-expr')
-                inputs[inputs.length - 1]?.select()
-              },
-            },
-            '+ Добавить фильтр',
+            'div',
+            { class: 'base-filter-add' },
+            h('button', { class: 'base-pop-add', onclick: () => commit(mode, [...items, 'file.hasTag("")']) }, app.icons.draw('plus'), 'Добавить фильтр'),
+            h('button', { class: 'base-pop-add', onclick: () => commit(mode, [...items, { and: ['file.hasTag("")'] }]) }, app.icons.draw('plus'), 'Добавить группу фильтров'),
           ),
         )
       }
+
+      const count = (node: FilterNode | undefined): number => (!node ? 0 : typeof node === 'string' ? 1 : [...(node.and ?? []), ...(node.or ?? []), ...(node.not ?? [])].reduce((n, item) => n + count(item), 0))
+      const section = (id: string, title: string, node: FilterNode | undefined, write: (next: FilterNode | undefined) => void) =>
+        h(
+          'div',
+          { class: 'base-filter' },
+          h('button', { class: `base-pop-title base-fold${folded.has(id) ? ' folded' : ''}`, onclick: () => ((folded.has(id) ? folded.delete(id) : folded.add(id)), draw()) }, title, count(node) ? h('span', { class: 'base-pop-count' }, String(count(node))) : null),
+          folded.has(id) ? null : groupEditor(node, write, false),
+        )
       return pop(
         'right',
-        filterEditor('Все представления', config.filters, (next) => save(editBase(source, (doc) => void (next ? doc.set('filters', doc.createNode(next)) : doc.delete('filters'))))),
-        filterEditor('Текущее представление', view.filters, (next) => updateView({ filters: next })),
-        h('p', { class: 'base-hint' }, 'Условие — выражение: file.hasTag("book"), rating >= 4, file.inFolder("Books").'),
+        section('all', 'Все представления', config.filters, (next) => save(editBase(source, (doc) => void (next ? doc.set('filters', doc.createNode(next)) : doc.delete('filters'))))),
+        section('view', 'Текущее представление', view.filters, (next) => updateView({ filters: next })),
       )
     }
 
-    const toggles = available.map((property) => {
-      const box = h('input', { type: 'checkbox', checked: columns.includes(property) })
-      box.onchange = () => updateView({ order: box.checked ? [...columns, property] : columns.filter((c) => c !== property) })
-      return h('label', { class: 'base-check' }, box, engine.label(property))
-    })
+    // ---- properties: a searchable checklist, the shown ones first
+    const labelOf = (property: string) => engine.label(property)
+    const iconOf = (property: string) => (property.startsWith('formula.') ? 'square-function' : property.startsWith('file.') ? 'info' : /tags?$/i.test(property) ? 'tags' : /date|day|due|created|time/i.test(property) ? 'calendar' : 'align-left')
+    const ordered = [...columns, ...available.filter((property) => !columns.includes(property)).sort((x, y) => labelOf(x).localeCompare(labelOf(y)))]
+    const list = h('div', { class: 'base-checks' })
+    const fill = (query: string) => {
+      const wanted = query.trim().toLowerCase()
+      list.replaceChildren(
+        ...ordered
+          .filter((property) => !wanted || labelOf(property).toLowerCase().includes(wanted) || property.toLowerCase().includes(wanted))
+          .map((property) => {
+            const box = h('input', { type: 'checkbox', checked: columns.includes(property) })
+            box.onchange = () => updateView({ order: box.checked ? [...columns, property] : columns.filter((c) => c !== property) })
+            return h('label', { class: columns.includes(property) ? 'base-check' : 'base-check off' }, box, app.icons.draw(iconOf(property)), h('span', {}, labelOf(property)))
+          }),
+      )
+    }
+    fill('')
+    const find = h('input', { type: 'text', class: 'base-props-search', placeholder: 'Найти…', oninput: () => fill(find.value) })
     const summaries = columns.map((property) => {
       const current = view.summaries?.[property] ?? ''
       const select = h(
@@ -351,14 +482,28 @@ export function mountBase(el: HTMLElement, host: BaseHost, initial: string): Mou
         h('option', { value: '', selected: !current }, '—'),
         ...engine.summaryNames().map((n) => h('option', { value: n, selected: n === current }, n)),
       )
-      return h('label', { class: 'base-check' }, engine.label(property), select)
+      return h('label', { class: 'base-summary' }, h('span', {}, labelOf(property)), select)
     })
+    const addFormula = () => {
+      const name = prompt('Название формулы (латиницей, без пробелов)')?.trim()
+      if (!name) return
+      const formula = prompt(`Выражение формулы «${name}», например: price * 1.2`)?.trim()
+      if (!formula) return
+      save(
+        editBase(source, (doc) => {
+          doc.setIn(['formulas', name], formula)
+          doc.setIn(['views', active, 'order'], [...columns, `formula.${name}`])
+        }),
+      )
+    }
     return pop(
       'right',
-      h('div', { class: 'base-pop-title' }, 'Свойства'),
-      h('div', { class: 'base-checks' }, ...toggles),
-      view.type === 'table' ? h('div', { class: 'base-pop-title' }, 'Итоги по столбцам') : null,
-      view.type === 'table' ? h('div', { class: 'base-checks' }, ...summaries) : null,
+      find,
+      list,
+      view.type === 'table' ? h('details', { class: 'base-summaries' }, h('summary', {}, 'Итоги по столбцам'), ...summaries) : null,
+      h('div', { class: 'base-pop-line' }),
+      h('button', { class: 'base-pop-add', onclick: addFormula }, app.icons.draw('square-function'), 'Добавить формулу'),
+      h('button', { class: 'base-pop-add', onclick: () => updateView({ order: columns.slice(0, 1) }) }, app.icons.draw('eye-off'), 'Скрыть все'),
     )
   }
 
@@ -383,6 +528,10 @@ export function mountBase(el: HTMLElement, host: BaseHost, initial: string): Mou
     draw()
   }
   document.addEventListener('pointerdown', onPointer, true)
+  // The panel is fixed to the window, so it is moved along when the note scrolls under it.
+  const onScroll = (event: Event) => open && !(event.target instanceof Element && event.target.closest('.base-pop')) && placePanel()
+  window.addEventListener('scroll', onScroll, true)
+  window.addEventListener('resize', placePanel)
   const onFocusOut = () => {
     if (!stale) return
     stale = false
@@ -408,6 +557,8 @@ export function mountBase(el: HTMLElement, host: BaseHost, initial: string): Mou
       visible.disconnect()
       el.removeEventListener('focusout', onFocusOut)
       document.removeEventListener('pointerdown', onPointer, true)
+      window.removeEventListener('scroll', onScroll, true)
+      window.removeEventListener('resize', placePanel)
     },
   }
 }

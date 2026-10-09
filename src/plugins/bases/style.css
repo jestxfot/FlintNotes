@@ -70,15 +70,12 @@
 
 /* The panel that opens under the toolbar. */
 .base-pop {
-  position: absolute;
-  top: 34px;
-  z-index: 5;
+  position: fixed;
+  z-index: 40;
   display: flex;
   flex-direction: column;
   gap: 8px;
   min-width: 260px;
-  max-width: min(520px, 100%);
-  max-height: 60vh;
   padding: 10px 12px;
   overflow-y: auto;
   border: 1px solid var(--border);
@@ -86,14 +83,6 @@
   background: var(--bg-alt);
   box-shadow: var(--shadow);
   font-size: 13px;
-}
-
-.base-pop.left {
-  left: 0;
-}
-
-.base-pop.right {
-  right: 0;
 }
 
 .base-pop-title {
@@ -509,12 +498,11 @@
   padding-right: 34px;
 }
 
-.lp-block .base-pop.right {
-  right: 34px;
-}
 
 /* In a narrow column the tools keep their icons and drop their names. */
-.base {
+/* The measure is taken on a wrapper of the toolbar alone: containment on the whole
+   base would tie the fixed panels to it and let it cut them off again. */
+.base-head {
   container-type: inline-size;
 }
 
@@ -527,4 +515,181 @@
     font-size: 0;
     gap: 0;
   }
+}
+
+/* Rows of the sort and group panels: the property and its direction as one control. */
+.base-joined {
+  display: flex;
+  flex: 1;
+  align-items: center;
+  min-width: 0;
+  border: 1px solid var(--border);
+  border-radius: 6px;
+  background: var(--bg);
+}
+
+.base-joined:focus-within {
+  border-color: var(--text-faint);
+}
+
+.base-pop .base-joined select,
+.base-pop .base-joined input[type='text'] {
+  flex: 1 1 auto;
+  min-width: 0;
+  border: none;
+  outline: none;
+  background: none;
+}
+
+.base-joined > * + * {
+  border-left: 1px solid var(--border) !important;
+  border-radius: 0 !important;
+}
+
+.base-joined .base-pop-remove {
+  flex: none;
+  border-left: none !important;
+}
+
+.base-rule .base-rule-property {
+  flex: 2 1 auto;
+}
+
+.base-pop-line {
+  margin: 2px -12px;
+  border-top: 1px solid var(--border);
+}
+
+.base-pop-add {
+  display: inline-flex;
+  align-items: center;
+  gap: 6px;
+}
+
+.base-hidden-label {
+  position: absolute;
+  width: 1px;
+  height: 1px;
+  overflow: hidden;
+  clip-path: inset(50%);
+}
+
+/* The filter panel: two foldable sections, each a group of conditions. */
+.base-fold {
+  justify-content: flex-start;
+  padding: 0;
+  text-align: left;
+}
+
+.base-fold::before {
+  content: '›';
+  display: inline-block;
+  width: 12px;
+  color: var(--text-faint);
+  font-weight: 400;
+  rotate: 90deg;
+  transition: rotate 0.1s;
+}
+
+.base-fold.folded::before {
+  rotate: 0deg;
+}
+
+.base-filter-group {
+  display: flex;
+  flex-direction: column;
+  gap: 6px;
+}
+
+.base-filter-group.nested {
+  margin-left: 34px;
+  padding: 8px;
+  border: 1px solid var(--border);
+  border-radius: 6px;
+}
+
+.base-filter-how {
+  display: flex;
+  align-items: center;
+  gap: 4px;
+}
+
+.base-pop .base-filter-mode {
+  flex: 1;
+  border-color: transparent;
+  background: none;
+}
+
+.base-condition > span {
+  flex: 0 0 28px;
+  text-align: right;
+}
+
+.base-condition-subject {
+  flex: 0 1 130px !important;
+}
+
+.base-condition-op {
+  flex: 0 1 150px !important;
+}
+
+.base-filter-add {
+  display: flex;
+  flex-wrap: wrap;
+  gap: 4px 12px;
+}
+
+.base-pop-remove:disabled {
+  opacity: 0.3;
+  cursor: default;
+}
+
+/* The properties panel: a search field over a checklist. */
+.base-pop .base-props-search {
+  border-color: transparent;
+  background: none;
+}
+
+.base-pop .base-checks {
+  display: flex;
+  flex-direction: column;
+  flex-wrap: nowrap;
+  gap: 0;
+  margin: 0;
+  max-height: 46vh;
+  overflow-y: auto;
+}
+
+.base-pop .base-check {
+  gap: 9px;
+  padding: 4px 6px;
+  border-radius: 5px;
+  cursor: pointer;
+}
+
+.base-pop .base-check:hover {
+  background: var(--bg-hover);
+}
+
+.base-pop .base-check.off {
+  color: var(--text-faint);
+}
+
+.base-pop .base-check .icon {
+  color: var(--text-muted);
+  font-size: 15px;
+}
+
+.base-summaries summary {
+  padding: 4px 0;
+  color: var(--text-muted);
+  cursor: pointer;
+}
+
+.base-summary {
+  display: flex;
+  align-items: center;
+  justify-content: space-between;
+  gap: 8px;
+  padding: 2px 6px;
 }

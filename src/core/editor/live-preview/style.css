@@ -134,15 +134,25 @@
 
 .cm-editor .lp-block-edit {
   position: absolute;
-  top: 6px;
-  right: 2px;
-  padding: 1px 6px;
-  border: 1px solid var(--border);
+  top: 4px;
+  right: 0;
+  z-index: 2;
+  display: flex;
+  align-items: center;
+  justify-content: center;
+  width: 28px;
+  height: 26px;
   border-radius: 5px;
-  background: var(--bg);
   color: var(--text-muted);
-  font: 11px var(--font-mono);
+  font: 600 12px var(--font-mono);
+  letter-spacing: -0.5px;
   opacity: 0;
+  transition: opacity 0.1s;
+}
+
+.cm-editor .lp-block-edit:hover {
+  background: var(--bg-hover);
+  color: var(--text);
 }
 
 .cm-editor .lp-block:hover .lp-block-edit,

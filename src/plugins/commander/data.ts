@@ -70,6 +70,23 @@ const TWINS: Record<string, string> = {
   'webviewer:open': 'buttons:web-viewer',
 }
 
+/**
+ * Commands a menu offers by itself. In Obsidian they come from plugins, so a
+ * Commander setup may add them to the menu; here that would show them twice.
+ */
+const BUILT_IN: Partial<Record<Place, string[]>> = { fileMenu: ['core:reveal-active'] }
+
+/** Takes out buttons that repeat what their place already has. Returns whether anything was removed. */
+export function dropBuiltIn(data: CommanderData): boolean {
+  let changed = false
+  for (const [place, ids] of Object.entries(BUILT_IN) as [Place, string[]][]) {
+    const kept = data[place].filter((pair) => !ids.includes(pair.id))
+    changed ||= kept.length !== data[place].length
+    data[place] = kept
+  }
+  return changed
+}
+
 /** Commander's setup with the commands that exist here; the rest is counted, not kept. */
 export function importData(raw: unknown): { data: CommanderData; skipped: number } {
   const data = emptyData()
@@ -82,5 +99,6 @@ export function importData(raw: unknown): { data: CommanderData; skipped: number
       else skipped++
     }
   }
+  dropBuiltIn(data)
   return { data, skipped }
 }

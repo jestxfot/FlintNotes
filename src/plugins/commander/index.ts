@@ -1,5 +1,5 @@
 import { errorMessage, pickLook, Plugin, type MenuItem, type ToolbarPlace, type VaultEntry } from '../../api'
-import { emptyData, importData, PLACE_NAMES, PLACES, type CommanderData, type Macro, type Pair, type Place } from './data'
+import { dropBuiltIn, emptyData, importData, PLACE_NAMES, PLACES, type CommanderData, type Macro, type Pair, type Place } from './data'
 import './style.css'
 
 const FILE = '.flint/commander.json'
@@ -63,8 +63,11 @@ export default class Commander extends Plugin {
   private async read(): Promise<void> {
     try {
       const text = await this.app.vault.readOptional(FILE)
-      if (text) this.data = { ...emptyData(), ...JSON.parse(text) }
-      else await this.importFromObsidian(false)
+      if (text) {
+        this.data = { ...emptyData(), ...JSON.parse(text) }
+        // A setup taken over earlier may still carry an item the menu has of its own.
+        if (dropBuiltIn(this.data)) await this.save()
+      } else await this.importFromObsidian(false)
     } catch (err) {
       this.app.notice(`Быстрые кнопки: не удалось прочитать ${FILE}: ${errorMessage(err)}`)
     }
