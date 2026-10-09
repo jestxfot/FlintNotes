@@ -49,7 +49,7 @@
     type="search"
     placeholder="Поиск по заметкам…"
     aria-label="Поиск по заметкам"
-    title={'Слова ищутся все сразу. "точная фраза", tag:#тег, path:папка'}
+    title={'Ищет в названиях, алиасах и тексте; названия идут первыми. "точная фраза", tag:#тег, path:папка'}
   />
 </div>
 
@@ -60,6 +60,7 @@
   {#each results as result (result.path)}
     <button class="file" title={result.path} onclick={() => app.workspace.openFile(result.path)}>
       <span class="name">{title(result.path)}</span>
+      {#if result.alias}<span class="alias" title="Найдено по алиасу">{result.alias}</span>{/if}
       {#if result.total}<span class="count">{result.total}</span>{/if}
     </button>
     {#each result.matches as match (match.line)}
@@ -121,6 +122,17 @@
   .name {
     flex: 1;
     overflow: hidden;
+    text-overflow: ellipsis;
+    white-space: nowrap;
+  }
+
+  .alias {
+    flex: none;
+    max-width: 50%;
+    overflow: hidden;
+    color: var(--accent);
+    font-size: 12px;
+    font-weight: 400;
     text-overflow: ellipsis;
     white-space: nowrap;
   }

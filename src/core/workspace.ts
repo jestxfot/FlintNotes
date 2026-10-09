@@ -47,7 +47,6 @@ type WorkspaceEvents = {
 }
 
 const FALLBACK = 'unsupported'
-const STORAGE_KEY = 'flint:tabs'
 
 const VIEW_PREFIX = 'view:'
 
@@ -167,7 +166,7 @@ export class Workspace extends Events<WorkspaceEvents> {
   /** Reopens the tabs of the previous session. */
   restore(): void {
     try {
-      const { tabs, active } = JSON.parse(localStorage.getItem(STORAGE_KEY) ?? '{}')
+      const { tabs, active } = JSON.parse(localStorage.getItem(this.app.vault.storageKey('tabs')) ?? '{}')
       for (const { path, title } of tabs ?? []) {
         if (path.startsWith(VIEW_PREFIX) || this.app.vault.get(path)) this.open(path, title, true)
       }
@@ -236,7 +235,7 @@ export class Workspace extends Events<WorkspaceEvents> {
     this.trigger('layout-change')
     try {
       const state = { tabs: this.leaves.map(({ path, title }) => ({ path, title })), active: this.active?.path }
-      localStorage.setItem(STORAGE_KEY, JSON.stringify(state))
+      localStorage.setItem(this.app.vault.storageKey('tabs'), JSON.stringify(state))
     } catch {
       // Storage can be unavailable (private window); tabs just won't be remembered.
     }

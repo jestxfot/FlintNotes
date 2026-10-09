@@ -1,6 +1,7 @@
 // Runs the browser suites: `npm test`, or `npm test -- tables` for the suites whose file name matches.
 // Each suite gets its own vault in a temporary folder and its own server.
 // The browser comes from `npx playwright install chromium`, or from FLINT_E2E_BROWSER (path to a Chromium binary).
+// FLINT_E2E_RELEASE=<folder> tests a built release instead of the sources.
 import { spawn } from 'node:child_process'
 import fs from 'node:fs'
 import os from 'node:os'
@@ -15,15 +16,18 @@ const suites = fs
   .filter((file) => file.endsWith('.mjs') && (!filters.length || filters.some((f) => file.includes(f))))
   .sort()
 
-if (!fs.existsSync(path.join(ROOT, 'dist/index.html'))) {
+if (!process.env.FLINT_E2E_RELEASE && !fs.existsSync(path.join(ROOT, 'dist/index.html'))) {
   console.error('Нет сборки: сначала выполните `npm run build` (команда `npm test` делает это сама).')
   process.exit(1)
 }
 
 function startServer(vault, port) {
-  const server = spawn(process.execPath, ['--import', 'tsx', 'server/index.ts'], {
-    cwd: ROOT,
-    env: { ...process.env, FLINT_VAULT: vault, FLINT_PORT: String(port) },
+  // FLINT_E2E_RELEASE points at a built `release` folder to test that instead of the sources.
+  const release = process.env.FLINT_E2E_RELEASE
+  const server = spawn(process.execPath, release ? [path.join(release, 'server.mjs')] : ['--import', 'tsx', 'server/index.ts'], {
+    cwd: release ? os.tmpdir() : ROOT,
+    // The list of known vaults goes to a throwaway file, not to the user's own.
+    env: { ...process.env, FLINT_VAULT: vault, FLINT_PORT: String(port), FLINT_CONFIG: `${vault}.config.json` },
   })
   return new Promise((resolve, reject) => {
     let output = ''
@@ -72,6 +76,7 @@ for (const [index, file] of suites.entries()) {
   await page.close()
   server.kill()
   fs.rmSync(vault, { recursive: true, force: true })
+  fs.rmSync(`${vault}.config.json`, { force: true })
 
   const failed = results.filter((result) => !result.pass)
   total += results.length

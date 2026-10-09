@@ -1,5 +1,4 @@
 import { serve } from '@hono/node-server'
-import { serveStatic } from '@hono/node-server/serve-static'
 import chokidar from 'chokidar'
 import { Hono, type Context } from 'hono'
 import { HTTPException } from 'hono/http-exception'
@@ -7,11 +6,33 @@ import { stream, streamSSE } from 'hono/streaming'
 import { spawn } from 'node:child_process'
 import { existsSync, type Stats } from 'node:fs'
 import fs from 'node:fs/promises'
+import os from 'node:os'
 import path from 'node:path'
-import type { ExternalPluginInfo, RemoteEvent, VaultEntry } from '../shared/protocol'
+import { fileURLToPath } from 'node:url'
+import type { ExternalPluginInfo, RemoteEvent, VaultEntry, VaultInfo } from '../shared/protocol'
 
-const root = path.resolve(process.argv[2] ?? process.env.FLINT_VAULT ?? 'vault')
 const port = Number(process.env.FLINT_PORT ?? 4600)
+
+// The vaults the user has opened are remembered between runs, outside any vault.
+const CONFIG = process.env.FLINT_CONFIG ?? path.join(os.homedir(), '.flintnotes.json')
+
+interface Config {
+  vaults: string[]
+  current?: string
+}
+
+async function readConfig(): Promise<Config> {
+  try {
+    const data = JSON.parse(await fs.readFile(CONFIG, 'utf8'))
+    return { vaults: Array.isArray(data.vaults) ? data.vaults.filter((v: unknown) => typeof v === 'string') : [], current: data.current }
+  } catch {
+    return { vaults: [] }
+  }
+}
+
+const config = await readConfig()
+// A vault named on the command line wins over the one used last time.
+let root = path.resolve(process.argv[2] ?? process.env.FLINT_VAULT ?? config.current ?? 'vault')
 
 const MIME: Record<string, string> = {
   md: 'text/markdown; charset=utf-8',
@@ -30,6 +51,10 @@ const MIME: Record<string, string> = {
   docx: 'application/vnd.openxmlformats-officedocument.wordprocessingml.document',
   mp3: 'audio/mpeg',
   mp4: 'video/mp4',
+  mjs: 'text/javascript',
+  ico: 'image/x-icon',
+  woff2: 'font/woff2',
+  map: 'application/json',
 }
 
 const toRel = (abs: string) => path.relative(root, abs).split(path.sep).join('/')
@@ -69,13 +94,24 @@ async function walk(dir: string): Promise<VaultEntry[]> {
   return nested.flat()
 }
 
-if (!existsSync(root)) {
-  await fs.mkdir(root, { recursive: true })
+/** Makes sure the folder exists; a new one gets a note explaining the basics. */
+async function ensureVault(dir: string): Promise<void> {
+  if (existsSync(dir)) return
+  await fs.mkdir(dir, { recursive: true })
   await fs.writeFile(
-    path.join(root, 'Добро пожаловать.md'),
+    path.join(dir, 'Добро пожаловать.md'),
     '# Добро пожаловать в FlintNotes\n\nЭто ваше хранилище: обычная папка с Markdown-файлами.\n\n- `Ctrl+P` открывает палитру команд\n- `Ctrl+,` открывает настройки, там же включаются плагины\n- `Alt+N` создаёт новую заметку\n',
   )
 }
+
+async function remember(): Promise<void> {
+  config.current = root
+  if (!config.vaults.includes(root)) config.vaults.push(root)
+  await fs.writeFile(CONFIG, JSON.stringify(config, null, 2)).catch((err) => console.error(`Не удалось записать ${CONFIG}`, err))
+}
+
+await ensureVault(root)
+await remember()
 
 const api = new Hono()
 
@@ -99,7 +135,38 @@ api.use(async (c, next) => {
   await next()
 })
 
-api.get('/vault', (c) => c.json({ name: path.basename(root) }))
+api.get('/vault', (c) => c.json({ name: path.basename(root), path: root }))
+
+const vaultInfo = (dir: string): VaultInfo => ({ path: dir, name: path.basename(dir), current: dir === root, exists: existsSync(dir) })
+
+api.get('/vaults', (c) => c.json(config.vaults.map(vaultInfo)))
+
+// Switches the app to another folder. Open pages are told to reload.
+api.post('/vaults/open', async (c) => {
+  const body = await c.req.json<{ path: string; create?: boolean }>()
+  if (!body.path?.trim() || !path.isAbsolute(body.path.trim())) {
+    throw new HTTPException(400, { message: 'Укажите полный путь к папке, например D:\\Заметки' })
+  }
+  const dir = path.resolve(body.path.trim())
+  const stat = await fs.stat(dir).catch(() => null)
+  if (stat && !stat.isDirectory()) throw new HTTPException(400, { message: 'Это файл, а нужна папка' })
+  if (!stat && !body.create) throw new HTTPException(404, { message: 'Такой папки нет' })
+  await ensureVault(dir)
+  root = dir
+  await remember()
+  watch()
+  broadcast({ type: 'vault' })
+  return c.json(vaultInfo(dir))
+})
+
+// Removes a vault from the list. Its folder and notes are not touched.
+api.post('/vaults/forget', async (c) => {
+  const { path: dir } = await c.req.json<{ path: string }>()
+  if (dir === root) throw new HTTPException(400, { message: 'Это хранилище сейчас открыто' })
+  config.vaults = config.vaults.filter((v) => v !== dir)
+  await remember()
+  return c.json(config.vaults.map(vaultInfo))
+})
 
 api.get('/tree', async (c) => c.json(await walk(root)))
 
@@ -222,21 +289,28 @@ const isHidden = (abs: string) =>
     .some((part) => part.startsWith('.'))
 
 // Windows drives mounted into WSL (/mnt/c, ...) deliver no file events, so poll there.
-const usePolling = process.env.FLINT_POLL
-  ? process.env.FLINT_POLL !== '0'
-  : /^\/mnt\/[a-z]\//.test(`${root}/`)
+const needsPolling = () => (process.env.FLINT_POLL ? process.env.FLINT_POLL !== '0' : /^\/mnt\/[a-z]\//.test(`${root}/`))
 
-chokidar
-  .watch(root, { ignored: isHidden, ignoreInitial: true, usePolling, interval: 1000, binaryInterval: 3000 })
-  .on('all', async (event, abs) => {
-    if (abs === root) return
-    if (event === 'unlink' || event === 'unlinkDir') {
-      broadcast({ type: 'delete', path: toRel(abs) })
-      return
-    }
-    const stat = await fs.stat(abs).catch(() => null)
-    if (stat) broadcast({ type: 'upsert', entry: toEntry(abs, stat) })
-  })
+let watcher: ReturnType<typeof chokidar.watch> | undefined
+
+/** Follows changes in the current vault's folder; called again when the vault changes. */
+function watch(): void {
+  void watcher?.close()
+  const watched = root
+  watcher = chokidar
+    .watch(watched, { ignored: isHidden, ignoreInitial: true, usePolling: needsPolling(), interval: 1000, binaryInterval: 3000 })
+    .on('all', async (event, abs) => {
+      if (abs === watched || watched !== root) return
+      if (event === 'unlink' || event === 'unlinkDir') {
+        broadcast({ type: 'delete', path: toRel(abs) })
+        return
+      }
+      const stat = await fs.stat(abs).catch(() => null)
+      if (stat) broadcast({ type: 'upsert', entry: toEntry(abs, stat) })
+    })
+}
+
+watch()
 
 const app = new Hono()
 
@@ -249,16 +323,30 @@ app.onError((err, c) => {
 
 app.route('/api', api)
 
-if (existsSync('dist')) {
-  app.use('*', serveStatic({ root: './dist' }))
-  app.get('*', serveStatic({ path: './dist/index.html' }))
-}
+// The built app: next to this file in a release, in `dist` when run from the sources.
+const here = path.dirname(fileURLToPath(import.meta.url))
+const staticDir = [path.join(here, 'public'), path.resolve('dist')].find((dir) => existsSync(path.join(dir, 'index.html')))
+
+app.get('*', async (c) => {
+  if (!staticDir) return c.text('Приложение не собрано: выполните `npm run build`.', 404)
+  const wanted = path.join(staticDir, decodeURIComponent(new URL(c.req.url).pathname))
+  const inside = wanted.startsWith(staticDir + path.sep)
+  const isFile = inside && (await fs.stat(wanted).catch(() => null))?.isFile()
+  // Any other address is a place inside the app, which the app itself resolves.
+  const file = isFile ? wanted : path.join(staticDir, 'index.html')
+  const ext = path.extname(file).slice(1).toLowerCase()
+  return c.body(new Uint8Array(await fs.readFile(file)), 200, {
+    'content-type': MIME[ext] ?? 'application/octet-stream',
+    // Files under /assets carry a hash of their content in the name, so they never change.
+    'cache-control': isFile && wanted.includes(`${path.sep}assets${path.sep}`) ? 'public, max-age=31536000, immutable' : 'no-cache',
+  })
+})
 
 serve({ fetch: app.fetch, port, hostname: '127.0.0.1' }, () => {
   const url = `http://localhost:${port}`
   console.log(`FlintNotes: ${url}`)
-  console.log(`Хранилище: ${root}${usePolling ? ' (опрос изменений)' : ''}`)
-  if (!existsSync('dist')) console.log('Приложение не собрано: выполните `npm run build` или запустите `npm run dev`.')
+  console.log(`Хранилище: ${root}${needsPolling() ? ' (опрос изменений)' : ''}`)
+  if (!staticDir) console.log('Приложение не собрано: выполните `npm run build` или запустите `npm run dev`.')
   // The launchers set FLINT_OPEN so the app appears in the browser once it is ready.
   if (process.env.FLINT_OPEN) {
     const [command, args] =

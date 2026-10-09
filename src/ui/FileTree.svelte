@@ -13,7 +13,7 @@
     children: Node[]
   }
 
-  const STORAGE_KEY = 'flint:expanded'
+  const STORAGE_KEY = app.vault.storageKey('expanded')
   const collator = new Intl.Collator(undefined, { numeric: true, sensitivity: 'base' })
   const { vault, workspace } = app
 
@@ -204,7 +204,7 @@
 />
 
 <div class="header">
-  <span class="vault-name" title={vault.name}>{vault.name}</span>
+  <span class="title">Файлы</span>
   <button title="Новая заметка" aria-label="Новая заметка" onclick={() => create('file', '')}>
     <svg viewBox="0 0 16 16" aria-hidden="true"><path d="M8 3.5v9M3.5 8h9" /></svg>
   </button>
@@ -290,12 +290,13 @@
     padding: 8px 8px 6px 12px;
   }
 
-  .vault-name {
+  .title {
     flex: 1;
-    overflow: hidden;
+    color: var(--text-muted);
+    font-size: 12px;
     font-weight: 600;
-    text-overflow: ellipsis;
-    white-space: nowrap;
+    letter-spacing: 0.04em;
+    text-transform: uppercase;
   }
 
   .header button {

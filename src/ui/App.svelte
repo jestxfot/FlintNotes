@@ -5,6 +5,9 @@
   import { basename, extname, stripExt } from '../core/path'
   import { app } from '../instance'
   import FileTree from './FileTree.svelte'
+  import HelpModal from './HelpModal.svelte'
+  import MainMenu from './MainMenu.svelte'
+  import VaultsModal from './VaultsModal.svelte'
   import { watch } from './reactive.svelte'
   import SettingsModal from './SettingsModal.svelte'
   import Sidebar from './Sidebar.svelte'
@@ -12,6 +15,8 @@
   import type { SuggestOptions } from '../core/suggest'
 
   let settingsOpen = $state(false)
+  let vaultsOpen = $state(false)
+  let helpOpen = $state(false)
   let suggest = $state.raw<SuggestOptions<any> | null>(null)
   let leftOpen = $state(true)
   let rightOpen = $state(true)
@@ -139,7 +144,7 @@
   {#if leftOpen}
     <Sidebar side="left">
       {#snippet footer()}
-        <button class="sidebar-footer" onclick={() => (settingsOpen = true)}>Настройки</button>
+        <MainMenu onvaults={() => (vaultsOpen = true)} onhelp={() => (helpOpen = true)} onsettings={() => (settingsOpen = true)} />
       {/snippet}
     </Sidebar>
   {/if}
@@ -188,6 +193,12 @@
 {#if settingsOpen}
   <SettingsModal onclose={() => (settingsOpen = false)} />
 {/if}
+{#if vaultsOpen}
+  <VaultsModal onclose={() => (vaultsOpen = false)} />
+{/if}
+{#if helpOpen}
+  <HelpModal onclose={() => (helpOpen = false)} />
+{/if}
 {#if suggest}
   {#key suggest}
     <SuggestModal options={suggest} onclose={() => (suggest = null)} />
@@ -198,18 +209,6 @@
   .app {
     display: flex;
     height: 100%;
-  }
-
-  .sidebar-footer {
-    padding: 8px 12px;
-    border-top: 1px solid var(--border);
-    color: var(--text-muted);
-    text-align: left;
-  }
-
-  .sidebar-footer:hover {
-    background: var(--bg-hover);
-    color: var(--text);
   }
 
   main {

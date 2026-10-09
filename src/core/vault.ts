@@ -1,8 +1,8 @@
-import type { RemoteEvent, VaultEntry } from '../../shared/protocol'
+import type { RemoteEvent, VaultEntry, VaultInfo } from '../../shared/protocol'
 import { Events } from './events'
 import { join } from './path'
 
-export type { VaultEntry }
+export type { VaultEntry, VaultInfo }
 
 type VaultEvents = {
   create: [entry: VaultEntry]
@@ -13,6 +13,12 @@ type VaultEvents = {
 
 const url = (route: string, path: string) => `/api/${route}?path=${encodeURIComponent(path)}`
 
+const json = (body: unknown): RequestInit => ({
+  method: 'POST',
+  headers: { 'content-type': 'application/json' },
+  body: JSON.stringify(body),
+})
+
 async function request(input: string, init?: RequestInit): Promise<Response> {
   const res = await fetch(input, init)
   if (!res.ok) throw new Error((await res.text()) || res.statusText)
@@ -22,10 +28,14 @@ async function request(input: string, init?: RequestInit): Promise<Response> {
 /** The vault: every file and folder of the notes directory, kept in sync with the disk. */
 export class Vault extends Events<VaultEvents> {
   name = ''
+  /** Absolute path of the vault's folder on disk. */
+  path = ''
   private entries = new Map<string, VaultEntry>()
 
   async load(): Promise<void> {
-    this.name = (await (await request('/api/vault')).json()).name
+    const info = await (await request('/api/vault')).json()
+    this.name = info.name
+    this.path = info.path
     await this.sync()
     const source = new EventSource('/api/events')
     let connected = false
@@ -36,9 +46,31 @@ export class Vault extends Events<VaultEvents> {
     }
     source.onmessage = (message) => {
       const event: RemoteEvent = JSON.parse(message.data)
+      // Another vault was opened (here or in another tab): everything on screen is stale.
+      if (event.type === 'vault') return location.reload()
       if (event.type === 'upsert') this.upsert(event.entry)
       else this.remove(event.path)
     }
+  }
+
+  /** The vaults the user has opened before. */
+  async vaults(): Promise<VaultInfo[]> {
+    return (await request('/api/vaults')).json()
+  }
+
+  /** Switches the app to another folder; the page reloads when the server has switched. */
+  async openVault(path: string, create = false): Promise<void> {
+    await request('/api/vaults/open', json({ path, create }))
+  }
+
+  /** Removes a vault from the list without touching its folder. */
+  async forgetVault(path: string): Promise<VaultInfo[]> {
+    return (await request('/api/vaults/forget', json({ path }))).json()
+  }
+
+  /** A key for browser storage that is separate for every vault. */
+  storageKey(name: string): string {
+    return `flint:${name}:${this.path}`
   }
 
   get(path: string): VaultEntry | undefined {

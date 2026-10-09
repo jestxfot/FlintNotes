@@ -29,6 +29,8 @@ export interface CachedMetadata {
   links: LinkRef[]
   /** Tags without `#`, from the text and from frontmatter. */
   tags: string[]
+  /** Other names of the note, from the `aliases` property. */
+  aliases: string[]
   headings: HeadingRef[]
   frontmatter: Record<string, unknown> | null
 }
@@ -44,11 +46,18 @@ function frontmatterTags(frontmatter: Record<string, unknown> | null): string[] 
   return list.map((tag) => String(tag).replace(/^#/, '')).filter(Boolean)
 }
 
+/** `aliases: [a, b]` or `aliases: a, b`; a single name may contain spaces, so only commas separate. */
+function frontmatterAliases(frontmatter: Record<string, unknown> | null): string[] {
+  const value = frontmatter?.aliases ?? frontmatter?.alias
+  const list = Array.isArray(value) ? value : typeof value === 'string' ? value.split(',') : []
+  return list.map((alias) => String(alias ?? '').trim()).filter(Boolean)
+}
+
 const blank = (text: string, from: number, to: number) => text.slice(0, from) + ' '.repeat(to - from) + text.slice(to)
 
 /** Extracts links, tags, headings and frontmatter from a note's text. */
 export function parseMarkdown(text: string): CachedMetadata {
-  const meta: CachedMetadata = { links: [], tags: [], headings: [], frontmatter: null }
+  const meta: CachedMetadata = { links: [], tags: [], aliases: [], headings: [], frontmatter: null }
   // Tags are case-insensitive; the first spelling seen is kept.
   const tags = new Map<string, string>()
   const addTag = (tag: string) => tags.has(tag.toLowerCase()) || tags.set(tag.toLowerCase(), tag)
@@ -66,6 +75,7 @@ export function parseMarkdown(text: string): CachedMetadata {
         // Invalid YAML: the note simply has no properties.
       }
       frontmatterTags(meta.frontmatter).forEach(addTag)
+      meta.aliases = frontmatterAliases(meta.frontmatter)
       for (; i <= end; i++) offset += lines[i].length + 1
     }
   }

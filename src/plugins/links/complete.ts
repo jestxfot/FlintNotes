@@ -12,15 +12,23 @@ export const wikilinkCompletion =
     return {
       from: match.from + match.text.indexOf('[[') + 2,
       validFor: /^[^\[\]|#\n]*$/,
-      options: app.vault.files().map((file) => {
+      options: app.vault.files().flatMap((file) => {
         const text = app.metadata.linkText(file.path, source)
-        return {
+        const note = {
           label: text,
           detail: path.dirname(file.path) || undefined,
           apply: closed ? text : `${text}]]`,
           // Notes before attachments.
           boost: path.extname(file.path) === 'md' ? 1 : 0,
         }
+        // An alias links to its note and shows as the alias: [[Note|alias]].
+        const aliases = (app.metadata.get(file.path)?.aliases ?? []).map((alias) => ({
+          label: alias,
+          detail: `→ ${text}`,
+          apply: closed ? `${text}|${alias}` : `${text}|${alias}]]`,
+          boost: 0,
+        }))
+        return [note, ...aliases]
       }),
     }
   }
