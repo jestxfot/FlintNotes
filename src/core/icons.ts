@@ -11,6 +11,16 @@ type Provider = (kind: LookKind, id: string) => Look | undefined
 type Nodes = Record<string, [tag: string, attrs: Record<string, string>][]>
 
 const SVG = 'http://www.w3.org/2000/svg'
+/**
+ * Icons drawn for this app: names that Obsidian knows but no version of Lucide
+ * at hand has. The inside of a 24x24 `<svg>`, in Lucide's line style.
+ */
+const OWN: Record<string, string> = {
+  'book-template':
+    '<path d="M20 22h-2"/><path d="M20 15v2h-2"/><path d="M4 19.5V15"/><path d="M20 8v3"/><path d="M18 2h2v2"/><path d="M4 11V9"/><path d="M12 2h2"/><path d="M12 22h2"/><path d="M12 17h2"/><path d="M8 22H6.5a2.5 2.5 0 0 1 0-5H8"/><path d="M4 5v-.5A2.5 2.5 0 0 1 6.5 2H8"/>',
+}
+/** Stands in for an icon whose name is not known at all: a dashed square with a question mark. */
+const UNKNOWN = '<rect x="3" y="3" width="18" height="18" rx="3" stroke-dasharray="3 3"/><path d="M9.6 9.2a2.5 2.5 0 1 1 3.6 2.2c-.7.4-1.2 1-1.2 1.9"/><path d="M12 16.8h.01"/>'
 /** Colour names of Obsidian's palette; anything else is taken as a CSS colour. */
 const NAMED = new Set(['red', 'orange', 'yellow', 'green', 'cyan', 'blue', 'purple', 'pink', 'gray'])
 
@@ -88,10 +98,10 @@ export class Icons extends Events<{ change: [] }> {
         const shapes = Object.hasOwn(nodes, name) ? nodes[name] : null
         // An icon chosen long ago may go by a name Lucide has since dropped; those come from the app's own list.
         const old = Object.hasOwn(this.legacy, name) ? this.legacy[name] : null
-        if (!shapes && !old) return void (el.textContent = '')
         const svg = el.appendChild(document.createElementNS(SVG, 'svg'))
         svg.setAttribute('viewBox', '0 0 24 24')
-        if (!shapes) return void (svg.innerHTML = old!)
+        // A name found nowhere still gets a picture, so that no button or row is left blank.
+        if (!shapes) return void (svg.innerHTML = old ?? (Object.hasOwn(OWN, name) ? OWN[name] : UNKNOWN))
         for (const [tag, attrs] of shapes) {
           const shape = svg.appendChild(document.createElementNS(SVG, tag))
           for (const [key, value] of Object.entries(attrs)) shape.setAttribute(key, value)

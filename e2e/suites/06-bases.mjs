@@ -69,7 +69,16 @@ export const vault = {
 export async function run(t) {
   const { page, ok, wait, read, leaf, flat } = t
   const base = page.locator(`${leaf} .base`).first()
-  const tab = (name) => base.locator('.base-tabs button', { hasText: name })
+  // Views are behind the switcher on the left of the toolbar.
+  const openViews = async () => {
+    if (!(await base.locator('.base-tabs').count())) await base.locator('.base-view-switch').click()
+  }
+  const tab = (name) => ({
+    click: async () => {
+      await openViews()
+      await base.locator('.base-tabs button', { hasText: name }).click()
+    },
+  })
   const cells = async (name) => (await base.locator('tbody tr', { hasText: name }).locator('td').allInnerTexts()).map((cell) => cell.trim())
   const names = () => base.locator('tbody td:first-child').allInnerTexts()
   const type = async (value) => {
@@ -81,7 +90,10 @@ export async function run(t) {
 
   await t.open('Library')
   await wait(700)
+  await openViews()
   ok('base renders with four view tabs', (await base.locator('.base-tabs button').count()) === 4, await base.innerText().catch(() => 'no base'))
+  await base.locator('.base-view-switch').click()
+  await wait(200)
   let text = await flat(base)
   ok('filters select the books only', text.includes('Dune') && text.includes('Emma') && text.includes('Ulysses') && !text.includes('Other') && text.includes('3 записи'), text)
   ok('columns, display name and formulas', (await flat(base.locator('thead'))).includes('Имя status Цена with_tax label owned due author') && JSON.stringify((await cells('Dune')).slice(1, 5)) === JSON.stringify(['reading', '12.5', '15', '★★★★★']), JSON.stringify(await cells('Dune')))
@@ -135,24 +147,65 @@ export async function run(t) {
   await wait(400)
   ok('list view sorted by price', JSON.stringify(await base.locator('.base-list li a').allInnerTexts()) === JSON.stringify(['Ulysses', 'Dune']))
 
-  await base.locator('.base-toolbar button', { hasText: '⚙' }).click()
+  await base.locator('.base-tool', { hasText: 'Группа' }).click()
   await wait(300)
   await base.locator('.base-setting', { hasText: 'Группировка' }).locator('select').first().selectOption('status')
   await wait(700)
   ok('the settings panel writes groupBy', /name: Дорогие[\s\S]*groupBy:\n\s+property: status/.test(read('Library.md')) && (await base.locator('.base-group-title').count()) === 1, read('Library.md').slice(-200))
+  await base.locator('.base-tool', { hasText: 'Свойства' }).click()
+  await wait(300)
   await base.locator('.base-check', { hasText: 'rating' }).locator('input').check()
   await wait(700)
   ok('the settings panel adds a property', /name: Дорогие[\s\S]*rating/.test(read('Library.md')), read('Library.md').slice(-260))
+  await openViews()
   await base.locator('.base-add-view').selectOption('cards')
   await wait(700)
-  ok('a view can be added from the toolbar', (await base.locator('.base-tabs button').count()) === 5 && /- type: cards\n\s+name: Карточки/.test(read('Library.md')), read('Library.md').slice(-120))
+  ok('a view can be added from the toolbar', (await base.locator('.base-view-switch b').innerText()) === 'Карточки' && /- type: cards\n\s+name: Карточки/.test(read('Library.md')), read('Library.md').slice(-120))
   await base.locator('.base-delete').click()
   await wait(700)
-  ok('and removed again', (await base.locator('.base-tabs button').count()) === 4 && !/name: Карточки/.test(read('Library.md')))
+  ok('and removed again', (await base.locator('.base-tabs button').count()) === 4 && (await base.locator('.base-delete').count()) === 0 && !/name: Карточки/.test(read('Library.md')))
 
+  // ---- the tools on the right of the toolbar
   await tab('Все книги').click()
   await wait(300)
-  await base.locator('.base-toolbar button', { hasText: 'Запись' }).click()
+  await base.locator('.base-tool', { hasText: 'Сортировка' }).click()
+  await base.locator('.base-pop-add').click()
+  await wait(600)
+  const before = await base.locator('.base-pop .base-setting').count()
+  await base.locator('.base-pop .base-setting').last().locator('select').first().selectOption('rating')
+  await wait(600)
+  await base.locator('.base-pop .base-setting').last().locator('select').nth(1).selectOption('DESC')
+  await wait(700)
+  ok('the sort panel adds a sort rule to the base', before >= 1 && /- property: rating\n\s+direction: DESC/.test(read('Library.md')), read('Library.md').slice(0, 500))
+  await base.locator('.base-pop-remove').last().click()
+  await wait(600)
+  ok('and removes it', !/- property: rating\n\s+direction: DESC/.test(read('Library.md')) && (await base.locator('.base-pop .base-setting').count()) === before - 1)
+
+  await base.locator('.base-tool', { hasText: 'Фильтр' }).click()
+  await wait(300)
+  const filters = base.locator('.base-filter')
+  ok('the filter panel shows the conditions of the base and of the view', (await filters.count()) === 2 && (await filters.first().locator('.base-filter-expr').count()) >= 1, await t.flat(base.locator('.base-pop')))
+  await filters.nth(1).locator('.base-pop-add').click()
+  await wait(600)
+  await filters.nth(1).locator('.base-filter-expr').last().fill('price > 20')
+  await filters.nth(1).locator('.base-filter-expr').last().press('Tab')
+  await wait(800)
+  ok('a condition added there filters the view and is written to the base', /price > 20/.test(read('Library.md')) && (await base.locator('tbody tr').count()) === 1, `${await base.locator('tbody tr').count()}`)
+  await filters.nth(1).locator('.base-pop-remove').last().click()
+  await wait(700)
+  ok('and removing it brings the rows back', !/price > 20/.test(read('Library.md')) && (await base.locator('tbody tr').count()) === 3)
+  await page.mouse.click(5, 5)
+  await wait(300)
+  ok('a click elsewhere closes the panel', (await base.locator('.base-pop').count()) === 0)
+
+  await base.locator('.base-tool', { hasText: 'Поиск' }).click()
+  await base.locator('.base-search').pressSequentially('emm')
+  await wait(400)
+  ok('the search narrows the rows without touching the base', (await base.locator('tbody tr').count()) === 1 && (await t.flat(base.locator('.base-count'))) === '1 запись' && !read('Library.md').includes('emm'))
+  await base.locator('.base-search').fill('')
+  await wait(300)
+
+  await base.locator('.base-toolbar button', { hasText: 'Создать' }).click()
   await wait(1500)
   ok('a new record satisfies the filters', read('Books/Без названия.md').startsWith('---\ntags:\n  - book\n---'), read('Books/Без названия.md'))
   await t.tab('Library').click()
@@ -166,7 +219,9 @@ export async function run(t) {
 
   await t.row('Books.base').click()
   await wait(1200)
+  await page.locator(`${leaf} .base-file .base-view-switch`).click()
   text = await flat(page.locator(`${leaf} .base-file`))
+  await page.locator(`${leaf} .base-file .base-view-switch`).click()
   ok('a .base file opens as a base', text.includes('Table') && text.includes('Names') && text.includes('Dune') && text.includes('Исходный текст'), text)
   await page.locator(`${leaf} .base-file thead th`, { hasText: 'status' }).click()
   await wait(800)
@@ -180,5 +235,5 @@ export async function run(t) {
   await t.open('Embed')
   await wait(900)
   text = await flat(page.locator(`${leaf} .lp-embed`))
-  ok('an embedded base opens on the named view', (await page.locator(`${leaf} .lp-embed .base-tabs button.active`).innerText()) === 'Names' && text.includes('Ulysses') && (await page.locator(`${leaf} .lp-embed .base-list`).count()) === 1, text)
+  ok('an embedded base opens on the named view', (await page.locator(`${leaf} .lp-embed .base-view-switch b`).innerText()) === 'Names' && text.includes('Ulysses') && (await page.locator(`${leaf} .lp-embed .base-list`).count()) === 1, text)
 }

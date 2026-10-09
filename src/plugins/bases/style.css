@@ -3,49 +3,215 @@
   font-size: 14px;
 }
 
+.base {
+  position: relative;
+}
+
+/* The toolbar, as in Obsidian Bases: the view on the left, the tools on the right. */
 .base-toolbar {
   display: flex;
   align-items: center;
-  gap: 6px;
-  padding: 2px 0 8px;
-}
-
-.base-tabs {
-  display: flex;
-  flex: 1;
-  flex-wrap: wrap;
   gap: 2px;
-  min-width: 0;
+  padding: 2px 0 8px;
+  border-bottom: 1px solid var(--border);
+  margin-bottom: 10px;
+  font-size: 13px;
 }
 
-.base-toolbar button,
-.base-add-view {
-  padding: 3px 10px;
-  border: 1px solid transparent;
+.base-spacer {
+  flex: 1;
+}
+
+.base-toolbar button {
+  display: inline-flex;
+  align-items: center;
+  gap: 6px;
+  padding: 4px 8px;
   border-radius: 6px;
-  background: none;
   color: var(--text-muted);
+  white-space: nowrap;
   cursor: pointer;
 }
 
-.base-add-view {
-  width: 34px;
-  padding: 3px 4px;
-  appearance: none;
-  text-align: center;
-}
-
 .base-toolbar button:hover,
-.base-add-view:hover,
 .base-toolbar button.active {
   background: var(--bg-hover);
   color: var(--text);
 }
 
+/* A tool that has something set (a sort, a filter) is marked with the accent colour. */
+.base-toolbar button.on {
+  color: var(--accent);
+}
+
+.base-view-switch b {
+  color: var(--text);
+  font-weight: 600;
+}
+
+.base-chevrons {
+  color: var(--text-faint);
+}
+
 .base-count {
+  padding-left: 8px;
   color: var(--text-faint);
   font-size: 12.5px;
   white-space: nowrap;
+}
+
+.base-search {
+  width: 160px;
+  padding: 4px 8px;
+  border: 1px solid var(--border);
+  border-radius: 6px;
+  background: var(--bg);
+}
+
+/* The panel that opens under the toolbar. */
+.base-pop {
+  position: absolute;
+  top: 34px;
+  z-index: 5;
+  display: flex;
+  flex-direction: column;
+  gap: 8px;
+  min-width: 260px;
+  max-width: min(520px, 100%);
+  max-height: 60vh;
+  padding: 10px 12px;
+  overflow-y: auto;
+  border: 1px solid var(--border);
+  border-radius: 8px;
+  background: var(--bg-alt);
+  box-shadow: var(--shadow);
+  font-size: 13px;
+}
+
+.base-pop.left {
+  left: 0;
+}
+
+.base-pop.right {
+  right: 0;
+}
+
+.base-pop-title {
+  display: flex;
+  align-items: center;
+  gap: 6px;
+  font-weight: 600;
+}
+
+.base-pop-count {
+  padding: 0 6px;
+  border-radius: 1em;
+  background: var(--bg-hover);
+  color: var(--text-muted);
+  font-size: 0.85em;
+}
+
+.base-pop input[type='text'],
+.base-pop input[type='number'],
+.base-pop select {
+  min-width: 0;
+  padding: 4px 8px;
+  border: 1px solid var(--border);
+  border-radius: 5px;
+  background: var(--bg);
+}
+
+.base-pop input[type='number'] {
+  width: 70px;
+}
+
+.base-pop-add {
+  align-self: flex-start;
+  padding: 3px 6px;
+  border-radius: 5px;
+  color: var(--text-muted);
+}
+
+.base-pop-add:hover,
+.base-pop-remove:hover {
+  background: var(--bg-hover);
+  color: var(--text);
+}
+
+.base-pop-remove {
+  display: flex;
+  padding: 4px;
+  border-radius: 5px;
+  color: var(--text-faint);
+  font-size: 15px;
+}
+
+.base-filter {
+  display: flex;
+  flex-direction: column;
+  gap: 6px;
+}
+
+.base-filter + .base-filter {
+  padding-top: 10px;
+  border-top: 1px solid var(--border);
+}
+
+.base-filter-expr {
+  flex: 1;
+  font-family: var(--font-mono);
+  font-size: 12.5px;
+}
+
+.base-tabs {
+  display: flex;
+  flex-direction: column;
+  gap: 1px;
+}
+
+.base-view-row {
+  display: flex;
+  align-items: center;
+}
+
+.base-view-row button {
+  display: flex;
+  flex: 1;
+  align-items: center;
+  gap: 8px;
+  padding: 5px 8px;
+  border-radius: 5px;
+  text-align: left;
+}
+
+.base-view-row button:hover,
+.base-view-row button.active {
+  background: var(--bg-hover);
+}
+
+.base-view-row button.active {
+  font-weight: 600;
+}
+
+.base-view-edit {
+  padding: 2px 9px;
+  border-radius: 5px;
+  color: var(--text-faint);
+  font-size: 16px;
+  cursor: pointer;
+}
+
+.base-view-edit:hover {
+  background: var(--bg-hover);
+  color: var(--text);
+}
+
+.base-add-view {
+  appearance: none;
+  border: none !important;
+  background: none !important;
+  color: var(--text-muted);
+  cursor: pointer;
 }
 
 .base-body {
@@ -246,48 +412,12 @@
   cursor: grab;
 }
 
-.base-settings {
-  margin-bottom: 10px;
-  padding: 12px 14px;
-  border: 1px solid var(--border);
-  border-radius: 8px;
-  background: var(--bg-alt);
-}
-
-.base-settings-row {
-  display: flex;
-  flex-wrap: wrap;
-  gap: 10px 16px;
-  margin-bottom: 10px;
-}
-
 .base-setting {
   display: flex;
   align-items: center;
   gap: 6px;
   color: var(--text-muted);
   font-size: 13px;
-}
-
-.base-settings input[type='text'],
-.base-settings input[type='number'],
-.base-settings select {
-  padding: 3px 7px;
-  border: 1px solid var(--border);
-  border-radius: 5px;
-  background: var(--bg);
-}
-
-.base-settings input[type='number'] {
-  width: 70px;
-}
-
-.base-settings-title {
-  margin: 4px 0 6px;
-  color: var(--text-muted);
-  font-size: 12px;
-  font-weight: 600;
-  text-transform: uppercase;
 }
 
 .base-checks {
@@ -372,4 +502,29 @@
 
 .lp-embed .base {
   padding: 8px 12px;
+}
+
+/* Inside a note the block's own "</>" button sits in the corner; the tools make room for it. */
+.lp-block .base-toolbar {
+  padding-right: 34px;
+}
+
+.lp-block .base-pop.right {
+  right: 34px;
+}
+
+/* In a narrow column the tools keep their icons and drop their names. */
+.base {
+  container-type: inline-size;
+}
+
+.base-toolbar .icon {
+  font-size: 15px;
+}
+
+@container (max-width: 780px) {
+  .base-tool {
+    font-size: 0;
+    gap: 0;
+  }
 }

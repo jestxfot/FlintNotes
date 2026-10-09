@@ -1,0 +1,99 @@
+.tracker-block {
+  font-family: var(--font-ui);
+}
+
+.tracker-chart {
+  max-width: 100%;
+}
+
+.tracker-summary {
+  line-height: 1.7;
+}
+
+.tracker-item::before {
+  content: '•';
+  display: inline-block;
+  width: 1.2em;
+  color: var(--text-faint);
+}
+
+.tracker-month {
+  max-width: 340px;
+}
+
+.tracker-month-head {
+  display: flex;
+  align-items: center;
+  padding-bottom: 6px;
+  font-weight: 600;
+}
+
+.tracker-month-head span {
+  flex: 1;
+  text-align: center;
+}
+
+.tracker-month-head button {
+  width: 26px;
+  height: 26px;
+  border-radius: 6px;
+  color: var(--text-muted);
+  font-size: 16px;
+}
+
+.tracker-month-head button:hover {
+  background: var(--bg-hover);
+}
+
+.tracker-month-grid {
+  display: grid;
+  grid-template-columns: repeat(7, 1fr);
+  gap: 3px;
+  text-align: center;
+}
+
+.tracker-weekday {
+  color: var(--text-faint);
+  font-size: 0.8em;
+}
+
+.tracker-day {
+  position: relative;
+  display: flex;
+  align-items: center;
+  justify-content: center;
+  aspect-ratio: 1;
+  border-radius: 50%;
+  color: var(--text-muted);
+  font-size: 0.9em;
+}
+
+.tracker-day.on {
+  background: var(--accent);
+  color: #fff;
+  font-weight: 600;
+}
+
+.tracker-day.today {
+  outline: 2px solid var(--accent);
+  outline-offset: -2px;
+}
+
+.tracker-mark {
+  position: absolute;
+  right: -1px;
+  top: -3px;
+  font-size: 0.8em;
+}
+
+.tracker-month-foot,
+.tracker-none {
+  padding-top: 6px;
+  color: var(--text-muted);
+  font-size: 0.88em;
+}
+
+.tracker-error {
+  color: var(--color-red);
+  font: 0.88em var(--font-mono);
+}

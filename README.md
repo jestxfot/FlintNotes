@@ -41,6 +41,7 @@ node release/server.mjs "D:/Мои заметки"      # или FlintNotes.bat 
 | `<% ... %>`, `<%+ ... %>` | Шаблоны | Templater |
 | ```` ```chart ````, `window.renderChart` | Графики | Charts |
 | значки и цвета файлов, папок, тегов, свойств | Значки и цвета | Iconic (тот же `data.json` в папке настроек Obsidian) |
+| ```` ```tracker ```` | Трекер | Tracker |
 | свои кнопки и макросы | Быстрые кнопки и команды | Commander (формат его `data.json`, файл `.flint/commander.json`) |
 | настройки графа | Граф | `graph.json` Obsidian (те же имена, хранятся в `.flint/workspace.json`) |
 
