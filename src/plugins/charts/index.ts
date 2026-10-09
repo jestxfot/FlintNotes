@@ -101,6 +101,7 @@ export default class Charts extends Plugin {
       return { update: draw, destroy: () => chart?.destroy() }
     }
     this.registerCodeBlockProcessor('chart', block)
+    this.addInsertCommand('insert', 'Вставить график', '```chart\ntype: bar\nlabels: [|]\nseries:\n  - title: \n    data: []\n```\n', 'chart-column')
 
     // Scripts written for Obsidian Charts call this.
     const scope = window as unknown as { renderChart?: unknown }

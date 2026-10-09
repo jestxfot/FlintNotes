@@ -94,7 +94,7 @@ export default class Buttons extends Plugin {
         const command = app.commands.list().find((c) => c.name.toLowerCase() === wanted || c.id.toLowerCase() === wanted)
         if (command) await command.callback()
         // Obsidian's built-in browser has no twin here; its button opens the page in a browser tab.
-        else if (wanted === 'web viewer: open web viewer') window.open(this.getSetting<string>('webHome') || 'about:blank', '_blank', 'noopener')
+        else if (wanted === 'web viewer: open web viewer') app.commands.run('buttons:web-viewer')
         else throw new Error(`команда «${action}» есть только в Obsidian`)
       } else if (type === 'link') {
         openLink(app, action, path)
@@ -156,5 +156,7 @@ export default class Buttons extends Plugin {
       return { update: draw }
     }
     this.registerCodeBlockProcessor('button', processor)
+    this.addInsertCommand('insert', 'Вставить кнопку', '```button\nname |\ntype command\naction \n```\n', 'square-mouse-pointer')
+    this.addCommand({ id: 'web-viewer', name: 'Открыть страницу веб-просмотра', icon: 'globe', callback: () => void window.open(this.getSetting<string>('webHome') || 'about:blank', '_blank', 'noopener') })
   }
 }

@@ -1,0 +1,116 @@
+.commander-settings {
+  display: flex;
+  flex-direction: column;
+  gap: 14px;
+}
+
+.commander-place {
+  display: flex;
+  flex-direction: column;
+  gap: 4px;
+}
+
+.commander-head {
+  display: flex;
+  align-items: center;
+  justify-content: space-between;
+}
+
+.commander-add {
+  padding: 3px 8px;
+  border-radius: 5px;
+  color: var(--accent);
+  font-size: 12.5px;
+}
+
+.commander-add:hover,
+.commander-tool:hover:not(:disabled) {
+  background: var(--bg-hover);
+}
+
+.commander-row {
+  display: flex;
+  align-items: center;
+  gap: 4px;
+}
+
+.commander-row.missing {
+  opacity: 0.5;
+}
+
+.commander-row input {
+  flex: 1;
+  min-width: 0;
+  padding: 4px 8px;
+  border: 1px solid var(--border);
+  border-radius: 5px;
+  background: var(--bg);
+}
+
+.commander-icon {
+  display: flex;
+  justify-content: center;
+  width: 26px;
+  font-size: 17px;
+}
+
+.commander-tool {
+  display: flex;
+  align-items: center;
+  justify-content: center;
+  width: 26px;
+  height: 26px;
+  border-radius: 5px;
+  color: var(--text-muted);
+  font-size: 15px;
+}
+
+.commander-tool:disabled {
+  opacity: 0.3;
+  cursor: default;
+}
+
+.commander-none {
+  color: var(--text-faint);
+  font-size: 12.5px;
+}
+
+.commander-steps {
+  margin: 0 0 6px;
+  padding-left: 30px;
+  color: var(--text-muted);
+  font-size: 13px;
+}
+
+.commander-steps li {
+  padding: 1px 0;
+}
+
+.commander-steps input {
+  width: 70px;
+  padding: 2px 6px;
+  border: 1px solid var(--border);
+  border-radius: 5px;
+  background: var(--bg);
+}
+
+.commander-steps .commander-tool {
+  display: inline-flex;
+  vertical-align: middle;
+}
+
+/* Buttons in the status bar */
+.commander-status {
+  display: flex;
+  gap: 4px;
+}
+
+.commander-status button {
+  display: flex;
+  font-size: 14px;
+  color: var(--text-muted);
+}
+
+.commander-status button:hover {
+  color: var(--text);
+}

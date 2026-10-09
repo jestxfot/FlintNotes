@@ -1,7 +1,5 @@
-import { errorMessage, path as paths, Plugin, type Look, type LookKind, type VaultEntry } from '../../api'
+import { errorMessage, path as paths, pickLook, Plugin, type Look, type LookKind, type VaultEntry } from '../../api'
 import { ownLook, renameLooks, ruleLook, setLook, type IconicData } from './data'
-import { pickLook } from './picker'
-import './style.css'
 
 /**
  * Icons and colours of files, folders, tags and properties, kept in the data
@@ -41,8 +39,13 @@ export default class Iconic extends Plugin {
       }),
     )
     const previous = app.icons.custom
+    const previousNames = app.icons.customNames
     app.icons.custom = (name) => this.custom.get(name)
-    this.register(() => (app.icons.custom = previous))
+    app.icons.customNames = () => [...this.custom.keys()]
+    this.register(() => {
+      app.icons.custom = previous
+      app.icons.customNames = previousNames
+    })
 
     // Obsidian may change the file while this app is in the background.
     const onFocus = () => void this.read()
@@ -77,7 +80,7 @@ export default class Iconic extends Plugin {
   }
 
   private async choose(kind: LookKind, id: string, title: string): Promise<void> {
-    const look = await pickLook(this.app, title, ownLook(this.data, kind, id) ?? {}, [...this.custom.keys()])
+    const look = await pickLook(this.app, title, ownLook(this.data, kind, id) ?? {})
     if (!look) return
     // The file is read again first: Obsidian may have saved its own changes meanwhile.
     await this.read()

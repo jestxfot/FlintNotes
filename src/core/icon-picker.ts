@@ -1,4 +1,6 @@
-import type { App, Look } from '../../api'
+import './icon-picker.css'
+import type { App } from './app'
+import type { Look } from './icons'
 
 const COLORS = ['red', 'orange', 'yellow', 'green', 'cyan', 'blue', 'purple', 'pink', 'gray']
 /** Icons drawn at once; typing in the search field narrows them down. */
@@ -8,7 +10,7 @@ const SHOWN = 140
  * A dialog for choosing an icon and a colour. Resolves with the choice, with
  * an empty look to take both away, or with `null` if the user backs out.
  */
-export function pickLook(app: App, title: string, current: Look, custom: string[]): Promise<Look | null> {
+export function pickLook(app: App, title: string, current: Look, custom: string[] = app.icons.customNames()): Promise<Look | null> {
   return new Promise((resolve) => {
     const dialog = document.body.appendChild(document.createElement('dialog'))
     dialog.className = 'iconic-dialog'

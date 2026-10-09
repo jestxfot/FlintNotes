@@ -1,0 +1,86 @@
+/** A button: which command it runs and how it looks. The fields are Commander's. */
+export interface Pair {
+  /** Id of the command. */
+  id: string
+  icon: string
+  name: string
+  mode: string
+  color?: string
+}
+
+/** One step of a macro: `action: 0` runs a command, `action: 1` waits. */
+export type Step = { action: 0; commandId: string } | { action: 1; delay: number }
+
+export interface Macro {
+  name: string
+  icon: string
+  macro: Step[]
+}
+
+export const PLACES = ['leftRibbon', 'rightRibbon', 'titleBar', 'pageHeader', 'explorer', 'statusBar', 'fileMenu', 'editorMenu'] as const
+export type Place = (typeof PLACES)[number]
+
+export const PLACE_NAMES: Record<Place, string> = {
+  leftRibbon: 'Полоса слева',
+  rightRibbon: 'Полоса справа',
+  titleBar: 'Полоса вкладок',
+  pageHeader: 'Над заметкой',
+  explorer: 'Список файлов',
+  statusBar: 'Строка состояния',
+  fileMenu: 'Меню файла',
+  editorMenu: 'Меню редактора',
+}
+
+/** The contents of the data file, laid out as Commander's `data.json`; fields not used here are kept. */
+export type CommanderData = Record<Place, Pair[]> & { macros: Macro[] } & Record<string, unknown>
+
+export const emptyData = (): CommanderData => ({ ...Object.fromEntries(PLACES.map((place) => [place, []])), macros: [] }) as unknown as CommanderData
+
+/** Commands of Obsidian and its plugins that have a twin here, for taking over a Commander setup. */
+const TWINS: Record<string, string> = {
+  'daily-notes': 'calendar:today',
+  'daily-notes:goto-next': 'calendar:next-day',
+  'daily-notes:goto-prev': 'calendar:previous-day',
+  'periodic-notes:open-daily-note': 'calendar:today',
+  'periodic-notes:open-weekly-note': 'calendar:week',
+  'periodic-notes:open-monthly-note': 'calendar:month',
+  'graph:open': 'graph:open',
+  'command-palette:open': 'core:command-palette',
+  'switcher:open': 'quick-switcher:open',
+  'global-search:open': 'search:open',
+  'app:open-settings': 'core:settings',
+  'app:toggle-left-sidebar': 'core:toggle-sidebar',
+  'app:toggle-right-sidebar': 'core:toggle-right-sidebar',
+  'app:go-back': 'core:go-back',
+  'app:go-forward': 'core:go-forward',
+  'app:open-help': 'core:help',
+  'app:open-vault': 'core:vaults',
+  'file-explorer:new-file': 'core:new-note',
+  'file-explorer:reveal-active-file': 'core:reveal-active',
+  'open-with-default-app:show': 'core:reveal-active',
+  'workspace:close': 'core:close-tab',
+  'workspace:next-tab': 'core:next-tab',
+  'workspace:previous-tab': 'core:previous-tab',
+  'editor:save-file': 'core:save',
+  'editor:toggle-source': 'core:toggle-editor-mode',
+  'insert-template': 'templates:insert',
+  'templater-obsidian:insert-templater': 'templates:insert',
+  'templater-obsidian:create-new-note-from-template': 'templates:create',
+  'obsidian-tasks-plugin:edit-task': 'tasks:new',
+  'webviewer:open': 'buttons:web-viewer',
+}
+
+/** Commander's setup with the commands that exist here; the rest is counted, not kept. */
+export function importData(raw: unknown): { data: CommanderData; skipped: number } {
+  const data = emptyData()
+  let skipped = 0
+  const source = raw && typeof raw === 'object' ? (raw as Record<string, unknown>) : {}
+  for (const place of PLACES) {
+    for (const pair of Array.isArray(source[place]) ? (source[place] as Pair[]) : []) {
+      const twin = Object.hasOwn(TWINS, pair?.id) ? TWINS[pair.id] : undefined
+      if (twin) data[place].push({ ...pair, id: twin })
+      else skipped++
+    }
+  }
+  return { data, skipped }
+}

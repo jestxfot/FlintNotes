@@ -7,6 +7,7 @@
   import type { VaultEntry } from '../core/vault'
   import { app } from '../instance'
   import { watch } from './reactive.svelte'
+  import Toolbar from './Toolbar.svelte'
 
   interface Node {
     entry: VaultEntry
@@ -259,6 +260,7 @@
 
 <div class="header">
   <span class="title">Файлы</span>
+  <Toolbar place="explorer" />
   <button title="Новая заметка" aria-label="Новая заметка" onclick={() => create('file', '')}>
     <svg viewBox="0 0 16 16" aria-hidden="true"><path d="M8 3.5v9M3.5 8h9" /></svg>
   </button>

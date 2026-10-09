@@ -124,6 +124,11 @@ export default class Dataview extends Plugin {
       }
     }
     this.registerCodeBlockProcessor('dataviewjs', script)
+    this.addInsertCommand('insert-table', 'Вставить запрос Dataview: таблица', '```dataview\nTABLE |\nFROM ""\n```\n', 'table')
+    this.addInsertCommand('insert-list', 'Вставить запрос Dataview: список', '```dataview\nLIST\nFROM "|"\n```\n', 'list')
+    this.addInsertCommand('insert-task', 'Вставить запрос Dataview: задачи', '```dataview\nTASK\nWHERE !completed|\n```\n', 'list-checks')
+    this.addInsertCommand('insert-calendar', 'Вставить запрос Dataview: календарь', '```dataview\nCALENDAR file.day\nFROM "|"\n```\n', 'calendar')
+    this.addInsertCommand('insert-js', 'Вставить скрипт dataviewjs', '```dataviewjs\n|\n```\n', 'braces')
 
     // ---- `= expression` in the text shows its value
     const plugin = this

@@ -15,7 +15,7 @@ const IMAGE = /\.(png|jpe?g|gif|webp|svg|bmp|avif)$/i
 const MAX_EMBED_DEPTH = 3
 
 /** Opens the note a wikilink points to, creating it first if it does not exist. */
-async function follow(app: App, link: string, source: string): Promise<void> {
+export async function follow(app: App, link: string, source: string): Promise<void> {
   const [file, heading] = link.split('#')
   let dest = app.metadata.resolve(file, source)
   if (!dest) {

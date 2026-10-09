@@ -98,8 +98,10 @@ export default class Bases extends Plugin {
       }
     })
 
+    this.addInsertCommand('insert', 'Вставить базу данных в заметку', '```base\nviews:\n  - type: table\n    name: |\n```\n', 'database')
     this.addCommand({
       id: 'new',
+      icon: 'database',
       name: 'Новая база данных',
       callback: async () => {
         try {

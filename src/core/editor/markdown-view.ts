@@ -57,6 +57,8 @@ export class MarkdownView implements FileView {
           EditorView.updateListener.of((update) => {
             if (update.docChanged) this.scheduleSave()
           }),
+          // Plugins may add items for the editor; with none, the browser's own menu (spelling, copy, paste) stays.
+          EditorView.domEventHandlers({ contextmenu: (event, view) => this.app.menus.show(event, 'editor', view) }),
         ],
       }),
     })

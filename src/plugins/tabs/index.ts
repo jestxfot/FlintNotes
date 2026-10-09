@@ -100,5 +100,6 @@ export default class Tabs extends Plugin {
       return { update: draw, destroy: () => panes.forEach((pane) => pane?.preview.destroy()) }
     }
     this.registerCodeBlockProcessor('tabs', processor)
+    this.addInsertCommand('insert', 'Вставить блок вкладок', '````tabs\ntab: |\n\ntab: \n\n````\n', 'panel-top')
   }
 }

@@ -9,6 +9,7 @@
   import MainMenu from './MainMenu.svelte'
   import VaultsModal from './VaultsModal.svelte'
   import ContextMenu from './ContextMenu.svelte'
+  import Toolbar from './Toolbar.svelte'
   import { drag } from './drag.svelte'
   import { watch } from './reactive.svelte'
   import SettingsModal from './SettingsModal.svelte'
@@ -58,6 +59,8 @@
 
   const title = (path: string) => (extname(path) === 'md' ? stripExt(basename(path)) : basename(path))
   const leafById = (id: number) => workspace.leaves.find((leaf) => leaf.id === id)!
+  // The strips along the edges take room only when something was put on them.
+  const ribbons = watch(app.toolbars, ['change'], () => ({ left: app.toolbars.list('left-ribbon').length > 0, right: app.toolbars.list('right-ribbon').length > 0 }))
   const looks = watch(app.icons, ['change'], () => ({}))
   const tabLook = (path: string) => (looks.current && !path.startsWith('view:') ? app.icons.look('file', path) : undefined)
   function drawIcon(node: HTMLElement, icon: string | undefined) {
@@ -75,6 +78,18 @@
     const size = settings.get<number>('core', 'fontSize') + (wheel < 0 ? 1 : -1)
     wheel = 0
     settings.set('core', 'fontSize', Math.min(32, Math.max(10, size)))
+  }
+
+  const stepFont = (by: number) => settings.set('core', 'fontSize', Math.min(32, Math.max(10, settings.get<number>('core', 'fontSize') + by)))
+  /** Runs `action` for the open file, if a file is open. */
+  function withFile(action: (path: string) => unknown) {
+    const path = workspace.active?.path
+    if (path && !path.startsWith('view:')) action(path)
+    else app.notice('Откройте файл')
+  }
+  function stepTab(by: number) {
+    const { leaves, active } = workspace
+    if (leaves.length > 1 && active) workspace.setActive(leaves[(leaves.indexOf(active) + by + leaves.length) % leaves.length])
   }
 
   async function newNote() {
@@ -163,6 +178,29 @@
         hotkey: 'Mod+S',
         callback: () => void workspace.flushAll(),
       }),
+      // Every action of the frame is a command, so it can be bound to a shortcut or a button.
+      ...(
+        [
+          ['core:go-back', 'Назад', 'arrow-left', () => history.back()],
+          ['core:go-forward', 'Вперёд', 'arrow-right', () => history.forward()],
+          ['core:help', 'Справка и сочетания клавиш', 'circle-help', () => (helpOpen = true)],
+          ['core:vaults', 'Управление хранилищами', 'vault', () => (vaultsOpen = true)],
+          ['core:next-tab', 'Следующая вкладка', 'chevron-right', () => stepTab(1)],
+          ['core:previous-tab', 'Предыдущая вкладка', 'chevron-left', () => stepTab(-1)],
+          ['core:close-other-tabs', 'Закрыть остальные вкладки', 'copy-x', () => workspace.leaves.filter((leaf) => leaf !== workspace.active).forEach((leaf) => workspace.close(leaf))],
+          ['core:close-all-tabs', 'Закрыть все вкладки', 'square-x', () => [...workspace.leaves].forEach((leaf) => workspace.close(leaf))],
+          ['core:reveal-active', 'Показать открытый файл в проводнике', 'arrow-up-right', () => withFile((path) => void app.vault.reveal(path).catch((err) => app.notice(errorMessage(err))))],
+          ['core:reveal-vault', 'Показать папку хранилища в проводнике', 'folder-open', () => void app.vault.reveal('').catch((err) => app.notice(errorMessage(err)))],
+          ['core:copy-path', 'Копировать путь открытого файла', 'clipboard', () => withFile((path) => void navigator.clipboard.writeText(path).then(() => app.notice('Скопировано')))],
+          ['core:rename-active', 'Переименовать открытую заметку', 'pencil', () => document.querySelector<HTMLInputElement>('.leaf:not([hidden]) .inline-title')?.select()],
+          ['core:delete-active', 'Удалить открытый файл', 'trash', () => withFile((path) => confirm(`Переместить «${basename(path)}» в корзину?`) && void app.vault.trash(path).catch((err) => app.notice(errorMessage(err))))],
+          ['core:dock-active', 'Перенести открытую заметку в боковую панель', 'panel-right', () => withFile((path) => app.docked.dock(path, 'right'))],
+          ['core:toggle-theme', 'Переключить светлую и тёмную тему', 'sun-moon', () => settings.set('core', 'theme', (root.dataset.theme ?? (matchMedia('(prefers-color-scheme: dark)').matches ? 'dark' : 'light')) === 'dark' ? 'light' : 'dark')],
+          ['core:font-bigger', 'Увеличить шрифт заметки', 'a-arrow-up', () => stepFont(1)],
+          ['core:font-smaller', 'Уменьшить шрифт заметки', 'a-arrow-down', () => stepFont(-1)],
+          ['core:toggle-readable-width', 'Переключить удобную ширину строки', 'chevrons-left-right', () => settings.set('core', 'readableWidth', !settings.get<boolean>('core', 'readableWidth'))],
+        ] as [string, string, string, () => unknown][]
+      ).map(([id, name, icon, callback]) => app.commands.add({ id, name, icon, callback: () => void callback() })),
     ]
     // Capture phase: app shortcuts take priority over the focused editor's keymap.
     const onKey = (event: KeyboardEvent) => void app.commands.handleKey(event)
@@ -189,6 +227,7 @@
 </script>
 
 <div class="app">
+  {#if ribbons.current.left}<Toolbar place="left-ribbon" vertical />{/if}
   {#if leftOpen}
     <Sidebar side="left">
       {#snippet footer()}
@@ -235,6 +274,7 @@
           <svg viewBox="0 0 16 16" aria-hidden="true"><path d="M8 3v10M3 8h10" /></svg>
         </button>
       </div>
+      <Toolbar place="tab-bar" />
       <button class="bar-button" title="Правая панель" aria-label="Правая панель" aria-pressed={rightOpen} onclick={() => (rightOpen = !rightOpen)}>
         <svg viewBox="0 0 16 16" aria-hidden="true"><rect x="1.5" y="2.5" width="13" height="11" rx="2" /><path d="M10 2.5v11" /></svg>
       </button>
@@ -253,6 +293,7 @@
             <span class:last={i === crumbs.current.length - 1}>{part}</span>
           {/each}
         </div>
+        <Toolbar place="page-header" />
       </div>
     {/if}
 
@@ -273,6 +314,7 @@
   {#if rightOpen && (hasRightPanels.current || drag.panel || drag.note)}
     <Sidebar side="right" />
   {/if}
+  {#if ribbons.current.right}<Toolbar place="right-ribbon" vertical />{/if}
 </div>
 
 {#if settingsOpen}

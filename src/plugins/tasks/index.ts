@@ -211,6 +211,20 @@ export default class Tasks extends Plugin {
       hotkey: 'Alt+T',
       callback: () => openDialog({ status: ' ', description: '', priority: NO_PRIORITY }, 'Новая задача', (f) => void addTask(f)),
     })
+    this.addInsertCommand('insert-query', 'Вставить список задач', '```tasks\nnot done\n|\n```\n', 'list-todo')
+    this.addInsertCommand('insert-calendar', 'Вставить календарь задач', '```tasks\nnot done\n# view calendar\n```\n', 'calendar-check')
+    this.addCommand({
+      id: 'toggle-done',
+      name: 'Отметить задачу в строке с курсором',
+      icon: 'square-check',
+      callback: () => {
+        const editor = app.workspace.activeEditor
+        if (!editor) return
+        const line = editor.state.doc.lineAt(editor.state.selection.main.head)
+        if (!parseTaskLine(line.text)) return app.notice('В этой строке нет задачи')
+        editor.dispatch({ changes: { from: line.from, to: line.to, insert: toggleTaskLine(line.text, today()).join(editor.state.lineBreak) } })
+      },
+    })
     this.addCommand({ id: 'check-reminders', name: 'Проверить напоминания', callback: () => reminders.check() })
   }
 }

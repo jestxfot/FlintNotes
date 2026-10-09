@@ -1,6 +1,12 @@
 /**
  * Public API. Built-in plugins import from here; plugins loaded from the vault
  * get the same object as the global `flint`.
+ *
+ * Two rules hold for every plugin:
+ * - it lives in its own folder and reaches the core only through this file;
+ * - every action it offers is a command (`Plugin.addCommand`), so the user can
+ *   run it from the palette, give it a shortcut and put a button for it
+ *   anywhere. See the `Plugin` class.
  */
 import * as autocomplete from '@codemirror/autocomplete'
 import * as commands from '@codemirror/commands'
@@ -39,7 +45,9 @@ export type { SettingDef } from './core/settings'
 export type { SuggestOptions } from './core/suggest'
 export { plural } from './core/text'
 export { expandVariables } from './core/variables'
+export { pickLook } from './core/icon-picker'
 export type { Look, LookKind } from './core/icons'
+export type { ToolbarButton, ToolbarPlace } from './core/toolbars'
 export type { MenuItem } from './core/menu'
 export type { VaultEntry, VaultInfo } from './core/vault'
 export type { FileView, Leaf, ViewContext, ViewCreator } from './core/workspace'

@@ -142,5 +142,9 @@ export default class Widgets extends Plugin {
       return { update: draw, destroy: () => stop?.() }
     }
     this.registerCodeBlockProcessor('widgets', processor)
+    this.addInsertCommand('insert-clock', 'Вставить виджет: часы', '```widgets\ntype: clock\nformat: 24hr\n```\n', 'clock')
+    this.addInsertCommand('insert-countdown', 'Вставить виджет: обратный отсчёт', '```widgets\ntype: countdown\ndate: |\nto: \n```\n', 'timer')
+    this.addInsertCommand('insert-counter', 'Вставить виджет: счётчик', '```widgets\ntype: counter\ntext: |\n```\n', 'circle-plus')
+    this.addInsertCommand('insert-quote', 'Вставить виджет: цитата', '```widgets\ntype: quote\nquote: |\nauthor: \n```\n', 'quote')
   }
 }

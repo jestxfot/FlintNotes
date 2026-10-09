@@ -19,6 +19,8 @@ export type SettingDef = SettingBase &
     | { type: 'lines'; default: string; placeholder?: string }
     | { type: 'number'; default: number; min?: number; max?: number; step?: number }
     | { type: 'select'; default: string; options: { value: string; label: string }[] }
+    /** A setting too rich for one field: the plugin draws its own editor into `el`; the returned function cleans up. */
+    | { type: 'custom'; default?: undefined; render(el: HTMLElement): (() => void) | void }
   )
 
 export interface SettingsSection {

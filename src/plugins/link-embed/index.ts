@@ -146,6 +146,7 @@ export default class LinkEmbed extends Plugin {
         },
       }),
     )
+    this.addInsertCommand('insert', 'Вставить пустую карточку ссылки', '```embed\ntitle: "|"\nimage: ""\ndescription: ""\nurl: ""\n```\n', 'link')
     this.addCommand({
       id: 'embed-selection',
       name: 'Превратить ссылку в карточку',

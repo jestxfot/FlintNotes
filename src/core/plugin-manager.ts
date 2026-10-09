@@ -63,6 +63,15 @@ export class PluginManager extends Events<{ change: [] }> {
         load: async () => (await import(/* @vite-ignore */ source)).default,
       })
     }
+    // Switching a plugin on and off is an action like any other, so it is a command.
+    for (const { manifest } of this.available.values()) {
+      this.app.commands.add({
+        id: `core:toggle-plugin:${manifest.id}`,
+        name: `Включить или выключить плагин «${manifest.name}»`,
+        icon: 'puzzle',
+        callback: () => (this.active.has(manifest.id) ? this.disable(manifest.id) : void this.enable(manifest.id)),
+      })
+    }
     const enabled = this.app.settings.get<string[] | undefined>('core', 'enabledPlugins') ?? []
     await Promise.all(enabled.map((id) => this.enable(id, false)))
   }

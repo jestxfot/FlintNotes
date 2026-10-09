@@ -26,6 +26,7 @@ export default class Graph extends Plugin {
     this.addCommand({
       id: 'open',
       name: 'Открыть граф связей',
+      icon: 'git-fork',
       hotkey: 'Mod+G',
       callback: () => this.app.workspace.openView(VIEW, 'Граф'),
     })

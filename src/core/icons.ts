@@ -30,6 +30,8 @@ export class Icons extends Events<{ change: [] }> {
   private loading: Promise<Nodes> | null = null
   /** Where pictures for icon names that are not Lucide's come from; set by a plugin. */
   custom: (name: string) => string | undefined = () => undefined
+  /** Names of those pictures, for the icon picker; set by the same plugin. */
+  customNames: () => string[] = () => []
 
   provide(provider: Provider): Off {
     this.providers.push(provider)

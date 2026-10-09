@@ -12,6 +12,7 @@ import { PluginManager } from './plugin-manager'
 import { DockedNotes } from './docked'
 import { Icons } from './icons'
 import { Menus } from './menu'
+import { Toolbars } from './toolbars'
 import { Router } from './router'
 import { Services } from './services'
 import { VaultState } from './state'
@@ -94,6 +95,7 @@ export class App {
   readonly docked = new DockedNotes(this)
   readonly icons = new Icons()
   readonly menus = new Menus()
+  readonly toolbars = new Toolbars()
   readonly notice = notice
   /** Requests handled by the UI layer. */
   readonly ui = new Events<{ suggest: [options: SuggestOptions<any>] }>()

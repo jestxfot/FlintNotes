@@ -68,6 +68,12 @@
     node.append(app.icons.draw(name))
   }
 
+  /** A plugin's own editor for a setting that one field cannot hold. */
+  function custom(node: HTMLElement, render: (el: HTMLElement) => (() => void) | void) {
+    const off = render(node)
+    return { destroy: () => off?.() }
+  }
+
   function go(next: string) {
     tab = next
     query = ''
@@ -132,6 +138,15 @@
         <div class="card">
           {#each card.defs as def (def.key)}
             {@const set = (v: unknown) => settings.set(card.scope, def.key, v)}
+            {#if def.type === 'custom'}
+              <div class="item custom">
+                <span class="info">
+                  <span>{def.name}</span>
+                  {#if def.desc}<small>{def.desc}</small>{/if}
+                </span>
+                <div class="custom-body" use:custom={def.render}></div>
+              </div>
+            {:else}
             <label class="item">
               <span class="info">
                 <span>{def.name}</span>
@@ -163,6 +178,7 @@
                 <input type="text" placeholder={def.placeholder} value={value<string>(card.scope, def.key)} onchange={(event) => set(event.currentTarget.value)} />
               {/if}
             </label>
+            {/if}
           {/each}
         </div>
       {:else}
@@ -342,6 +358,12 @@
 
   .item + .item {
     border-top: 1px solid var(--border);
+  }
+
+  .item.custom {
+    flex-direction: column;
+    align-items: stretch;
+    gap: 10px;
   }
 
   .info {

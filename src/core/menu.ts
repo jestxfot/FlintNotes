@@ -34,14 +34,15 @@ export class Menus extends Events<{ show: [menu: { x: number; y: number; items: 
   }
 
   /** Opens a menu at the pointer with the given items plus those that plugins add for the kind. */
-  show(event: MouseEvent | { x: number; y: number }, kind: string, target: unknown, items: MenuItem[] = []): void {
+  show(event: MouseEvent | { x: number; y: number }, kind: string, target: unknown, items: MenuItem[] = []): boolean {
+    const all = [...items]
+    for (const provider of this.providers.get(kind) ?? []) provider(target, (item) => all.push({ section: 'plugin', ...item }))
+    // With nothing to offer, the browser's own menu is left alone.
+    if (!all.length) return false
     if (event instanceof MouseEvent) {
       event.preventDefault()
       event.stopPropagation()
     }
-    const all = [...items]
-    for (const provider of this.providers.get(kind) ?? []) provider(target, (item) => all.push({ section: 'plugin', ...item }))
-    if (!all.length) return
     const rank = (item: MenuItem) => {
       const at = ORDER.indexOf(item.section ?? 'action')
       return at < 0 ? ORDER.indexOf('edit') - 0.5 : at
@@ -49,5 +50,6 @@ export class Menus extends Events<{ show: [menu: { x: number; y: number; items: 
     // A stable sort: within a section the items stay in the order they were added.
     const sorted = all.map((item, i) => ({ item, i })).sort((a, b) => rank(a.item) - rank(b.item) || a.i - b.i)
     this.trigger('show', { x: 'clientX' in event ? event.clientX : event.x, y: 'clientY' in event ? event.clientY : event.y, items: sorted.map((entry) => entry.item) })
+    return true
   }
 }
