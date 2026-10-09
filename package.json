@@ -9,7 +9,8 @@
     "dev:web": "vite",
     "build": "vite build",
     "start": "tsx server/index.ts",
-    "check": "svelte-check --tsconfig ./tsconfig.json"
+    "check": "svelte-check --tsconfig ./tsconfig.json",
+    "test": "vite build && node e2e/run.mjs"
   },
   "dependencies": {
     "@hono/node-server": "^2.1.4",
@@ -36,6 +37,7 @@
     "@types/node": "^20.19.43",
     "concurrently": "^9.2.5",
     "nodemon": "^3.1.14",
+    "playwright": "^1.64.0",
     "svelte": "^5.57.2",
     "svelte-check": "^4.7.6",
     "typescript": "^6.0.3",

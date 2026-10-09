@@ -38,7 +38,9 @@ const toEntry = (abs: string, stat: Stats): VaultEntry => ({
   kind: stat.isDirectory() ? 'folder' : 'file',
   size: stat.isDirectory() ? 0 : stat.size,
   mtime: stat.mtimeMs,
-  ctime: stat.birthtimeMs,
+  // Some filesystems (Windows drives under WSL) do not report a creation time;
+  // the earliest time known for the file stands in for it.
+  ctime: stat.birthtimeMs || Math.min(stat.mtimeMs, stat.ctimeMs),
 })
 
 /** Resolves a vault-relative path, refusing anything that escapes the vault. */
