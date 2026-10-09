@@ -362,10 +362,14 @@ export class LivePreview {
       for (const name of renderer.nodes) byNode.set(name, [...(byNode.get(name) ?? []), renderer])
     }
 
-    const buildInline = (view: EditorView): DecorationSet => {
+    /** The editor's font, asked from the browser (which costs a layout) only when it may have changed. */
+    const fontOf = (view: EditorView) => {
       const style = getComputedStyle(view.contentDOM)
-      const font = `${style.fontStyle} ${style.fontWeight} ${style.fontSize} ${style.fontFamily}`
-      const ctx = new RenderContext(view.state, view.viewport, this, font, parseFloat(style.fontSize))
+      return { font: `${style.fontStyle} ${style.fontWeight} ${style.fontSize} ${style.fontFamily}`, em: parseFloat(style.fontSize) }
+    }
+
+    const buildInline = (view: EditorView, { font, em }: { font: string; em: number }): DecorationSet => {
+      const ctx = new RenderContext(view.state, view.viewport, this, font, em)
       const seen = new Set<string>()
       const tree = syntaxTree(view.state)
       for (const { from, to } of view.visibleRanges) {
@@ -421,18 +425,22 @@ export class LivePreview {
     const inline = ViewPlugin.fromClass(
       class {
         decorations: DecorationSet
+        font: { font: string; em: number }
         constructor(view: EditorView) {
-          this.decorations = buildInline(view)
+          this.font = fontOf(view)
+          this.decorations = buildInline(view, this.font)
         }
         update(update: ViewUpdate) {
+          if (update.geometryChanged) this.font = fontOf(update.view)
           if (
             update.docChanged ||
             update.viewportChanged ||
             update.selectionSet ||
             treeChanged(update.startState, update.state) ||
+            update.geometryChanged ||
             update.transactions.some((tr) => tr.effects.some((effect) => effect.is(refresh)))
           ) {
-            this.decorations = buildInline(update.view)
+            this.decorations = buildInline(update.view, this.font)
           }
         }
       },

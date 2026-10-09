@@ -28,7 +28,8 @@ export function parseTasks(path: string, text: string, headings: { text: string;
 
 /** Every task in the vault, kept current through the note index. */
 export class TaskStore extends Events<{ change: [] }> {
-  private cache = new Map<string, { text: string; tasks: Task[] }>()
+  private cache = new Map<string, { text: string; tasks: Task[]; lines: string }>()
+  private list: Task[] | null = null
 
   constructor(private app: App) {
     super()
@@ -36,35 +37,52 @@ export class TaskStore extends Events<{ change: [] }> {
 
   /** Begins following the vault; returns how to stop. */
   start(): Off {
+    const { metadata } = this.app
     let timer: ReturnType<typeof setTimeout> | undefined
-    const off = this.app.metadata.on('resolved', () => {
+    const changed = () => {
+      this.list = null
       // Notes change in bursts (typing, startup); lists are redrawn once per burst.
       clearTimeout(timer)
-      timer = setTimeout(() => this.trigger('change'), 80)
-    })
+      timer = setTimeout(() => this.trigger('change'), 120)
+    }
+    const offs = [
+      // A note's text changed. Most edits do not touch its tasks, and then nothing needs redrawing.
+      metadata.on('changed', (path) => {
+        const before = this.cache.get(path)?.lines
+        if (this.parse(path).lines !== before) changed()
+      }),
+      // Notes were added, removed or renamed, or their tags and properties changed.
+      metadata.on('resolved', changed),
+    ]
     return () => {
       clearTimeout(timer)
-      off()
+      offs.forEach((off) => off())
     }
   }
 
-  all(): Task[] {
+  private parse(path: string) {
     const { metadata } = this.app
+    const text = metadata.text(path) ?? ''
+    let entry = this.cache.get(path)
+    // Only notes whose text changed are parsed again.
+    if (entry?.text !== text) {
+      const tasks = parseTasks(path, text, metadata.get(path)?.headings ?? [])
+      entry = { text, tasks, lines: tasks.map((task) => `${task.line}\t${task.raw}`).join('\n') }
+      this.cache.set(path, entry)
+    }
+    return entry
+  }
+
+  all(): Task[] {
+    if (this.list) return this.list
     const seen = new Set<string>()
     const tasks: Task[] = []
-    for (const path of metadata.notes()) {
+    for (const path of this.app.metadata.notes()) {
       seen.add(path)
-      const text = metadata.text(path) ?? ''
-      let entry = this.cache.get(path)
-      // Only notes whose text changed are parsed again.
-      if (entry?.text !== text) {
-        entry = { text, tasks: parseTasks(path, text, metadata.get(path)?.headings ?? []) }
-        this.cache.set(path, entry)
-      }
-      tasks.push(...entry.tasks)
+      tasks.push(...this.parse(path).tasks)
     }
     for (const path of this.cache.keys()) if (!seen.has(path)) this.cache.delete(path)
-    return tasks
+    return (this.list = tasks)
   }
 
   /** Rewrites a task's line in its file; `edit` may return several lines. */

@@ -173,6 +173,7 @@ const METHODS: Record<string, Record<string, Method>> = {
     hasLink: (file: FileRef, other) => {
       const target = other instanceof FileRef ? other.path : other instanceof Link ? other.target : str(other)
       const wanted = file.info.resolve(target) ?? target
+      if (file.info.linksTo) return file.info.linksTo(wanted)
       return file.info.links().some((link) => (file.info.resolve(link.target) ?? link.target) === wanted)
     },
   },

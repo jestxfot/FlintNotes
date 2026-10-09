@@ -32,6 +32,8 @@ export interface FileInfo {
   properties(): Record<string, unknown>
   /** The file a link target refers to, seen from this file. */
   resolve(target: string): string | null
+  /** Whether this file links to the file at `path`; a quick answer from the link index. */
+  linksTo?(path: string): boolean
 }
 
 /** A file as a value in expressions: `file.name`, `file.hasTag("x")`. */

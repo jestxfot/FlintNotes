@@ -76,7 +76,15 @@ export function parseMarkdown(text: string): CachedMetadata {
       }
       frontmatterTags(meta.frontmatter).forEach(addTag)
       meta.aliases = frontmatterAliases(meta.frontmatter)
-      for (; i <= end; i++) offset += lines[i].length + 1
+      for (; i <= end; i++) {
+        // `link: "[[Hub]]"` in the properties is a link like any other: it shows
+        // up in backlinks, in the graph and in bases, and follows renames.
+        for (const m of lines[i].matchAll(WIKILINK)) {
+          const [from, to] = m.indices![2]!
+          meta.links.push({ target: m[2].trim(), subpath: m[3] ?? '', embed: false, kind: 'wiki', line: i, targetFrom: offset + from, targetTo: offset + to })
+        }
+        offset += lines[i].length + 1
+      }
     }
   }
 
@@ -155,6 +163,10 @@ type MetadataEvents = {
   renamed: [path: string, oldPath: string, affected: AffectedLinks[]]
 }
 
+/** Everything about a note that other notes' links, the tag list or queries can depend on. */
+const signature = (meta: CachedMetadata) =>
+  JSON.stringify([meta.links.map((l) => [l.target, l.subpath, l.embed]), meta.tags, meta.aliases, meta.headings.map((h) => [h.level, h.text]), meta.frontmatter])
+
 const isNote = (entry: VaultEntry) => entry.kind === 'file' && extname(entry.path) === 'md'
 
 function push<K, V>(map: Map<K, V[]>, key: K, value: V): void {
@@ -179,6 +191,8 @@ export class MetadataCache extends Events<MetadataEvents> {
   resolvedLinks = new Map<string, Map<string, number>>()
   /** Source note -> link text that matches no file -> number of links. */
   unresolvedLinks = new Map<string, Map<string, number>>()
+  /** Goes up whenever links, tags or properties changed; a cheap way to tell that derived data is stale. */
+  generation = 0
   /** Resolves once every note has been read for the first time. */
   readonly ready: Promise<void>
   private markReady!: () => void
@@ -192,6 +206,10 @@ export class MetadataCache extends Events<MetadataEvents> {
   private backlinkIndex = new Map<string, Map<string, number>>()
   private tagIndex = new Map<string, { tag: string; files: string[] }>()
   private loading = true
+  /** Modification time of each note as last indexed; a `modify` for a time already seen is skipped. */
+  private indexed = new Map<string, number>()
+  /** Answers of `resolve` since the last rebuild; the same links are asked about again and again. */
+  private resolved = new Map<string, string | null>()
 
   constructor(private vault: Vault) {
     super()
@@ -202,7 +220,14 @@ export class MetadataCache extends Events<MetadataEvents> {
   init(): void {
     const { vault } = this
     vault.on('create', (entry) => (isNote(entry) ? void this.index(entry.path) : this.rebuild()))
-    vault.on('modify', (entry) => isNote(entry) && void this.index(entry.path))
+    // Text saved by the app itself is taken as is; only changes made elsewhere are read from disk.
+    vault.on('written', (entry, text) => {
+      if (!isNote(entry)) return
+      this.versions.set(entry.path, (this.versions.get(entry.path) ?? 0) + 1)
+      this.indexed.set(entry.path, entry.mtime)
+      this.store(entry.path, text)
+    })
+    vault.on('modify', (entry) => isNote(entry) && this.indexed.get(entry.path) !== entry.mtime && void this.index(entry.path))
     vault.on('delete', (entry) => {
       this.cache.delete(entry.path)
       this.texts.delete(entry.path)
@@ -250,6 +275,14 @@ export class MetadataCache extends Events<MetadataEvents> {
   resolve(target: string, source: string): string | null {
     const text = target.trim()
     if (!text) return source
+    // The answer depends on the target and on the folder of the linking note.
+    const key = `${dirname(source)}\n${text}`
+    let answer = this.resolved.get(key)
+    if (answer === undefined) this.resolved.set(key, (answer = this.find(text, source)))
+    return answer
+  }
+
+  private find(text: string, source: string): string | null {
     const wanted = normalize(text).toLowerCase()
     const relative = normalize(join(dirname(source), text)).toLowerCase()
     for (const candidate of [wanted, `${wanted}.md`, relative, `${relative}.md`]) {
@@ -303,10 +336,22 @@ export class MetadataCache extends Events<MetadataEvents> {
     const text = await this.vault.read(path).catch(() => null)
     // Skip if the file is gone or a newer read of it has started meanwhile.
     if (text === null || this.versions.get(path) !== version || !this.vault.get(path)) return
+    this.indexed.set(path, this.vault.get(path)!.mtime)
+    this.store(path, text)
+  }
+
+  /**
+   * Takes in a note's new text. Links, backlinks and tags are worked out again
+   * only if the note's own links, tags, names, headings or properties changed;
+   * ordinary typing leaves them alone.
+   */
+  private store(path: string, text: string): void {
+    const before = this.cache.get(path)
+    const meta = parseMarkdown(text)
     this.texts.set(path, text)
-    this.cache.set(path, parseMarkdown(text))
+    this.cache.set(path, meta)
     this.trigger('changed', path)
-    if (!this.loading) this.rebuild()
+    if (!this.loading && (!before || signature(before) !== signature(meta))) this.rebuild()
   }
 
   private onRename(entry: VaultEntry, oldPath: string): void {
@@ -333,6 +378,8 @@ export class MetadataCache extends Events<MetadataEvents> {
   // Recomputing everything on each change keeps the index trivially correct and
   // costs a few map lookups per link.
   private rebuild(): void {
+    this.generation++
+    this.resolved.clear()
     this.paths.clear()
     this.names.clear()
     for (const file of this.vault.files()) {

@@ -76,14 +76,19 @@ function scope(app: App, task: Task): expr.Scope {
 
 /** A task's date as Obsidian Tasks exposes it to `filter by function`: `task.due.moment`. */
 const taskDate = (value?: string) => {
-  const date: Moment | null = value ? moment(value) : null
+  let parsed: Moment | null | undefined
   return {
-    moment: date,
+    // Read by few queries, so it is only worked out when one asks.
+    get moment(): Moment | null {
+      if (parsed === undefined) parsed = value ? moment(value) : null
+      return parsed
+    },
     formatAsDate: (fallback = '') => value ?? fallback,
     formatAsDateAndTime: (fallback = '') => value ?? fallback,
-    toISOString: () => date?.toISOString() ?? '',
+    toISOString: () => (value ? moment(value).toISOString() : ''),
     get category() {
       const today = moment().startOf('day')
+      const date = this.moment
       if (!date) return { name: 'Undated', sortOrder: 4, groupText: '%%4%% Undated' }
       const diff = date.diff(today, 'days')
       const name = diff < 0 ? 'Overdue' : diff === 0 ? 'Today' : 'Future'
@@ -100,7 +105,15 @@ const STATUS_TYPES: Record<string, string> = { ' ': 'TODO', x: 'DONE', X: 'DONE'
  * `sort by function` see, shaped like the one in Obsidian Tasks so queries
  * written there work here: `task.file.path`, `task.due.moment`, `task.tags`, ...
  */
+const scriptTasks = new WeakMap<Task, ReturnType<typeof buildScriptTask>>()
+
 function scriptTask(app: App, task: Task) {
+  let built = scriptTasks.get(task)
+  if (!built) scriptTasks.set(task, (built = buildScriptTask(app, task)))
+  return built
+}
+
+function buildScriptTask(app: App, task: Task) {
   const folder = paths.dirname(task.path)
   const meta = app.metadata.get(task.path)
   const type = STATUS_TYPES[task.status] ?? 'TODO'

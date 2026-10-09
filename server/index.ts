@@ -363,7 +363,8 @@ app.route('/api', api)
 
 // The built app: next to this file in a release, in `dist` when run from the sources.
 const here = path.dirname(fileURLToPath(import.meta.url))
-const staticDir = [path.join(here, 'public'), path.resolve('dist')].find((dir) => existsSync(path.join(dir, 'index.html')))
+// FLINT_STATIC points at another build, e.g. an unminified one for profiling.
+const staticDir = [process.env.FLINT_STATIC ?? '', path.join(here, 'public'), path.resolve('dist')].find((dir) => dir && existsSync(path.join(dir, 'index.html')))
 
 app.get('*', async (c) => {
   if (!staticDir) return c.text('Приложение не собрано: выполните `npm run build`.', 404)

@@ -8,6 +8,8 @@ type VaultEvents = {
   create: [entry: VaultEntry]
   modify: [entry: VaultEntry]
   delete: [entry: VaultEntry]
+  /** This app saved text into a file. Reported before `modify`, with the text itself. */
+  written: [entry: VaultEntry, text: string]
   /** A file was created by this app just now (not by another program or by sync). */
   'created-here': [entry: VaultEntry]
   rename: [entry: VaultEntry, oldPath: string]
@@ -147,6 +149,7 @@ export class Vault extends Events<VaultEvents> {
     })
     const entry: VaultEntry = await res.json()
     if (!path.startsWith('.')) {
+      if (typeof data === 'string') this.trigger('written', entry, data)
       this.upsert(entry)
       // The server refuses `create` for a file that exists, so a success means this
       // app made the file. (The file watcher may already have reported it.)

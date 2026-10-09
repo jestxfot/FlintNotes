@@ -17,22 +17,41 @@ export function propertyValue(raw: unknown): unknown {
   return parseDate(raw) ?? raw
 }
 
+// Values of files for the current state of the index; rebuilt when links or properties change.
+let cached = { generation: -1, refs: new Map<string, FileRef>() }
+
 /** A vault file as a value for expressions (`file.name`, `file.hasTag(...)`). */
 export function fileRef(app: App, path: string): FileRef {
   const { metadata, vault } = app
-  const entry = vault.get(path)
-  return new FileRef({
+  if (cached.generation !== metadata.generation) cached = { generation: metadata.generation, refs: new Map() }
+  let ref = cached.refs.get(path)
+  if (ref) return ref
+  let properties: Record<string, unknown> | undefined
+  ref = new FileRef({
     path,
-    size: entry?.size ?? 0,
-    ctime: entry?.ctime ?? 0,
-    mtime: entry?.mtime ?? 0,
+    // Size and times are read when asked for, so they are current even for a cached value.
+    get size() {
+      return vault.get(path)?.size ?? 0
+    },
+    get ctime() {
+      return vault.get(path)?.ctime ?? 0
+    },
+    get mtime() {
+      return vault.get(path)?.mtime ?? 0
+    },
     tags: () => metadata.get(path)?.tags ?? [],
     links: () => (metadata.get(path)?.links ?? []).map((link) => new Link(link.target)),
     backlinks: () => [...metadata.backlinks(path).keys()].map((source) => new Link(source)),
     properties: () => {
-      const data = metadata.get(path)?.frontmatter ?? {}
-      return Object.fromEntries(Object.entries(data).map(([key, value]) => [key, propertyValue(value)]))
+      if (!properties) {
+        const data = metadata.get(path)?.frontmatter ?? {}
+        properties = Object.fromEntries(Object.entries(data).map(([key, value]) => [key, propertyValue(value)]))
+      }
+      return properties
     },
     resolve: (target) => metadata.resolve(target, path),
+    linksTo: (target) => metadata.resolvedLinks.get(path)?.has(target) ?? false,
   })
+  cached.refs.set(path, ref)
+  return ref
 }

@@ -12,8 +12,8 @@
   let month = $state.raw(moment().startOf('month'))
   let today = $state.raw(moment().startOf('day'))
 
-  // svelte-ignore state_referenced_locally (props of a panel are set once, when it is mounted)
-  const indexed = watch(app.metadata, ['resolved'], () => ({}))
+  /** Goes up when a daily note's text changes: its dots may be different now. */
+  let written = $state(0)
   // svelte-ignore state_referenced_locally
   const files = watch(app.vault, ['create', 'delete', 'rename'], () => ({}))
   // svelte-ignore state_referenced_locally
@@ -37,7 +37,7 @@
   }
 
   const weeks = $derived.by(() => {
-    void indexed.current
+    void written
     void files.current
     const { sundayFirst, wordsPerDot } = settings.current
     // The grid starts on the first day of the week that contains the 1st.
@@ -79,7 +79,14 @@
     const timer = setInterval(() => {
       if (!moment().isSame(today, 'day')) today = moment().startOf('day')
     }, 60_000)
-    return () => clearInterval(timer)
+    // Other notes change all the time while typing; only daily notes matter here.
+    const off = app.metadata.on('changed', (path) => {
+      if (notes.dateOf('daily', path)) written++
+    })
+    return () => {
+      clearInterval(timer)
+      off()
+    }
   })
 </script>
 

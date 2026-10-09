@@ -34,6 +34,7 @@ export function mountBase(el: HTMLElement, host: BaseHost, initial: string): Mou
   let active = Math.max(0, viewsOf(parseBase(initial).config).findIndex((view) => view.name === host.initialView))
   let settingsOpen = false
   let stale = false
+  let offscreen = false
 
   const save = (next: string) => {
     source = next
@@ -42,6 +43,12 @@ export function mountBase(el: HTMLElement, host: BaseHost, initial: string): Mou
   }
 
   function draw(): void {
+    // Nothing is worked out for a base that is not on screen; it catches up when it is.
+    if (!el.isConnected || el.offsetParent === null) {
+      offscreen = true
+      return
+    }
+    offscreen = false
     const scroll = el.querySelector('.base-body')?.scrollTop ?? 0
     const { config, error } = parseBase(source)
     if (error) {
@@ -279,8 +286,13 @@ export function mountBase(el: HTMLElement, host: BaseHost, initial: string): Mou
     refresh()
   }
   el.addEventListener('focusout', onFocusOut)
+  const visible = new IntersectionObserver((entries) => {
+    if (offscreen && entries.some((entry) => entry.isIntersecting)) draw()
+  })
+  visible.observe(el)
 
-  draw()
+  // The element is not in the page yet while the block is being created.
+  requestAnimationFrame(draw)
   return {
     update(next) {
       if (next === source) return
@@ -290,6 +302,7 @@ export function mountBase(el: HTMLElement, host: BaseHost, initial: string): Mou
     destroy() {
       clearTimeout(timer)
       off()
+      visible.disconnect()
       el.removeEventListener('focusout', onFocusOut)
     },
   }
