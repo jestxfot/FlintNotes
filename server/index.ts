@@ -78,18 +78,23 @@ if (!existsSync(root)) {
 
 const api = new Hono()
 
-// The server can write to disk, so only the local app may talk to it: this blocks
-// other websites (cross-origin requests) and DNS rebinding (foreign Host header).
+// The server can write to disk, so only the local app may talk to it. A request
+// must be addressed to this machine (a foreign Host header means DNS rebinding)
+// and, if a page sent it, that page must be served from this machine too. The
+// port may differ: in development the page comes from the Vite server.
+const LOCAL = ['localhost', '127.0.0.1', '[::1]']
+const isLocal = (url: string) => {
+  try {
+    return LOCAL.includes(new URL(url).hostname)
+  } catch {
+    return false
+  }
+}
+
 api.use(async (c, next) => {
-  const host = c.req.header('host') ?? ''
-  const { hostname } = new URL(`http://${host}`)
-  if (!['localhost', '127.0.0.1', '[::1]'].includes(hostname)) {
-    throw new HTTPException(403, { message: 'Forbidden host' })
-  }
+  if (!isLocal(`http://${c.req.header('host') ?? ''}`)) throw new HTTPException(403, { message: 'Forbidden host' })
   const origin = c.req.header('origin')
-  if (origin && new URL(origin).host !== host) {
-    throw new HTTPException(403, { message: 'Forbidden origin' })
-  }
+  if (origin && !isLocal(origin)) throw new HTTPException(403, { message: 'Forbidden origin' })
   await next()
 })
 

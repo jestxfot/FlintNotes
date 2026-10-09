@@ -19,6 +19,12 @@ export async function run(t) {
   const status = () => page.locator('.status-bar').innerText()
   const focused = (className) => page.evaluate((c) => document.activeElement?.classList.contains(c), className)
 
+  // The page may be served from another local port (the dev server), never from another site.
+  const post = (headers) => fetch(`${t.url}api/folder?path=probe-${Math.random()}`, { method: 'POST', headers }).then((r) => r.status)
+  ok('writes accepted from a local page on another port', (await post({ Origin: 'http://localhost:5173' })) === 200 && (await post({ Origin: 'http://127.0.0.1:5173' })) === 200)
+  ok('writes refused from a foreign site', (await post({ Origin: 'http://evil.example' })) === 403)
+  await page.reload()
+
   await page.waitForSelector('.tree .row')
   ok('tree lists welcome note', (await t.row('Добро пожаловать').count()) === 1)
   ok('empty state shown', (await t.count('.empty')) === 1)
