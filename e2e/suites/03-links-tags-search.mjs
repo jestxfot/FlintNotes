@@ -132,14 +132,40 @@ export async function run(t) {
   ok('disabling the links plugin restores plain text', (await count('.lp-wikilink')) === 0 && (await t.text()).includes('[[Beta]]'))
   ok('disabling backlinks removes the right sidebar', (await t.count('aside.right')) === 0)
 
-  // ---- links written with a date variable, as Obsidian leaves them in daily notes
-  // The checks above end with plugins switched off and the search panel in front.
+  // ---- typing a link: brackets close themselves, and the list says where each note is
   await page.evaluate(async () => {
     await app.plugins.enable('links')
     app.panels.reveal('files')
   })
-  await wait(600)
   await t.row('Days').click()
+  await t.open('2026-10-09')
+  await page.keyboard.press('Enter')
+  await page.keyboard.type('[')
+  ok('an opening bracket brings its closing one', (await t.text()).includes('[]'), await t.text())
+  await page.keyboard.type('[2026-10-0')
+  await wait(500)
+  const list = page.locator('.cm-tooltip-autocomplete')
+  const first = await t.flat(list.locator('li').first())
+  ok('the list shows the note and its folder', (await list.count()) === 1 && first.includes('2026-10-08') && first.includes('Days/'), first)
+  ok('and says what else can be typed', (await list.evaluate((el) => getComputedStyle(el, '::after').content)).includes('заголовок'))
+  await page.keyboard.press('Enter')
+  await wait(300)
+  ok('choosing a note leaves one pair of closing brackets', (await page.evaluate(() => app.workspace.activeEditor.state.doc.toString())).endsWith('[[2026-10-08]]'), await page.evaluate(() => app.workspace.activeEditor.state.doc.toString()))
+  await page.keyboard.press('Enter')
+  await page.keyboard.type('[[A#')
+  await wait(500)
+  ok('after # the headings of the note are offered', (await t.flat(list)).includes('A') && (await list.locator('li').count()) >= 1, await t.flat(list).catch(() => 'no list'))
+  await page.keyboard.press('Escape')
+  await page.keyboard.press('End')
+  await page.keyboard.press('Enter')
+  await page.keyboard.type('word')
+  await page.keyboard.press('Shift+Control+ArrowLeft')
+  await page.keyboard.type('*')
+  await page.keyboard.type('*')
+  ok('a Markdown mark typed over a selection wraps it', (await page.evaluate(() => app.workspace.activeEditor.state.doc.toString())).endsWith('**word**'), await page.evaluate(() => app.workspace.activeEditor.state.doc.toString()).then((d) => d.slice(-40)))
+  await wait(1200)
+
+  // ---- links written with a date variable, as Obsidian leaves them in daily notes
   await t.open('2026-10-08')
   const next = page.locator(`${leaf} .lp-wikilink`, { hasText: 'tomorrow →' })
   ok('a link with a date variable leads to the day counted from the note', (await next.count()) === 1 && !(await next.getAttribute('class')).includes('missing'), await next.getAttribute('class').catch(() => 'none'))

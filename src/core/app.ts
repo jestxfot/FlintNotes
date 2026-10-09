@@ -10,6 +10,7 @@ import { notice } from './notice'
 import { Panels } from './panels'
 import { PluginManager } from './plugin-manager'
 import { DockedNotes } from './docked'
+import { autoPairs } from './editor/pairs'
 import { Icons } from './icons'
 import { Menus } from './menu'
 import { Toolbars } from './toolbars'
@@ -37,6 +38,7 @@ const coreSettings: SettingsSection = {
         { value: 'dark', label: 'Тёмная' },
       ],
     },
+    { key: 'autoPair', group: 'Редактор', name: 'Закрывать скобки и кавычки', desc: 'Открывающая скобка или кавычка сразу получает закрывающую; выделенный текст оборачивается', type: 'toggle', default: true },
     {
       key: 'editorMode', group: 'Редактор',
       name: 'Режим редактора',
@@ -121,6 +123,13 @@ export class App {
     this.metadata.init()
     this.livePreview.init()
     this.embeds.on('change', () => this.livePreview.refresh())
+    // Brackets that close themselves, on or off without reopening anything.
+    let pairs = this.settings.get<boolean>('core', 'autoPair') ? this.editor.add(autoPairs) : null
+    this.settings.on('change', (scope, key) => {
+      if (scope !== 'core' || key !== 'autoPair') return
+      pairs?.()
+      pairs = this.settings.get<boolean>('core', 'autoPair') ? this.editor.add(autoPairs) : null
+    })
     this.commands.add({
       id: 'core:toggle-editor-mode',
       name: 'Переключить Live Preview и исходный текст',

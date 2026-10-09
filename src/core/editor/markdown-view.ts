@@ -46,7 +46,28 @@ export class MarkdownView implements FileView {
           indentOnInput(),
           EditorView.lineWrapping,
           this.app.markdown.extension,
-          autocompletion({ icons: false }),
+          autocompletion({
+            icons: false,
+            // An alias is marked with an arrow: choosing it links to the note the alias belongs to.
+            addToOptions: [
+              {
+                position: 90,
+                render: (completion) => {
+                  if (completion.type !== 'alias') return null
+                  const arrow = document.createElement('span')
+                  arrow.className = 'cm-completionAlias'
+                  arrow.textContent = '↪'
+                  arrow.title = 'Псевдоним'
+                  return arrow
+                },
+              },
+            ],
+            // While a link is being typed, the list says what else can be typed.
+            tooltipClass: (state) => {
+              const head = state.selection.main.head
+              return /\[\[[^\]\n]*$/.test(state.sliceDoc(state.doc.lineAt(head).from, head)) ? 'cm-link-completion' : ''
+            },
+          }),
           search(),
           keymap.of([...completionKeymap, ...defaultKeymap, ...historyKeymap, ...searchKeymap, indentWithTab]),
           editorLook,
