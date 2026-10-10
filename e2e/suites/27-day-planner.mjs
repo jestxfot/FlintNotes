@@ -10,6 +10,7 @@ export const vault = {
     '.obsidian/app.json': '{}',
     '.obsidian/plugins/obsidian-day-planner/data.json': JSON.stringify(data),
     [`${today}.md`]: `# Notes\n\ntext\n\n# Day planner\n- [x] 08:00 - 08:30 Coffee ✅ ${today}\n- [ ] 09:00 - 11:00 Deep work [[Other]]\n- [ ] 10:00 - 10:30 Call\n- 13:00 Lunch\n- [ ] No time yet\n\n\`\`\`\n- [ ] 05:00 - 06:00 not a block\n\`\`\`\n`,
+    [`${day(1)}.md`]: '# Day planner\n- [ ] 07:00 - 07:30 Tomorrow run\n',
     'Other.md': 'x\n',
   },
 }
@@ -61,4 +62,33 @@ export async function run(t) {
   await page.keyboard.type('Walk')
   await wait(1200)
   ok('and the cursor waits at its end', read(file).split('\n')[made].endsWith(' Walk'), read(file).split('\n')[made])
+
+  // ---- three days, a week, a month
+  await page.evaluate(() => app.commands.run('core:panel-tab:day-planner'))
+  await wait(600)
+  const tab = (name) => plan.locator('.day-plan-modes [role=tab]', { hasText: name })
+  ok('the plan offers a day, three days, a week and a month', (await plan.locator('.day-plan-modes [role=tab]').allInnerTexts()).join('|') === 'День|3 дня|Неделя|Месяц' && (await tab('День').getAttribute('aria-selected')) === 'true')
+  await tab('3 дня').click()
+  await wait(500)
+  const cols = plan.locator('.day-plan-col')
+  ok('three days stand side by side, each with its own blocks', (await cols.count()) === 3 && (await t.flat(cols.nth(1))).includes('Tomorrow run') && !(await t.flat(cols.nth(0))).includes('Tomorrow run') && (await t.flat(cols.nth(0))).includes('Coffee'), await t.flat(cols.nth(1)))
+  await tab('Неделя').click()
+  await wait(500)
+  ok('a week has seven days, today marked, the needle in it alone', (await cols.count()) === 7 && (await t.flat(plan.locator('.day-plan-col.today'))).includes('Coffee') && (await plan.locator('.day-now').count()) === 1 && (await plan.locator('.day-plan-days button').count()) === 7)
+  await plan.locator('.day-plan-col.today .day-block', { hasText: 'Deep work' }).locator('input').check()
+  await wait(1200)
+  ok('a block is ticked from the week too', read(file).includes(`- [x] 09:00 - 11:00 Deep work [[Other]] ✅ ${today}`), read(file))
+  await tab('Месяц').click()
+  await wait(500)
+  ok('a month is six weeks of days with the lines of their plans', (await plan.locator('.day-cell').count()) === 42 && (await t.flat(plan.locator('.day-cell.today'))).includes('08:00 Coffee'), await t.flat(plan.locator('.day-cell.today')))
+  await page.reload()
+  await plan.waitFor()
+  await wait(900)
+  ok('the chosen view comes back', (await tab('Месяц').getAttribute('aria-selected')) === 'true' && (await plan.locator('.day-cell').count()) === 42)
+  await plan.locator('.day-cell.today .day-cell-date').click()
+  await wait(500)
+  ok('a date of the month opens that day', (await tab('День').getAttribute('aria-selected')) === 'true' && (await cols.count()) === 1 && (await t.flat(plan)).includes('Coffee'))
+  await tab('Неделя').click()
+  await wait(500)
+  await page.screenshot({ path: process.env.FLINT_SHOT ?? '/dev/null' }).catch(() => {})
 }
