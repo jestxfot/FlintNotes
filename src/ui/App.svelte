@@ -43,6 +43,8 @@
       // A menu opened from the sidebar keeps it in place, and so do dragging its edge and typing a name in it.
       // A button that was merely clicked there does not: the focus it keeps would hold the sidebar for ever.
       if (!on && (menu || document.querySelector('aside.resizing') || document.querySelector('aside input:focus'))) return hover(side, false)
+      // The pointer came back meanwhile: the sidebar stays.
+      if (!on && over[side]) return
       peek[side] = on
     }, on ? 120 : 350)
   }
@@ -230,7 +232,11 @@
       app.ui.on('suggest', (options) => (suggest = options)),
       app.panels.on('reveal', (id) => {
         const side = app.panels.sideOf(id) === 'left' ? 'left' : 'right'
-        if (floating) peek[side] = pinned[side] = true
+        // Shown on request, it stays until the pointer has been on it and left, or Esc is pressed; it is not pinned.
+        if (floating) {
+          peek[side] = true
+          over[side] = true
+        }
         else if (side === 'left') leftOpen = true
         else rightOpen = true
       }),
@@ -326,6 +332,17 @@
     const LOCKED: Record<string, string> = { 'Mod+W': 'core:close-tab', 'Mod+T': 'core:new-note', 'Mod+Tab': 'core:next-tab', 'Mod+Shift+Tab': 'core:previous-tab' }
     // Capture phase: app shortcuts take priority over the focused editor's keymap.
     const onKey = (event: KeyboardEvent) => {
+      // Esc always sends the floating sidebars away, pinned or not, whatever was keeping them.
+      if (event.key === 'Escape' && floating && (peek.left || peek.right) && !menu && !document.querySelector('dialog[open]')) {
+        for (const side of ['left', 'right'] as const) {
+          clearTimeout(peekTimers[side])
+          peek[side] = pinned[side] = over[side] = false
+        }
+        ;(document.activeElement as HTMLElement | null)?.blur?.()
+        workspace.active?.view?.focus?.()
+        event.preventDefault()
+        return
+      }
       if (document.fullscreenElement && (event.ctrlKey || event.metaKey) && !event.altKey) {
         const id = LOCKED[`Mod+${event.shiftKey ? 'Shift+' : ''}${event.code === 'Tab' ? 'Tab' : event.code.replace(/^Key/, '')}`]
         if (id) {
