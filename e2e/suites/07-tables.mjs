@@ -19,6 +19,20 @@ export async function run(t) {
   const key = (name) => page.keyboard.press(name)
 
   await t.open('Plain')
+  // ---- searching does not turn a table back into its text
+  await page.locator(`${leaf} .cm-content`).click({ position: { x: 300, y: 12 } })
+  await page.keyboard.press('Control+f')
+  await page.locator(`${leaf} .find-bar`).waitFor()
+  await page.keyboard.type('pear')
+  await wait(600)
+  const lit = await page.evaluate(() => (CSS.highlights.get('flint-find-current')?.size ?? 0) + ':' + (CSS.highlights.get('flint-find')?.size ?? 0))
+  ok('a search that steps into a table leaves it a table and lights the place in it', (await table.count()) === 1 && !(await t.text()).includes('| ---') && lit === '1:1' && (await t.flat(page.locator(`${leaf} .find-count`))) === '1 из 1', lit + ' | ' + (await t.text()).slice(0, 80))
+  await page.keyboard.press('Escape')
+  await wait(300)
+  ok('closing the search takes the marks away', (await page.evaluate(() => CSS.highlights.has('flint-find'))) === false && (await table.count()) === 1)
+  await page.locator(`${leaf} .cm-content`).click({ position: { x: 300, y: 12 } })
+  await t.cursorToEnd()
+  await wait(300)
   ok('a markdown table is drawn as a table', (await table.count()) === 1 && JSON.stringify(await grid()) === JSON.stringify([['Apple', '3'], ['Pear', '10']]) && !(await t.text()).includes('| ---'), JSON.stringify(await grid()))
   ok('column alignment kept', (await cell(0, 1).evaluate((td) => td.style.textAlign)) === 'right')
 

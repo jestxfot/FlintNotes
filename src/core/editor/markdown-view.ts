@@ -169,6 +169,18 @@ export class MarkdownView implements FileView {
     const pos = doc.line(Math.min(Math.max(line + 1, 1), doc.lines)).from
     this.editor.dispatch({ selection: { anchor: pos }, effects: EditorView.scrollIntoView(pos, { y: 'center' }) })
     this.editor.focus()
+    // The line is lit for a moment, so the eye finds it at once.
+    const flash = (tries: number) =>
+      requestAnimationFrame(() => {
+        if (this.destroyed) return
+        const node = this.editor.domAtPos(pos).node
+        const line = (node instanceof Element ? node : node.parentElement)?.closest<HTMLElement>('.cm-line')
+        if (!line) return void (tries > 0 && flash(tries - 1))
+        line.classList.remove('line-flash')
+        void line.offsetWidth
+        line.classList.add('line-flash')
+      })
+    flash(8)
   }
 
   focus(): void {

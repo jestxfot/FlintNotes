@@ -599,3 +599,43 @@ input[type='checkbox']:disabled {
   background: color-mix(in srgb, var(--accent) 22%, transparent);
   color: var(--accent);
 }
+
+/* What a search found in a note: every place is marked, the current one stands out. */
+.cm-editor .cm-searchMatch {
+  border-radius: 3px;
+  background: color-mix(in srgb, var(--color-yellow) 38%, transparent);
+  box-shadow: 0 0 0 1px color-mix(in srgb, var(--color-yellow) 55%, transparent);
+}
+
+.cm-editor .cm-searchMatch.cm-searchMatch-selected {
+  background: var(--color-orange);
+  box-shadow: 0 0 0 2px var(--color-orange), 0 0 0 5px color-mix(in srgb, var(--color-orange) 35%, transparent);
+  color: #1a1a1a;
+}
+
+.cm-editor .cm-searchMatch.cm-searchMatch-selected span {
+  color: inherit !important;
+}
+
+/* The line a search result or a link led to. */
+.cm-editor .cm-line.line-flash {
+  animation: line-flash 1.8s ease-out;
+}
+
+@keyframes line-flash {
+  0%,
+  35% {
+    background: color-mix(in srgb, var(--color-yellow) 45%, transparent);
+    box-shadow: -4px 0 0 var(--color-orange);
+  }
+}
+
+/* The same marks inside blocks that are drawn (tables): painted over their text, the block stays as it is. */
+::highlight(flint-find) {
+  background-color: color-mix(in srgb, var(--color-yellow) 45%, transparent);
+}
+
+::highlight(flint-find-current) {
+  background-color: var(--color-orange);
+  color: #1a1a1a;
+}

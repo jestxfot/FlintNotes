@@ -1,3 +1,4 @@
+import { getSearchQuery, searchPanelOpen } from '@codemirror/search'
 import { htmlBlock } from './elements/html'
 import { syntaxTree } from '@codemirror/language'
 import { Compartment, StateEffect, StateField, type EditorState, type Extension, type Line, type Range } from '@codemirror/state'
@@ -47,6 +48,19 @@ export interface CodeBlockInstance {
  * through `ctx.setSource`.
  */
 export type CodeBlockProcessor = (source: string, el: HTMLElement, ctx: CodeBlockContext) => void | CodeBlockInstance
+
+/** Whether what is selected is what the open search bar is looking for (it stepped there), not the user's own selection. */
+function selectionIsFound(state: EditorState): boolean {
+  if (!searchPanelOpen(state)) return false
+  const query = getSearchQuery(state)
+  if (!query.search || !query.valid) return false
+  return state.selection.ranges.every((range) => {
+    if (range.empty) return false
+    const text = state.sliceDoc(range.from, range.to)
+    if (query.regexp) return true
+    return query.caseSensitive ? text === query.search : text.toLowerCase() === query.search.toLowerCase()
+  })
+}
 
 const hidden = Decoration.replace({})
 
@@ -334,8 +348,9 @@ export class LivePreview {
     }
     if (!block || !processor) return null
     if (state.facet(staticPreview)) return { block, processor }
-    // The cursor anywhere on the block's lines switches it back to source.
-    if (state.selection.ranges.some((range) => range.from <= to && range.to >= from)) return null
+    // The cursor anywhere on the block's lines switches it back to source. Not so a place a search
+    // has just stepped to: a table stays a table while it is searched, and the place is lit in it.
+    if (state.selection.ranges.some((range) => range.from <= to && range.to >= from) && !selectionIsFound(state)) return null
     return { block, processor }
   }
 

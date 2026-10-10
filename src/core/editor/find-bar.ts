@@ -72,6 +72,8 @@ function findBar(app: App, view: EditorView): Panel {
   /** Where in the history the Up key has got to; -1 is what is being typed. */
   let back = -1
   let draft = ''
+  /** Where the cursor was when the search began: typing looks from there on. */
+  let origin = view.state.selection.main.from
 
   const commit = () => {
     const query = new SearchQuery({ search: field.value, replace: replaceField.value, ...options })
@@ -87,6 +89,7 @@ function findBar(app: App, view: EditorView): Panel {
     remember(field.value)
     back = -1
     ;(forward ? findNext : findPrevious)(view)
+    centre(view)
   }
   /** "3 из 12": which of the found places the cursor is on. */
   const tally = () => {
@@ -118,6 +121,13 @@ function findBar(app: App, view: EditorView): Panel {
   field.oninput = () => {
     back = -1
     commit()
+    // What is being typed is shown as it is found, from where the cursor was when the bar was opened.
+    const query = getSearchQuery(view.state)
+    if (!query.search || !query.valid) return
+    const cursor = query.getCursor(view.state, origin) as Iterator<{ from: number; to: number }>
+    const found = cursor.next()
+    const first = found.done ? (query.getCursor(view.state) as Iterator<{ from: number; to: number }>).next() : found
+    if (!first.done) view.dispatch({ selection: { anchor: first.value.from, head: first.value.to }, effects: EditorView.scrollIntoView(first.value.from, { y: 'center' }) })
   }
   replaceField.oninput = commit
   field.onkeydown = (event) => {
@@ -179,18 +189,100 @@ function findBar(app: App, view: EditorView): Panel {
     top: true,
     mount() {
       bars.set(view, api)
+      origin = view.state.selection.main.from
       api.showReplace(withReplace)
       show()
       api.focus()
     },
     update(update: ViewUpdate) {
-      if (update.docChanged || update.selectionSet || update.transactions.some((tr) => tr.effects.some((effect) => effect.is(setSearchQuery)))) show()
+      if (update.docChanged || update.selectionSet || update.transactions.some((tr) => tr.effects.some((effect) => effect.is(setSearchQuery)))) {
+        show()
+        // Blocks are drawn after the editor has taken the change in.
+        requestAnimationFrame(() => requestAnimationFrame(() => paintBlocks(view)))
+      }
     },
     destroy() {
       bars.delete(view)
+      highlights?.delete('flint-find')
+      highlights?.delete('flint-find-current')
     },
   }
 }
+
+const highlights = (globalThis as { CSS?: { highlights?: Map<string, unknown> } }).CSS?.highlights
+const makeHighlight = (ranges: Range[]) => new (globalThis as unknown as { Highlight: new (...ranges: Range[]) => unknown }).Highlight(...ranges)
+
+/**
+ * Lights what is searched for inside blocks that are drawn rather than shown as text
+ * (tables, lists of tasks). The block stays as it is drawn: the places are painted over
+ * its own text with the browser's highlights, and the current one is brought to the middle.
+ */
+function paintBlocks(view: EditorView): void {
+  if (!highlights) return
+  highlights.delete('flint-find')
+  highlights.delete('flint-find-current')
+  if (!searchPanelOpen(view.state)) return
+  const query = getSearchQuery(view.state)
+  if (!query.search || !query.valid || query.regexp) return
+  const needle = query.caseSensitive ? query.search : query.search.toLowerCase()
+  const fold = (text: string) => (query.caseSensitive ? text : text.toLowerCase())
+  const head = view.state.selection.main
+  const all: Range[] = []
+  /** The drawn block the search stands in: the last one that begins at or before the place found. */
+  let inside: { start: number; found: Range[] } | null = null
+  for (const block of view.dom.querySelectorAll<HTMLElement>('.lp-block, .lp-embed')) {
+    const found: Range[] = []
+    const walker = document.createTreeWalker(block, NodeFilter.SHOW_TEXT)
+    for (let node = walker.nextNode(); node; node = walker.nextNode()) {
+      const text = fold(node.textContent ?? '')
+      for (let at = text.indexOf(needle); at >= 0; at = text.indexOf(needle, at + needle.length)) {
+        const range = document.createRange()
+        range.setStart(node, at)
+        range.setEnd(node, at + needle.length)
+        found.push(range)
+      }
+    }
+    all.push(...found)
+    if (head.empty) continue
+    let start: number
+    try {
+      start = view.posAtDOM(block)
+    } catch {
+      continue
+    }
+    if (start <= head.from && (!inside || start >= inside.start)) inside = { start, found }
+  }
+  let current: Range | null = null
+  // The place is the n-th one in the block's text, and so the n-th one in what is drawn of it. A block
+  // that begins before the place but does not hold it has it nowhere in its text, and nothing is lit.
+  if (inside && inside.found.length && fold(view.state.sliceDoc(head.from, head.to)) === needle) {
+    const lineStart = view.state.doc.lineAt(head.from).from
+    const blockText = fold(view.state.sliceDoc(inside.start, head.from))
+    // Between the block's start and the place there must be no empty line: an empty line ends a table.
+    if (!/\n[ \t]*\n/.test(view.state.sliceDoc(inside.start, lineStart))) {
+      let nth = 0
+      for (let at = blockText.indexOf(needle); at >= 0; at = blockText.indexOf(needle, at + needle.length)) nth++
+      current = inside.found[Math.min(nth, inside.found.length - 1)]
+    }
+  }
+  if (all.length) highlights.set('flint-find', makeHighlight(all))
+  if (current) {
+    highlights.set('flint-find-current', makeHighlight([current]))
+    const box = current.getBoundingClientRect()
+    const page = view.scrollDOM.getBoundingClientRect()
+    // Into the middle, if it is not already comfortably on the page.
+    if (box.top < page.top + 80 || box.bottom > page.bottom - 80) view.scrollDOM.scrollBy({ top: box.top - (page.top + page.height / 2) })
+    const cell = current.startContainer.parentElement?.closest<HTMLElement>('.table-wrap, .lp-block-body, td, th')
+    cell?.scrollIntoView({ block: 'nearest', inline: 'nearest' })
+  }
+}
+
+/** Puts what was found in the middle of the page, where the eye is, instead of at its very edge. */
+function centre(view: EditorView): void {
+  view.dispatch({ effects: EditorView.scrollIntoView(view.state.selection.main, { y: 'center' }) })
+}
+const next = (view: EditorView) => findNext(view) && (centre(view), true)
+const previous = (view: EditorView) => findPrevious(view) && (centre(view), true)
 
 /** Opens the bar, with or without the row to replace with; an open bar is changed and takes the keyboard. */
 function open(view: EditorView, replace: boolean): boolean {
@@ -209,8 +301,8 @@ export function findInNote(app: App): Extension {
     keymap.of([
       { key: 'Mod-f', run: (view) => open(view, false), preventDefault: true },
       { key: 'Mod-h', run: (view) => open(view, true), preventDefault: true },
-      { key: 'F3', run: findNext, shift: findPrevious, preventDefault: true },
-      { key: 'Mod-g', run: findNext, shift: findPrevious, preventDefault: true },
+      { key: 'F3', run: next, shift: previous, preventDefault: true },
+      { key: 'Mod-g', run: next, shift: previous, preventDefault: true },
       { key: 'Escape', run: closeSearchPanel },
     ]),
   ]

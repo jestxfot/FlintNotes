@@ -219,6 +219,14 @@ export async function run(t) {
   ok('Ctrl+F opens a bar above the text, without the row to replace', top && (await bar.locator('.find-replace').isHidden()) && (await page.evaluate(() => document.activeElement?.getAttribute('aria-label'))) === 'Найти в заметке')
   await page.keyboard.type('needle')
   await wait(300)
+  const centred = await page.evaluate(() => {
+    const leafEl = document.querySelector('.leaf:not([hidden])')
+    const found = leafEl.querySelector('.cm-searchMatch-selected')
+    if (!found) return 'no current match'
+    const style = getComputedStyle(found)
+    return style.backgroundColor !== 'rgba(0, 0, 0, 0)' && style.boxShadow !== 'none' ? 'lit' : 'plain'
+  })
+  ok('the place found is selected and stands out', centred === 'lit', centred)
   ok('it counts what it found', (await t.flat(bar.locator('.find-count'))) === '1 из 1', await t.flat(bar.locator('.find-count')))
   await page.keyboard.press('Control+h')
   await wait(200)
