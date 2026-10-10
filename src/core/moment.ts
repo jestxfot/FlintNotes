@@ -226,6 +226,56 @@ export class Moment {
   isAfter(other: MomentInput, what = 'millisecond'): boolean {
     return this.clone().startOf(what).valueOf() > moment(other).startOf(what).valueOf()
   }
+  isSameOrBefore(other: MomentInput, what = 'millisecond'): boolean {
+    return !this.isAfter(other, what)
+  }
+
+  isSameOrAfter(other: MomentInput, what = 'millisecond'): boolean {
+    return !this.isBefore(other, what)
+  }
+
+  /**
+   * How far the moment is from now, rounded the way Moment.js rounds it: a count and
+   * a unit ("3 days", "a month"). `past` says on which side of now it lies.
+   */
+  relative(): { count: number; unit: 'second' | 'minute' | 'hour' | 'day' | 'month' | 'year'; past: boolean } {
+    const ms = this.valueOf() - Date.now()
+    const past = ms <= 0
+    const seconds = Math.abs(ms) / 1000
+    const minutes = seconds / 60
+    const hours = minutes / 60
+    const days = hours / 24
+    if (seconds < 45) return { count: 1, unit: 'second', past }
+    if (seconds < 90) return { count: 1, unit: 'minute', past }
+    if (minutes < 45) return { count: Math.round(minutes), unit: 'minute', past }
+    if (minutes < 90) return { count: 1, unit: 'hour', past }
+    if (hours < 22) return { count: Math.round(hours), unit: 'hour', past }
+    if (hours < 36) return { count: 1, unit: 'day', past }
+    if (days < 26) return { count: Math.round(days), unit: 'day', past }
+    if (days < 45) return { count: 1, unit: 'month', past }
+    if (days < 320) return { count: Math.round(days / 30.4), unit: 'month', past }
+    if (days < 548) return { count: 1, unit: 'year', past }
+    return { count: Math.round(days / 365), unit: 'year', past }
+  }
+
+  /** "через 3 дня", "2 месяца назад"; without the suffix just "3 дня". */
+  fromNow(withoutSuffix = false): string {
+    if (!this.isValid()) return ''
+    const { count, unit, past } = this.relative()
+    const forms: Record<string, [one: string, few: string, many: string, single: string]> = {
+      second: ['секунду', 'секунды', 'секунд', 'несколько секунд'],
+      minute: ['минуту', 'минуты', 'минут', 'минуту'],
+      hour: ['час', 'часа', 'часов', 'час'],
+      day: ['день', 'дня', 'дней', 'день'],
+      month: ['месяц', 'месяца', 'месяцев', 'месяц'],
+      year: ['год', 'года', 'лет', 'год'],
+    }
+    const [one, few, many, single] = forms[unit]
+    const word = count % 10 === 1 && count % 100 !== 11 ? one : count % 10 >= 2 && count % 10 <= 4 && (count % 100 < 12 || count % 100 > 14) ? few : many
+    const text = count === 1 ? single : `${count} ${word}`
+    return withoutSuffix ? text : past ? `${text} назад` : `через ${text}`
+  }
+
   isSame(other: MomentInput, what = 'millisecond'): boolean {
     return this.clone().startOf(what).valueOf() === moment(other).startOf(what).valueOf()
   }

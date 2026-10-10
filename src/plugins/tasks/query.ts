@@ -91,6 +91,21 @@ const taskDate = (value?: string) => {
       if (parsed === undefined) parsed = value ? moment(value) : null
       return parsed
     },
+    /** The date written by a format of Moment.js; `fallback` for a task without this date. */
+    format: (format: string, fallback = '') => (value ? moment(value).format(format) : fallback),
+    /**
+     * How far the date is from now, in words, for grouping: groups of the past come first,
+     * the oldest first, then those of the future, the nearest first, as in Obsidian Tasks.
+     */
+    get fromNow() {
+      const date = this.moment
+      if (!date || !date.isValid()) return { name: '', sortOrder: 0, groupText: '' }
+      const { count, unit, past } = date.relative()
+      const start = past ? moment().subtract(count, unit) : moment().add(count, unit)
+      const sortOrder = Number((past ? '1' : '3') + start.format('YYYYMMDDHHmm'))
+      const name = date.fromNow()
+      return { name, sortOrder, groupText: `%%${sortOrder}%% ${name}` }
+    },
     formatAsDate: (fallback = '') => value ?? fallback,
     formatAsDateAndTime: (fallback = '') => value ?? fallback,
     toISOString: () => (value ? moment(value).toISOString() : ''),
