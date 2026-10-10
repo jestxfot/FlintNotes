@@ -130,11 +130,38 @@ export function mountBase(el: HTMLElement, host: BaseHost, initial: string): Mou
   let limitFor = ''
   /** How long the last drawing took: a heavy base is redrawn less often while notes are changing. */
   let cost = 0
-  const more = new IntersectionObserver((entries) => {
-    if (!entries.some((entry) => entry.isIntersecting)) return
+  /** What the last drawing showed, for adding the next part to it without drawing it all again. */
+  let last: { ctx: ViewContext; shown: ViewResult; render: ViewRenderer } | null = null
+  /** The records of the view as they were last worked out; they stay good until the base or a note changes. */
+  let cached: { key: string; engine: BaseEngine; result: ViewResult; columns: string[] } | null = null
+  const PARTS: Record<string, string> = { table: 'tbody', cards: '.base-cards', list: '.base-list' }
+  /**
+   * Shows the next part of a long list. Where the view is one plain run of records, the new
+   * ones are added after those on screen: nothing that is already drawn (pictures least of all)
+   * is made again, so the page does not stall while it is being scrolled.
+   */
+  const grow = () => {
+    const from = limit
     limit *= 2
-    draw()
-  }, { rootMargin: '600px' })
+    const part = last && PARTS[last.ctx.view.type]
+    const home = part ? el.querySelector(`.base-body ${part}`) : null
+    if (!last || !home || last.shown.groups.some((group) => group.key !== undefined)) return draw()
+    const rows = last.shown.rows.slice(from, limit)
+    const fresh = last.render({ ...last.ctx, result: { ...last.shown, rows, groups: [{ key: undefined, rows }] } }).querySelector(part!) ?? null
+    if (!fresh) return draw()
+    home.append(...fresh.children)
+    last.ctx.result = { ...last.shown, rows: last.shown.rows.slice(0, limit), groups: [{ key: undefined, rows: last.shown.rows.slice(0, limit) }] }
+    const button = el.querySelector<HTMLElement>('.base-more')
+    more.disconnect()
+    if (!button) return
+    if (limit >= last.shown.rows.length) button.remove()
+    else {
+      button.textContent = `Показано ${limit} из ${last.shown.rows.length} · показать ещё`
+      // Asked again a moment later, when the new records have taken their room.
+      requestAnimationFrame(() => more.observe(button))
+    }
+  }
+  const more = new IntersectionObserver((entries) => entries.some((entry) => entry.isIntersecting) && grow(), { rootMargin: '500px' })
 
   const save = (next: string) => {
     source = next
@@ -160,9 +187,15 @@ export function mountBase(el: HTMLElement, host: BaseHost, initial: string): Mou
     const views = viewsOf(config)
     active = Math.min(active, views.length - 1)
     const view = views[active]
-    const engine = new BaseEngine(app, config, host.sourcePath)
-    const result = engine.query(view)
-    const columns = engine.columns(view, result.rows)
+    // Working the records out is the heavy part. It is done again only when the base's text, the view
+    // or some note has changed, not for every opening of a panel, search or next part of the list.
+    const stamp = `${app.metadata.generation}\n${active}\n${source}`
+    if (cached?.key !== stamp) {
+      const fresh = new BaseEngine(app, config, host.sourcePath)
+      const found = fresh.query(view)
+      cached = { key: stamp, engine: fresh, result: found, columns: fresh.columns(view, found.rows) }
+    }
+    const { engine, result, columns } = cached
 
     /** Sets or clears keys of the current view in the YAML. */
     const updateView = (changes: Partial<ViewConfig>) =>
@@ -279,10 +312,7 @@ export function mountBase(el: HTMLElement, host: BaseHost, initial: string): Mou
           'button',
           {
             class: 'base-more',
-            onclick: () => {
-              limit *= 2
-              draw()
-            },
+            onclick: grow,
           },
           `Показано ${limit} из ${shown.rows.length} · показать ещё`,
         )
@@ -292,6 +322,7 @@ export function mountBase(el: HTMLElement, host: BaseHost, initial: string): Mou
     placePanel()
     // The next part is drawn by itself when the end of this one comes near.
     if (rest) more.observe(rest)
+    last = Object.hasOwn(RENDERERS, view.type) ? { ctx, shown, render } : null
     cost = performance.now() - started
   }
 

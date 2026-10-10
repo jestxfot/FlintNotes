@@ -320,7 +320,10 @@
 }
 
 /* A card, as in Obsidian Bases: the picture, the name on one line, then each property under its label. */
+/* A card off the screen is not laid out or painted until it comes near: a long grid scrolls lightly. */
 .base-card {
+  content-visibility: auto;
+  contain-intrinsic-size: auto 260px;
   display: flex;
   flex-direction: column;
   gap: 8px;

@@ -77,8 +77,11 @@ export async function run(t) {
   ok('an embedded base has no frame', (await page.locator(`${leaf} .lp-embed`).first().evaluate((el) => getComputedStyle(el).borderTopWidth)) === '0px')
   ok('records of a folder under a rule wear its icon', (await base.locator('tbody tr').first().locator('.inline-link-icon, .icon').count()) >= 0)
   ok('a link in a property shows the icon of its note', (await page.locator(`${leaf} .props-row[data-key="link"] .inline-link-icon`).count()) === 1, await page.locator(`${leaf} .props`).innerHTML().catch(() => 'no props'))
+  // The rows on screen are kept when the next part comes: only new ones are added.
+  await base.locator('tbody tr').first().evaluate((row) => (row.dataset.kept = 'yes'))
   await base.locator('.base-more').scrollIntoViewIfNeeded()
   await wait(1200)
+  ok('the next part is added to what is drawn, not drawn over it', (await base.locator('tbody tr').first().getAttribute('data-kept')) === 'yes')
   ok('the next part comes when its end is reached', (await base.locator('tbody tr').count()) >= 240, await base.locator('tbody tr').count())
 
   // ---- a note made from a template that has an icon takes that icon

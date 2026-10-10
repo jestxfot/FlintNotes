@@ -39,7 +39,5 @@ export default class Search extends Plugin {
     this.register(() => shown?.())
     this.addCommand({ id: 'open', name: 'Поиск по всем заметкам', icon: 'search', scope: 'vault', hotkey: 'Mod+Shift+F', callback: openDialog })
     this.addCommand({ id: 'open-panel', name: 'Поиск по всем заметкам в боковой панели', icon: 'panel-left', callback: () => app.panels.reveal(PANEL) })
-    // A button for it where the note's own tools are, so it is one click away with the sidebars hidden.
-    this.addToolbarButton('page-header', { id: 'search', icon: 'search', title: 'Поиск по всем заметкам (Ctrl+Shift+F)', onClick: openDialog })
   }
 }

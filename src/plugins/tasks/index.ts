@@ -162,7 +162,6 @@ export default class Tasks extends Plugin {
     )
     const openManager = () => app.workspace.openView(MANAGER, 'Задачи')
     this.addCommand({ id: 'manager', name: 'Открыть менеджер задач', icon: 'list-todo', scope: 'vault', hotkey: 'Alt+Shift+T', callback: openManager })
-    this.addToolbarButton('tab-bar', { id: 'manager', icon: 'list-todo', title: 'Менеджер задач (Alt+Shift+T)', onClick: openManager })
 
     const addTask = async (fields: TaskFields) => {
       const line = formatTaskLine(isDone(fields) ? { ...fields, done: fields.done ?? today() } : fields)
