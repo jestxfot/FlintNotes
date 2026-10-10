@@ -5,6 +5,7 @@ import { Compartment, EditorState } from '@codemirror/state'
 import { drawSelection, dropCursor, EditorView, keymap } from '@codemirror/view'
 import type { App } from '../app'
 import { errorMessage } from '../notice'
+import { comments } from './comments'
 import { findInNote } from './find-bar'
 import { inlineTitle } from './inline-title'
 import { filePath, staticPreview } from './state'
@@ -90,6 +91,7 @@ export class MarkdownView implements FileView {
           editorLook,
           this.pathConfig.of(filePath.of(this.path)),
           this.readingConfig.of(this.readingExtensions()),
+          comments,
           inlineTitle(this.app),
           this.app.livePreview.extension,
           this.app.editor.extension,
@@ -109,7 +111,27 @@ export class MarkdownView implements FileView {
 
   private readingExtensions() {
     // No cursor reveals the source in a reading view, so everything stays drawn; ticking a task or a click on a link still works.
-    return this.reading ? [EditorState.readOnly.of(true), EditorView.editable.of(false), staticPreview.of(true), EditorView.editorAttributes.of({ class: 'reading' })] : []
+    if (!this.reading) return []
+    return [
+      EditorState.readOnly.of(true),
+      EditorView.editable.of(false),
+      staticPreview.of(true),
+      EditorView.editorAttributes.of({ class: 'reading' }),
+      // What is copied from a note being read is its text as it reads: the marks that only make a line
+      // a list item ("- ", "1. ", "- [ ] ") are how the list is written, not part of what it says.
+      EditorView.domEventHandlers({
+        copy: (event, view) => {
+          const text = view.state.selection.ranges
+            .filter((range) => !range.empty)
+            .map((range) => view.state.sliceDoc(range.from, range.to))
+            .join(view.state.lineBreak)
+          if (!text || !event.clipboardData) return false
+          event.clipboardData.setData('text/plain', text.replace(/^([ \t]*)(?:[-*+]|\d+[.)])[ \t]+(?:\[.\][ \t]+)?/gm, '$1'))
+          event.preventDefault()
+          return true
+        },
+      }),
+    ]
   }
 
   setReading(on: boolean): void {

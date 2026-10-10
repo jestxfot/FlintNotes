@@ -74,7 +74,7 @@
   }
 
   const { workspace, settings } = app
-  const tabs = watch(workspace, ['layout-change'], () => workspace.leaves.map(({ id, path, title, pinned }) => ({ id, path, title, pinned: !!pinned })))
+  const tabs = watch(workspace, ['layout-change'], () => workspace.leaves.filter((leaf) => !leaf.host).map(({ id, path, title, pinned }) => ({ id, path, title, pinned: !!pinned })))
   /** The tab another tab is being dragged over, and on which side of it. */
   let dropTab = $state<{ id: number; after: boolean } | null>(null)
   const compactPins = watch(settings, ['change'], () => settings.get<boolean>('core', 'pinnedCompact') !== false)

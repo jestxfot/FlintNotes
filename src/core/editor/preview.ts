@@ -1,3 +1,4 @@
+import { comments } from './comments'
 import { Annotation, EditorState } from '@codemirror/state'
 import { EditorView } from '@codemirror/view'
 import type { App } from '../app'
@@ -39,6 +40,7 @@ export function createPreview(
         editorLook,
         filePath.of(path),
         staticPreview.of(true),
+        comments,
         embedDepth.of(options.depth ?? 0),
         app.livePreview.extension,
         EditorView.updateListener.of((update) => {

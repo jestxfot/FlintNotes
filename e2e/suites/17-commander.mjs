@@ -36,7 +36,11 @@ export async function run(t) {
   ok("the setup is stored in Commander's format with this app's command ids", saved().leftRibbon.map((p) => p.id).join() === 'calendar:today,graph:open' && saved().pageHeader[0].id === 'buttons:web-viewer' && saved().fileMenu.map((p) => p.id).join() === 'graph:open', JSON.stringify(saved()))
   await ribbon.locator('button[title="Graph"]').click()
   await wait(600)
-  ok('a button runs its command', (await t.activeTab()) === 'Граф')
+  // The button is the tab of the view it opens: the graph is on screen, and the strip of tabs has no tab for it.
+  ok('a button runs its command, and is itself the tab of the view it opens', (await t.count(`${t.leaf} .graph-view`)) === 1 && (await t.tab('Граф').count()) === 0 && (await ribbon.locator('button[title="Graph"]').getAttribute('class')).includes('on'), `${await t.tab('Граф').count()} tabs`)
+  await ribbon.locator('button[title="Graph"]').click()
+  await wait(300)
+  ok('a second click on it goes back to the note', (await t.activeTab()) === 'Note' && (await t.count(`${t.leaf} .graph-view`)) === 0)
   await t.tab('Note').click()
 
   // ---- a button for any command, put anywhere

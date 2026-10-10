@@ -30,9 +30,9 @@ const ICONS: Record<string, string> = {
 /**
  * Buttons on the strips along the edges of the window that the user makes by
  * dragging: a tab (of a plugin or of a note) or a widget's icon dropped on a
- * strip becomes a button there. The button shows the thing where it belongs
- * without making a tab for it: a widget in its sidebar, a plugin's tab as a
- * widget of the sidebar on that side, a note in the tabs.
+ * strip becomes a button there. For a plugin's view or a widget the button is
+ * its tab from then on: it opens in the page with no tab in the strip of tabs
+ * (see `Workspace.withHost`). A note's button opens the note in the tabs.
  */
 export class RibbonItems {
   private items: Item[] = []
@@ -63,11 +63,14 @@ export class RibbonItems {
       this.save()
       this.show(item)
     }
-    // A plugin's tab that became a button does not stay a tab as well.
-    if (path.startsWith('view:')) this.activate(item)
+    // A plugin's tab that became a button does not stay a tab as well: it moves from the strip of tabs to the button.
+    const made = item
+    if (path.startsWith('view:')) app.workspace.withHost(made.id, () => this.activate(made))
   }
 
   remove(id: string): void {
+    // Its view, if open, is a tab among the tabs again.
+    for (const leaf of this.app.workspace.leaves) if (leaf.host === id) this.app.workspace.release(leaf)
     this.items = this.items.filter((item) => item.id !== id)
     this.offs.get(id)?.()
     this.offs.delete(id)
@@ -88,20 +91,13 @@ export class RibbonItems {
     )
   }
 
-  /** Shows what the button stands for. */
+  /** Shows what the button stands for. A plugin's view opens in the page as the button's own, with no tab in the strip of tabs. */
   private activate(item: Item): void {
     const { app } = this
-    const panel = /^view:panel-(.+)$/.exec(item.path)?.[1]
-    if (panel) {
-      if (!app.panels.get(panel)) return app.notice(`Панель «${item.title}» сейчас недоступна: её плагин выключен`)
-      const leaf = app.workspace.leaves.find((one) => one.path === item.path)
-      if (leaf) app.workspace.close(leaf, true)
-      app.panels.setHidden(panel, false)
-      app.panels.reveal(panel)
-    } else if (item.path.startsWith('view:')) {
-      // In the sidebar on the button's side, as a widget; it is put there the first time and found there afterwards.
-      if (!app.docked.has(item.path)) app.docked.dock(item.path, item.side, null, Infinity, item.title)
-      else app.workspace.openView(item.path.slice(5), item.title)
+    if (item.path.startsWith('view:')) {
+      const panel = /^view:panel-(.+)$/.exec(item.path)?.[1]
+      if (panel && !app.panels.get(panel)) return app.notice(`Панель «${item.title}» сейчас недоступна: её плагин выключен`)
+      app.workspace.openView(item.path.slice(5), item.title)
     } else if (app.vault.get(item.path)) app.workspace.openFile(item.path)
     else app.notice(`Файла «${item.title}» больше нет`)
   }

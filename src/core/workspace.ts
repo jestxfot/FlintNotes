@@ -40,6 +40,11 @@ export interface Leaf {
   viewType: string
   el: HTMLElement
   view: FileView | null
+  /**
+   * The button of an edge strip that stands for this tab. Such a tab is not in the strip of tabs:
+   * its button is its tab, lit while the tab is on screen.
+   */
+  host?: string
   /** A pinned tab stays: it is not closed with the others and its note is not replaced by the next one opened. */
   pinned?: boolean
   /** Counts the times a view was put into the tab: a view that finishes loading late knows it is no longer wanted. */
@@ -86,6 +91,10 @@ export class Workspace extends Events<WorkspaceEvents> {
   newTabPage: (() => boolean) | null = null
   /** Whether the click or Enter being handled right now asks for a new tab (Ctrl or the middle button). */
   private aside = false
+  /** The button of an edge strip whose click is being handled right now: a plugin's view opened by it belongs to that button. */
+  private hostFor: string | null = null
+  /** The last tab of the strip that was on screen, to go back to from a button's view. */
+  private lastInStrip: Leaf | null = null
   /** Whether the tabs of the last session have been brought back; until then nothing is saved over them. */
   private restored = false
 
@@ -170,6 +179,31 @@ export class Workspace extends Events<WorkspaceEvents> {
     if (line !== undefined) void leaf.ready.then(() => leaf.view?.revealLine?.(line))
   }
 
+  /**
+   * Runs what a button of an edge strip does. A plugin's view opened meanwhile becomes that
+   * button's own: it is shown in the page with no tab in the strip of tabs, and the button
+   * is its tab. This is so for every plugin; a plugin only opens its view as it always does.
+   */
+  withHost(button: string, action: () => void): void {
+    this.hostFor = button
+    // Commands may open their view a moment later (after a file is read); the window is short.
+    setTimeout(() => this.hostFor === button && (this.hostFor = null), 400)
+    action()
+  }
+
+  /** Gives a button's view back to the strip of tabs (its button is gone). */
+  release(leaf: Leaf): void {
+    delete leaf.host
+    this.changed()
+  }
+
+  /** From a button's view back to the tab that was on screen before it. */
+  back(): void {
+    // The tab remembered may since have become a button's view itself, or be gone.
+    const target = this.lastInStrip && !this.lastInStrip.host && this.leaves.includes(this.lastInStrip) ? this.lastInStrip : (this.leaves.find((leaf) => !leaf.host) ?? null)
+    this.setActive(target)
+  }
+
   /** Opens a tab of a registered view type that shows no file, such as the graph. */
   openView(type: string, title: string): void {
     // A view the user has moved into a sidebar is shown there.
@@ -179,7 +213,10 @@ export class Workspace extends Events<WorkspaceEvents> {
 
   private open(path: string, title: string | undefined, focus: boolean, reuse = false): Leaf & { ready: Promise<void> } {
     const existing = this.leaves.find((leaf) => leaf.path === path)
+    const host = path.startsWith(VIEW_PREFIX) ? this.hostFor : null
     if (existing) {
+      // A view that was a tab and is now asked for by a button moves from the strip of tabs to the button.
+      if (host && !existing.host) existing.host = host
       this.setActive(existing)
       return Object.assign(existing, { ready: Promise.resolve() })
     }
@@ -194,6 +231,7 @@ export class Workspace extends Events<WorkspaceEvents> {
       return Object.assign(current, { ready })
     }
     const leaf = this.create(path, title)
+    if (host) leaf.host = host
     this.leaves.push(leaf)
     const ready = this.mount(leaf, focus)
     this.setActive(leaf)
@@ -201,6 +239,7 @@ export class Workspace extends Events<WorkspaceEvents> {
   }
 
   setActive(leaf: Leaf | null): void {
+    if (leaf && !leaf.host) this.lastInStrip = leaf
     this.active = leaf
     // A tab brought back from the last session is loaded when it is first looked at.
     if (leaf && !leaf.mounts) void this.mount(leaf, true)
@@ -231,12 +270,14 @@ export class Workspace extends Events<WorkspaceEvents> {
   close(leaf: Leaf, force = false): void {
     const index = this.leaves.indexOf(leaf)
     if (index < 0 || (leaf.pinned && !force)) return
+    // A button's view is not closed along with tabs: it is left, and stays as it was for the next click on its button.
+    if (leaf.host && !force) return void (this.active === leaf && this.back())
     leaf.view?.destroy()
     leaf.view = null
     leaf.el.remove()
     this.mounting.delete(leaf)
     this.leaves.splice(index, 1)
-    if (this.active === leaf) this.setActive(this.leaves[index] ?? this.leaves[index - 1] ?? null)
+    if (this.active === leaf) this.setActive(leaf.host ? (this.lastInStrip && !this.lastInStrip.host && this.leaves.includes(this.lastInStrip) ? this.lastInStrip : (this.leaves.find((one) => !one.host) ?? null)) : (this.leaves.slice(index).find((one) => !one.host) ?? this.leaves.slice(0, index).reverse().find((one) => !one.host) ?? null))
     else this.changed()
   }
 
@@ -251,15 +292,15 @@ export class Workspace extends Events<WorkspaceEvents> {
    * them, and stays the one on screen.
    */
   restore(): void {
-    const { tabs, active } = this.app.state.get<{ tabs?: { path: string; title?: string; pinned?: boolean }[]; active?: string }>('tabs', {})
+    const { tabs, active } = this.app.state.get<{ tabs?: { path: string; title?: string; pinned?: boolean; host?: string }[]; active?: string }>('tabs', {})
     const early = this.leaves
     const wanted = this.active
     this.leaves = []
-    for (const { path, title, pinned } of tabs ?? []) {
+    for (const { path, title, pinned, host } of tabs ?? []) {
       if (!path.startsWith(VIEW_PREFIX) && !this.app.vault.get(path)) continue
       const open = early.find((leaf) => leaf.path === path)
-      if (open) this.leaves.push(Object.assign(open, { pinned: open.pinned || pinned }))
-      else if (!this.leaves.some((leaf) => leaf.path === path)) this.leaves.push(Object.assign(this.create(path, title), { pinned }))
+      if (open) this.leaves.push(Object.assign(open, { pinned: open.pinned || pinned, host: open.host ?? host }))
+      else if (!this.leaves.some((leaf) => leaf.path === path)) this.leaves.push(Object.assign(this.create(path, title), { pinned, host }))
     }
     for (const leaf of early) if (!this.leaves.includes(leaf)) this.leaves.push(leaf)
     this.restored = true
@@ -349,6 +390,6 @@ export class Workspace extends Events<WorkspaceEvents> {
     this.trigger('layout-change')
     // Until the saved tabs are back, what is open is not the whole picture and must not replace them.
     if (!this.restored) return
-    this.app.state.set('tabs', { tabs: this.leaves.map(({ path, title, pinned }) => ({ path, title, ...(pinned ? { pinned } : {}) })), active: this.active?.path })
+    this.app.state.set('tabs', { tabs: this.leaves.map(({ path, title, pinned, host }) => ({ path, title, ...(pinned ? { pinned } : {}), ...(host ? { host } : {}) })), active: this.active?.path })
   }
 }

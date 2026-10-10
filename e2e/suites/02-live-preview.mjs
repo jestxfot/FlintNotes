@@ -9,7 +9,7 @@ export const vault = {
     'pic.png': fixture('pic.png'),
     'Other.md': '# Other note\n',
     'Test.md':
-      '---\ntitle: Test\ntags: [a]\n---\n# Heading One\n\nText with **bold**, *italic*, ~~strike~~ and `code` and \\*escaped\\*.\n\nA [link](Other.md) and https://example.com here.\n\n> quoted line\n\n- item one\n- [ ] todo\n- [x] done\n\n1. first\n\n```js\nconst a = 1\n```\n\n---\n\n![pic|120](pic.png)\n\n```counter\n3\n```\n\nAt 17:44:36 UTC plain.\n\nend\n',
+      '---\ntitle: Test\ntags: [a]\n---\n# Heading One\n\nText with **bold**, *italic*, ~~strike~~ and `code` and \\*escaped\\*.\n\nA [link](Other.md) and https://example.com here.\n\n> quoted line\n\n- item one\n- [ ] todo\n- [x] done\n\n1. first\n\n```js\nconst a = 1\n```\n\n---\n\n![pic|120](pic.png)\n\n```counter\n3\n```\n\nAt 17:44:36 UTC plain.\n\nSeen %%hidden inline%% text.\n\n%% a whole\ncomment block %%\nAfter the block.\n\nend\n',
   },
 }
 
@@ -86,6 +86,7 @@ export async function run(t) {
   const time = page.locator(`${leaf} .cm-line`, { hasText: '17:44:36' })
   ok('a time of day has no part painted differently', (await time.locator('span').count()) === 0, await time.innerHTML().catch(() => 'no line'))
 
+  ok('a comment is shown dimmed while the note is edited', (await count('.lp-comment')) >= 1 && (await t.text()).includes('hidden inline'))
   // ---- reading: the note cannot be typed in, and nothing turns back into its source
   await page.locator('.view-header .reading-toggle').click()
   await wait(400)
@@ -96,6 +97,7 @@ export async function run(t) {
   await page.keyboard.type('renamed')
   await wait(900)
   ok('in reading a note cannot be typed in or renamed', t.exists('Test.md') && read('Test.md') === beforeReading && (await page.locator('.view-header .reading-toggle.on').count()) === 1)
+  ok('comments between %% are not shown where a note is read', !(await t.text()).includes('hidden inline') && !(await t.text()).includes('comment block') && /Seen\s+text\./.test(await t.text()) && (await t.text()).includes('After the block.'), (await t.text()).slice(-160))
   ok('and everything stays drawn, wherever the click falls', !(await t.text()).includes('**bold**') && (await count('.lp-block')) > 0)
   await page.keyboard.press('Control+Shift+E')
   await wait(400)

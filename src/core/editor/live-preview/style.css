@@ -252,3 +252,8 @@
   max-width: 100%;
   border: none;
 }
+
+/* A comment (%% ... %%): dimmed while the note is edited; not there at all where it is read. */
+.cm-editor .lp-comment {
+  color: var(--text-faint);
+}

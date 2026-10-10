@@ -714,3 +714,10 @@ input[type='checkbox']:disabled {
   pointer-events: none;
   user-select: text;
 }
+
+/* The drawn marks of a list are not text to select in a note being read. */
+.cm-editor.reading .lp-bullet,
+.cm-editor.reading .lp-list-number,
+.cm-editor.reading .lp-checkbox {
+  user-select: none;
+}

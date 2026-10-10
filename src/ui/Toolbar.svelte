@@ -8,6 +8,15 @@
 
   // svelte-ignore state_referenced_locally (a toolbar keeps its place for life)
   const buttons = watch(app.toolbars, ['change'], () => app.toolbars.list(place))
+  /** The button whose view is on screen now: a button of an edge strip is the tab of the view it opens. */
+  const hosting = watch(app.workspace, ['active-change', 'layout-change'], () => app.workspace.active?.host ?? null)
+
+  function press(button: { id: string; onClick(event: MouseEvent): void }, event: MouseEvent) {
+    if (!vertical || app.settings.get<boolean>('core', 'ribbonTabs') === false) return button.onClick(event)
+    // A second click on the button of the view that is on screen goes back to the tab that was there before.
+    if (app.workspace.active?.host === button.id) return app.workspace.back()
+    app.workspace.withHost(button.id, () => button.onClick(event))
+  }
 
   function icon(node: HTMLElement, name: string) {
     node.append(app.icons.draw(name))
@@ -52,7 +61,8 @@
           title={button.title}
           aria-label={button.title}
           style:color={app.icons.css(button.color)}
-          onclick={(event) => button.onClick(event)}
+          class:on={vertical && hosting.current === button.id}
+          onclick={(event) => press(button, event)}
           oncontextmenu={(event) => app.menus.show(event, 'toolbar', { place, button: button.id })}
           use:icon={button.icon}
         ></button>
@@ -126,5 +136,12 @@
   button:hover {
     background: var(--bg-hover);
     filter: brightness(1.15);
+  }
+
+  /* The button whose view is on screen: it is that view's tab. */
+  button.on {
+    background: color-mix(in srgb, var(--accent) 20%, transparent);
+    box-shadow: inset 0 0 0 1px color-mix(in srgb, var(--accent) 55%, transparent);
+    color: var(--text);
   }
 </style>
