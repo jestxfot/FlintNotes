@@ -17,6 +17,8 @@
     ['Интерфейс', 'monitor'],
     ['Редактор', 'pencil'],
     ['Файлы и ссылки', 'folder-open'],
+    // What belongs to the program on this computer, the same whichever vault is open.
+    ['Программа', 'app-window'],
   ]
   const { settings, plugins, commands } = app
 

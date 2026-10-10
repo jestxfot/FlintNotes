@@ -25,7 +25,7 @@ import { VaultState } from './state'
 import { Settings, type SettingsSection } from './settings'
 import { StatusBar } from './status-bar'
 import type { SuggestOptions } from './suggest'
-import { connection, Vault } from './vault'
+import { connection, Vault, vaultAddress } from './vault'
 import { Workspace } from './workspace'
 
 const coreSettings: SettingsSection = {
@@ -179,12 +179,45 @@ const panelsSetting = (app: App): SettingsSection['defs'][number] => ({
   },
 })
 
+/** The vaults the program knows, each with its address: any of them opens in a tab of the browser of its own. */
+const vaultsSetting = (app: App): SettingsSection['defs'][number] => ({
+  key: 'vaults',
+  group: 'Программа',
+  section: 'Хранилища',
+  name: 'Адреса хранилищ',
+  desc: 'У каждого хранилища свой адрес; его можно открыть в отдельной вкладке браузера, добавить в закладки или сделать ярлыком. Добавить или убрать хранилище — в меню внизу слева, «Управление хранилищами»',
+  type: 'custom',
+  render: (el) => {
+    const box = el.appendChild(document.createElement('div'))
+    box.className = 'panel-settings'
+    void app.vault.vaults().then(
+      (vaults) => {
+        for (const vault of vaults) {
+          const row = box.appendChild(document.createElement('div'))
+          row.className = 'panel-setting'
+          const name = row.appendChild(document.createElement('span'))
+          name.textContent = vault.current ? `${vault.name} — открыто здесь` : vault.name
+          name.title = vault.path
+          const link = row.appendChild(document.createElement('a'))
+          link.className = 'inline-link'
+          link.href = vaultAddress(vault.name)
+          link.target = '_blank'
+          link.textContent = `${location.origin}${vaultAddress(vault.name)}`
+          if (!vault.exists) link.replaceWith(Object.assign(document.createElement('small'), { textContent: 'папки больше нет' }))
+        }
+      },
+      (err) => (box.textContent = err instanceof Error ? err.message : String(err)),
+    )
+    return () => box.remove()
+  },
+})
+
 const autostartSetting = (app: App): SettingsSection['defs'][number] => ({
   key: 'autostart',
-  group: 'Интерфейс',
+  group: 'Программа',
   section: 'Запуск',
   name: 'Запускать вместе с компьютером',
-  desc: 'Сервер FlintNotes стартует при входе в систему, без окна, и заметки сразу доступны в браузере по адресу этой страницы. Настройка относится к компьютеру, а не к хранилищу',
+  desc: 'Сервер FlintNotes стартует при входе в систему, без окна, и все хранилища сразу доступны в браузере по своим адресам. Эта настройка одна на всю программу: она хранится на компьютере, а не в хранилище, и одинакова, какое бы хранилище ни было открыто',
   type: 'custom',
   render: (el) => {
     const row = el.appendChild(document.createElement('label'))
@@ -257,7 +290,7 @@ export class App {
     this.panels.init()
     // Once only: the page may be set up again (a vault is switched), the list of settings is the same object.
     if (!coreSettings.defs.some((def) => def.key === 'panels')) coreSettings.defs.splice(coreSettings.defs.findIndex((def) => def.key === 'zoom'), 0, panelsSetting(this))
-    if (!coreSettings.defs.some((def) => def.key === 'autostart')) coreSettings.defs.splice(coreSettings.defs.findIndex((def) => def.key === 'zoom'), 0, autostartSetting(this))
+    if (!coreSettings.defs.some((def) => def.key === 'autostart')) coreSettings.defs.push(autostartSetting(this), vaultsSetting(this))
     this.settings.addSection(coreSettings)
     // One plain sign that the server is not answering, instead of an error from every part that asks it something.
     const down = this.statusBar.addItem()
