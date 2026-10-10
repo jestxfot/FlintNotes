@@ -1,4 +1,4 @@
-import { errorMessage, path as paths, pickLook, pictureToSvg, Plugin, type Look, type LookKind, type VaultEntry } from '../../api'
+import { errorMessage, path as paths, pickLook, pictureToSvg, Plugin, ServerDown, type Look, type LookKind, type VaultEntry } from '../../api'
 import { drawRules } from './rules'
 import './style.css'
 import { ownLook, renameLooks, ruleLook, setLook, type IconicData } from './data'
@@ -169,7 +169,8 @@ export default class Iconic extends Plugin {
       this.data = parsed && typeof parsed === 'object' ? (parsed as IconicData) : {}
       this.app.icons.refresh()
     } catch (err) {
-      this.app.notice(`Значки: не удалось прочитать ${this.file}: ${errorMessage(err)}`)
+      // A server that is not answering is reported once, by the app itself; the icons stay as they were.
+      if (!(err instanceof ServerDown)) this.app.notice(`Значки: не удалось прочитать ${this.file}: ${errorMessage(err)}`)
     }
   }
 

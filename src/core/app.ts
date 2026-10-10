@@ -24,7 +24,7 @@ import { VaultState } from './state'
 import { Settings, type SettingsSection } from './settings'
 import { StatusBar } from './status-bar'
 import type { SuggestOptions } from './suggest'
-import { Vault } from './vault'
+import { connection, Vault } from './vault'
 import { Workspace } from './workspace'
 
 const coreSettings: SettingsSection = {
@@ -218,6 +218,15 @@ export class App {
     // Once only: the page may be set up again (a vault is switched), the list of settings is the same object.
     if (!coreSettings.defs.some((def) => def.key === 'autostart')) coreSettings.defs.splice(coreSettings.defs.findIndex((def) => def.key === 'zoom'), 0, autostartSetting(this))
     this.settings.addSection(coreSettings)
+    // One plain sign that the server is not answering, instead of an error from every part that asks it something.
+    const down = this.statusBar.addItem()
+    down.className = 'status-item server-down'
+    down.textContent = 'Нет связи с сервером FlintNotes — запустите его заново'
+    down.hidden = connection.online
+    connection.on('change', (online) => {
+      down.hidden = online
+      if (online) notice('Связь с сервером FlintNotes восстановлена')
+    })
     this.commands.add({
       id: 'core:toggle-autostart',
       name: 'Включить или выключить запуск вместе с компьютером',

@@ -493,3 +493,16 @@ input[type='checkbox']:disabled {
   opacity: 0.5;
   cursor: default;
 }
+
+/* Shown in the status bar while the server does not answer. */
+.status-item.server-down {
+  padding: 2px 10px;
+  border-radius: var(--radius-m);
+  background: var(--color-red);
+  color: #fff;
+  font-weight: 600;
+}
+
+.status-item.server-down[hidden] {
+  display: none;
+}

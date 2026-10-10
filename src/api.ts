@@ -52,6 +52,7 @@ export type { Look, LookKind } from './core/icons'
 export type { ToolbarButton, ToolbarPlace } from './core/toolbars'
 export type { MenuItem } from './core/menu'
 export type { VaultEntry, VaultInfo } from './core/vault'
+export { ServerDown } from './core/vault'
 export type { FileView, Leaf, ViewContext, ViewCreator } from './core/workspace'
 
 /**

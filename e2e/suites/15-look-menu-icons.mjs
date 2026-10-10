@@ -15,6 +15,7 @@ const iconic = {
 const SVG = '<svg xmlns="http://www.w3.org/2000/svg" viewBox="0 0 10 10"><circle cx="5" cy="5" r="4" fill="red"/></svg>'
 
 export const viewport = { width: 1300, height: 700 }
+export const expectsNetworkErrors = true
 export const vault = {
   plugins: ['iconic', 'tags', 'properties'],
   files: {
@@ -197,4 +198,15 @@ export async function run(t) {
   await page.waitForSelector('.tree .row')
   await wait(1500)
   ok('and it is still there after a reload', (await t.row('Renamed').locator('.row-icon img').evaluate((img) => img.naturalWidth > 0).catch(() => false)) === true, await t.row('Renamed').innerHTML().catch(() => 'no row'))
+
+  // ---- a server that does not answer is reported once, plainly, and not by every plugin
+  await page.route('**/api/**', (route) => route.abort())
+  await page.evaluate(() => window.dispatchEvent(new Event('focus')))
+  await wait(800)
+  const notices = (await page.locator('.notice').allInnerTexts()).join(' | ')
+  ok('a silent server shows one sign in the status bar', (await page.locator('.server-down:not([hidden])').count()) === 1 && !notices.includes('Failed to fetch') && !notices.includes('Значки: не удалось прочитать'), notices)
+  await page.unroute('**/api/**')
+  await page.evaluate(() => app.vault.readOptional('.obsidian/app.json').catch(() => {}))
+  await wait(600)
+  ok('and the sign goes when the server answers again', (await page.locator('.server-down:not([hidden])').count()) === 0)
 }

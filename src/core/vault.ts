@@ -23,8 +23,31 @@ const json = (body: unknown): RequestInit => ({
   body: JSON.stringify(body),
 })
 
+/** Thrown when the server did not answer at all: it is not running, or is being restarted. */
+export class ServerDown extends Error {
+  constructor() {
+    super('Сервер FlintNotes не отвечает. Запустите FlintNotes заново')
+  }
+}
+
+/** Whether the server answers, for everyone who would otherwise each report the same failure. */
+export const connection = Object.assign(new Events<{ change: [online: boolean] }>(), { online: true })
+function setOnline(online: boolean): void {
+  if (connection.online === online) return
+  connection.online = online
+  connection.trigger('change', online)
+}
+
 async function request(input: string, init?: RequestInit): Promise<Response> {
-  const res = await fetch(input, init)
+  let res: Response
+  try {
+    res = await fetch(input, init)
+  } catch {
+    // The browser says only "Failed to fetch"; what happened is that nobody is listening.
+    setOnline(false)
+    throw new ServerDown()
+  }
+  setOnline(true)
   if (!res.ok) throw new Error((await res.text()) || res.statusText)
   return res
 }
@@ -47,10 +70,13 @@ export class Vault extends Events<VaultEvents> {
     const source = new EventSource('/api/events')
     let connected = false
     source.onopen = () => {
+      setOnline(true)
       // Changes made while the connection was down were missed, so re-read the tree.
       if (connected) void this.sync()
       connected = true
     }
+    // The stream of changes breaks the moment the server goes away, and comes back by itself.
+    source.onerror = () => setOnline(false)
     source.onmessage = (message) => {
       const event: RemoteEvent = JSON.parse(message.data)
       // Another vault was opened (here or in another tab): everything on screen is stale.
