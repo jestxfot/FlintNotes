@@ -74,6 +74,8 @@
 
   const { workspace, settings } = app
   const tabs = watch(workspace, ['layout-change'], () => workspace.leaves.map(({ id, path, title, pinned }) => ({ id, path, title, pinned: !!pinned })))
+  /** The tab another tab is being dragged over, and on which side of it. */
+  let dropTab = $state<{ id: number; after: boolean } | null>(null)
   const compactPins = watch(settings, ['change'], () => settings.get<boolean>('core', 'pinnedCompact') !== false)
   /** What a pinned tab shows when it is only a sign: the first emoji of its name, or its first letter. */
   const sign = (name: string) => /\p{Extended_Pictographic}(?:\uFE0F|\u200D\p{Extended_Pictographic})*/u.exec(name)?.[0] ?? [...name.trim()][0]?.toUpperCase() ?? '•'
@@ -136,8 +138,9 @@
   const ribbons = watch(app.toolbars, ['change'], () => ({ left: app.toolbars.list('left-ribbon').length > 0, right: app.toolbars.list('right-ribbon').length > 0 }))
   const looks = watch(app.icons, ['change'], () => ({}))
   const tabLook = (path: string) => (looks.current && !path.startsWith('view:') ? app.icons.look('file', path) : undefined)
-  function drawIcon(node: HTMLElement, [icon, path]: [string | undefined, string]) {
-    if (icon) node.append(app.icons.clickable(app.icons.draw(icon), 'file', path))
+  function drawIcon(node: HTMLElement, [icon, path, plain]: [string | undefined, string, boolean?]) {
+    // On a pinned tab the icon is the whole tab: a click on it must open the tab, not the choice of icons.
+    if (icon) node.append(plain ? app.icons.draw(icon) : app.icons.clickable(app.icons.draw(icon), 'file', path))
   }
 
   // Ctrl+wheel resizes the note's text, like in a text editor, instead of zooming the whole page.
@@ -422,7 +425,32 @@
       </button>
       <div class="tabs" role="tablist">
         {#each tabs.current as tab (tab.id)}
-          <div class="tab" class:active={tab.id === activeId.current} class:pinned={tab.pinned} class:compact={tab.pinned && compactPins.current} oncontextmenu={(event) => tabMenu(event, tab.id)} role="presentation">
+          <div
+            class="tab"
+            class:active={tab.id === activeId.current}
+            class:pinned={tab.pinned}
+            class:compact={tab.pinned && compactPins.current}
+            class:drop-before={dropTab?.id === tab.id && !dropTab.after}
+            class:drop-after={dropTab?.id === tab.id && dropTab.after}
+            oncontextmenu={(event) => tabMenu(event, tab.id)}
+            ondragover={(event) => {
+              // A tab dragged over another shows where it would land: before it or after it.
+              if (!drag.note) return
+              event.preventDefault()
+              const box = event.currentTarget.getBoundingClientRect()
+              dropTab = { id: tab.id, after: event.clientX > box.left + box.width / 2 }
+            }}
+            ondragleave={() => (dropTab = null)}
+            ondrop={(event) => {
+              event.preventDefault()
+              const moved = workspace.leaves.find((leaf) => leaf.path === drag.note)
+              const target = leafById(tab.id)
+              if (moved && target && dropTab) workspace.moveLeaf(moved, dropTab.after ? (workspace.leaves[workspace.leaves.indexOf(target) + 1] ?? null) : target)
+              dropTab = null
+              drag.note = null
+            }}
+            role="presentation"
+          >
             <button
               class="tab-title"
               role="tab"
@@ -430,7 +458,7 @@
               title={tab.title ?? tab.path}
               onclick={() => workspace.setActive(leafById(tab.id))}
               onauxclick={(event) => event.button === 1 && workspace.close(leafById(tab.id))}
-              draggable={!tab.path.startsWith('view:')}
+              draggable="true"
               ondragstart={(event) => {
                 event.dataTransfer?.setData('text/plain', tab.path)
                 // The sidebars change to show where the note can go; Chrome cancels a drag
@@ -439,8 +467,8 @@
               }}
               ondragend={() => (drag.note = null)}
             >
-              {#key tabLook(tab.path)?.icon}
-                {#if tabLook(tab.path)?.icon}<span class="tab-icon" style:color={app.icons.css(tabLook(tab.path)?.color)} use:drawIcon={[tabLook(tab.path)?.icon, tab.path]}></span>{/if}
+              {#key `${tabLook(tab.path)?.icon}|${tab.pinned}`}
+                {#if tabLook(tab.path)?.icon}<span class="tab-icon" style:color={app.icons.css(tabLook(tab.path)?.color)} use:drawIcon={[tabLook(tab.path)?.icon, tab.path, tab.pinned]}></span>{/if}
               {/key}
               {#if tab.pinned && compactPins.current}
                 <!-- A pinned tab is only a sign: the note's icon, or the emoji or first letter of its name. -->
@@ -710,6 +738,15 @@
 
   .crumbs .last {
     color: var(--text);
+  }
+
+  /* Where a dragged tab would land. */
+  .tab.drop-before {
+    box-shadow: inset 2px 0 0 var(--accent);
+  }
+
+  .tab.drop-after {
+    box-shadow: inset -2px 0 0 var(--accent);
   }
 
   /* A pinned tab takes only the room of its sign. */

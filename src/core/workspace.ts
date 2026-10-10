@@ -169,6 +169,8 @@ export class Workspace extends Events<WorkspaceEvents> {
 
   /** Opens a tab of a registered view type that shows no file, such as the graph. */
   openView(type: string, title: string): void {
+    // A view the user has moved into a sidebar is shown there.
+    if (this.redirect?.(VIEW_PREFIX + type)) return
     this.open(VIEW_PREFIX + type, title, true)
   }
 
@@ -203,6 +205,16 @@ export class Workspace extends Events<WorkspaceEvents> {
     leaf?.view?.focus?.()
     this.changed()
     this.trigger('active-change', leaf)
+  }
+
+  /** Moves a tab to stand before the tab `before` (or last). Pinned tabs stay together at the front. */
+  moveLeaf(leaf: Leaf, before: Leaf | null): void {
+    if (leaf === before) return
+    const rest = this.leaves.filter((one) => one !== leaf)
+    const at = before ? rest.indexOf(before) : rest.length
+    rest.splice(at < 0 ? rest.length : at, 0, leaf)
+    this.leaves = [...rest.filter((one) => one.pinned), ...rest.filter((one) => !one.pinned)]
+    this.changed()
   }
 
   /** Pins a tab or lets it go. Pinned tabs stand first in the strip, in the order they were pinned. */

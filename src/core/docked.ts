@@ -6,7 +6,10 @@ import { basename, extname, stripExt } from './path'
 interface Docked {
   /** Stays the same when the note is renamed, so the widget keeps its place. */
   id: string
+  /** A file of the vault, or `view:<type>` for a tab of a plugin (the graph, the task manager). */
   path: string
+  /** The tab's title, for a tab that shows no file. */
+  title?: string
 }
 
 const ICON = 'M4 1.5h5.5L13 5v9.5H4zM9.5 1.5V5H13M6 8.5h5M6 11h5'
@@ -29,9 +32,9 @@ export class DockedNotes {
     const { app } = this
     const saved = app.state.get<Docked[]>('docked', [])
     for (const note of Array.isArray(saved) ? saved : []) {
-      if (typeof note?.id !== 'string' || !app.vault.get(note.path)) continue
+      if (typeof note?.id !== 'string' || !(String(note.path).startsWith('view:') || app.vault.get(note.path))) continue
       this.next = Math.max(this.next, Number(note.id.slice(PREFIX.length)) + 1 || 1)
-      this.notes.push({ id: note.id, path: note.path })
+      this.notes.push({ id: note.id, path: note.path, title: note.title })
       this.show(note)
     }
     // A docked note is not opened in a tab as well: two editors of one file would overwrite each other.
@@ -65,7 +68,16 @@ export class DockedNotes {
     const { app } = this
     if (this.has(path)) return
     const leaf = app.workspace.leaves.find((l) => l.path === path)
-    const note = { id: `${PREFIX}${this.next++}`, path }
+    // A widget that was opened as a tab goes back to being the widget it is, not a tab inside a widget.
+    const own = /^view:panel-(.+)$/.exec(path)?.[1]
+    if (own && app.panels.get(own)) {
+      app.panels.setHidden(own, false)
+      app.panels.move(own, side, group, at)
+      if (leaf) app.workspace.close(leaf, true)
+      app.panels.reveal(own)
+      return
+    }
+    const note: Docked = { id: `${PREFIX}${this.next++}`, path, title: leaf?.title }
     const place = () => {
       this.notes.push(note)
       this.show(note, side)
@@ -73,7 +85,7 @@ export class DockedNotes {
       this.save()
     }
     // The tab's unsaved text must be on disk before the widget reads the note.
-    if (leaf) void Promise.resolve(leaf.view?.flush?.()).then(() => (app.workspace.close(leaf), place()))
+    if (leaf) void Promise.resolve(leaf.view?.flush?.()).then(() => (app.workspace.close(leaf, true), place()))
     else place()
   }
 
@@ -86,13 +98,14 @@ export class DockedNotes {
     this.offs.delete(id)
     this.app.panels.forget(id)
     this.save()
-    if (open) this.app.workspace.openFile(note.path, { newTab: true })
+    if (open && note.path.startsWith('view:')) this.app.workspace.openView(note.path.slice(5), note.title ?? '')
+    else if (open) this.app.workspace.openFile(note.path, { newTab: true })
   }
 
   private show(note: Docked, side: Side = 'right'): void {
     const { app } = this
     this.offs.get(note.id)?.()
-    const name = extname(note.path) === 'md' ? stripExt(basename(note.path)) : basename(note.path)
+    const name = note.path.startsWith('view:') ? note.title || note.path.slice(5) : extname(note.path) === 'md' ? stripExt(basename(note.path)) : basename(note.path)
     const off = app.panels.add({
       id: note.id,
       title: name,

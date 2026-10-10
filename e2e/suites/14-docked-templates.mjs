@@ -62,6 +62,28 @@ export async function run(t) {
   await wait(1200)
   ok('and it stays undocked', (await t.count('.docked-body')) === 0)
 
+  // ---- tabs can be put in another order by dragging; a plugin's tab can live in a sidebar too
+  const order = async () => (await page.locator('.tab .tab-title').allInnerTexts()).map((name) => name.trim()).join(',')
+  const first = (await order()).split(',')
+  if (first.length > 1) {
+    await t.tab(first[first.length - 1]).dragTo(t.tab(first[0]), { targetPosition: { x: 4, y: 10 } })
+    await wait(500)
+    ok('a tab dragged onto the first one stands before it', (await order()).split(',')[0] === first[first.length - 1], `${first.join()} -> ${await order()}`)
+  }
+  await page.evaluate(() => app.commands.run('tasks:manager'))
+  await page.waitForSelector(`${t.leaf} .manager`)
+  await page.evaluate(() => app.docked.dock('view:tasks-manager', 'right'))
+  await wait(900)
+  ok("a plugin's tab moved into a sidebar becomes a widget there", (await t.count('aside.right .manager')) === 1 && (await t.tab('Задачи').count()) === 0)
+  await page.evaluate(() => app.commands.run('tasks:manager'))
+  await wait(500)
+  ok('and its command shows the widget instead of opening a tab again', (await t.tab('Задачи').count()) === 0 && (await t.count('aside.right .manager')) === 1)
+  await page.locator('aside.right .docked-head button[title="Открыть во вкладке"]').click()
+  await wait(700)
+  ok('from there it can go back to being a tab', (await t.tab('Задачи').count()) === 1 && (await t.count('aside.right .manager')) === 0)
+  await page.evaluate(() => app.workspace.close(app.workspace.active, true))
+  await wait(300)
+
   // ---- a new note asks which template to use
   await page.evaluate(() => app.settings.set('templates', 'onCreate', true))
   await page.evaluate(() => app.commands.run('core:new-note'))
