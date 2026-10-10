@@ -506,3 +506,96 @@ input[type='checkbox']:disabled {
 .status-item.server-down[hidden] {
   display: none;
 }
+
+/* The bar for finding text in a note, above the text. */
+.cm-editor .cm-panels.cm-panels-top {
+  border-bottom: none;
+  background: var(--bg);
+}
+
+.find-bar {
+  display: flex;
+  flex-direction: column;
+  gap: 6px;
+  max-width: 760px;
+  margin: 0 auto;
+  padding: 10px 16px 8px;
+  font: 13px/1.4 var(--font-ui);
+}
+
+.find-row {
+  display: flex;
+  align-items: center;
+  gap: 4px;
+}
+
+.find-row[hidden] {
+  display: none;
+}
+
+.find-field {
+  display: flex;
+  flex: 1;
+  align-items: center;
+  gap: 6px;
+  min-width: 0;
+  padding: 0 6px 0 10px;
+  border: 1px solid var(--border);
+  border-radius: var(--radius-m);
+  background: var(--bg-alt);
+  color: var(--text-muted);
+}
+
+.find-field:focus-within {
+  border-color: var(--accent);
+}
+
+.find-field.none:focus-within {
+  border-color: var(--color-red);
+}
+
+.find-field input {
+  flex: 1;
+  min-width: 0;
+  padding: 7px 0;
+  border: none;
+  outline: none;
+  background: none;
+  color: var(--text);
+  font: inherit;
+  font-size: 14px;
+}
+
+.find-count {
+  flex: none;
+  color: var(--text-faint);
+  font-size: 12px;
+  font-variant-numeric: tabular-nums;
+}
+
+.find-button {
+  display: flex;
+  flex: none;
+  align-items: center;
+  justify-content: center;
+  min-width: 28px;
+  height: 28px;
+  padding: 0 5px;
+  border-radius: var(--radius-s);
+  color: var(--text-muted);
+  font-size: 12px;
+}
+
+.find-button .icon {
+  font-size: 16px;
+}
+
+.find-button:hover {
+  background: var(--bg-hover);
+  color: var(--text);
+}
+
+.find-button.on {
+  background: color-mix(in srgb, var(--accent) 22%, transparent);
+  color: var(--accent);
+}

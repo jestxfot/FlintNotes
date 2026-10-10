@@ -1,5 +1,6 @@
 import { mount, unmount } from 'svelte'
 import { Plugin } from '../../api'
+import SearchDialog from './SearchDialog.svelte'
 import SearchPanel from './SearchPanel.svelte'
 
 const PANEL = 'search'
@@ -17,11 +18,28 @@ export default class Search extends Plugin {
         return () => void unmount(panel)
       },
     })
-    this.addCommand({
-      id: 'open',
-      name: 'Поиск по всем заметкам',
-      hotkey: 'Mod+Shift+F',
-      callback: () => app.panels.reveal(PANEL),
-    })
+    // The search window: over the note, with nothing of the sidebar needed.
+    let shown: (() => void) | null = null
+    const openDialog = () => {
+      if (shown) return
+      const target = document.body.appendChild(document.createElement('div'))
+      const dialog = mount(SearchDialog, {
+        target,
+        props: {
+          app,
+          onclose: () => {
+            shown = null
+            void unmount(dialog)
+            target.remove()
+          },
+        },
+      })
+      shown = () => target.querySelector('dialog')?.close()
+    }
+    this.register(() => shown?.())
+    this.addCommand({ id: 'open', name: 'Поиск по всем заметкам', icon: 'search', scope: 'vault', hotkey: 'Mod+Shift+F', callback: openDialog })
+    this.addCommand({ id: 'open-panel', name: 'Поиск по всем заметкам в боковой панели', icon: 'panel-left', callback: () => app.panels.reveal(PANEL) })
+    // A button for it where the note's own tools are, so it is one click away with the sidebars hidden.
+    this.addToolbarButton('page-header', { id: 'search', icon: 'search', title: 'Поиск по всем заметкам (Ctrl+Shift+F)', onClick: openDialog })
   }
 }

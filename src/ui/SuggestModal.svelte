@@ -1,3 +1,8 @@
+<script lang="ts" module>
+  /** What was typed last in the dialogs that ask for it to be kept, by their names; lives as long as the page. */
+  const remembered = new Map<string, string>()
+</script>
+
 <script lang="ts" generics="T">
   import { onMount } from 'svelte'
   import type { SuggestOptions } from '../core/suggest'
@@ -8,7 +13,12 @@
   const LIMIT = 80
 
   let dialog: HTMLDialogElement
-  let query = $state('')
+  // svelte-ignore state_referenced_locally (a dialog is opened with its options once)
+  let query = $state(options.remember ? (remembered.get(options.remember) ?? '') : '')
+  $effect(() => {
+    if (options.remember) remembered.set(options.remember, query)
+  })
+  let field: HTMLInputElement
   let index = $state(0)
   let chosen = false
 
@@ -57,7 +67,11 @@
     if (look?.icon) node.append(app.icons.draw(look.icon, look.color))
   }
 
-  onMount(() => dialog.showModal())
+  onMount(() => {
+    dialog.showModal()
+    // What is there from the last time is selected: typing replaces it, Enter repeats it.
+    field.select()
+  })
 </script>
 
 <dialog
@@ -72,6 +86,7 @@
   <input
     placeholder={options.placeholder}
     aria-label={options.placeholder}
+    bind:this={field}
     bind:value={query}
     oninput={() => (index = 0)}
   />

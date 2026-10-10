@@ -36,7 +36,7 @@ export async function run(t) {
   ok('the main menu is at the bottom with the vault name', (await menu.locator('.vault').innerText()).trim() === vaultName && (await menu.evaluate((el) => el.getBoundingClientRect().bottom > innerHeight - 10)))
   ok('the file list no longer carries the vault name', !(await page.locator('.tree').evaluate((tree) => tree.previousElementSibling.textContent)).includes(vaultName))
 
-  await page.keyboard.press('Control+Shift+f')
+  await page.evaluate(() => app.commands.run('search:open-panel'))
   // The field takes the focus a moment after its panel is shown.
   await page.waitForFunction(() => document.activeElement?.type === 'search')
   await page.keyboard.type('plan')

@@ -14,6 +14,7 @@ import { PluginManager } from './plugin-manager'
 import type { Extension } from '@codemirror/state'
 import { EditorView } from '@codemirror/view'
 import { DockedNotes } from './docked'
+import { openFind } from './editor/find-bar'
 import { autoPairs } from './editor/pairs'
 import { Icons } from './icons'
 import { Menus } from './menu'
@@ -227,6 +228,14 @@ export class App {
       down.hidden = online
       if (online) notice('Связь с сервером FlintNotes восстановлена')
     })
+    // Finding in the open note: the keys work in the editor itself; the commands are for the palette, menus and buttons.
+    const inNote = (replace: boolean) => () => {
+      const editor = this.workspace.activeEditor
+      if (editor) openFind(editor, replace)
+      else notice('Откройте заметку, чтобы искать в ней')
+    }
+    this.commands.add({ id: 'core:find', name: 'Найти в заметке', icon: 'search', scope: 'note', callback: inNote(false) })
+    this.commands.add({ id: 'core:replace', name: 'Найти и заменить в заметке', icon: 'replace', scope: 'note', callback: inNote(true) })
     this.commands.add({
       id: 'core:toggle-autostart',
       name: 'Включить или выключить запуск вместе с компьютером',

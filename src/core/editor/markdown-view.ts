@@ -1,11 +1,11 @@
 import { autocompletion, completionKeymap } from '@codemirror/autocomplete'
 import { defaultKeymap, history, historyKeymap, indentWithTab } from '@codemirror/commands'
 import { indentOnInput } from '@codemirror/language'
-import { search, searchKeymap } from '@codemirror/search'
 import { Compartment, EditorState } from '@codemirror/state'
 import { drawSelection, dropCursor, EditorView, keymap } from '@codemirror/view'
 import type { App } from '../app'
 import { errorMessage } from '../notice'
+import { findInNote } from './find-bar'
 import { inlineTitle } from './inline-title'
 import { filePath } from './state'
 import { editorLook } from './theme'
@@ -80,8 +80,9 @@ export class MarkdownView implements FileView {
               return /\[\[[^\]\n]*$/.test(state.sliceDoc(state.doc.lineAt(head).from, head)) ? 'cm-link-completion' : ''
             },
           }),
-          search(),
-          keymap.of([...completionKeymap, ...defaultKeymap, ...historyKeymap, ...searchKeymap, indentWithTab]),
+          // Before the other keys: Ctrl+H and Ctrl+F are this app's here, not anything else's.
+          findInNote(this.app),
+          keymap.of([...completionKeymap, ...defaultKeymap, ...historyKeymap, indentWithTab]),
           editorLook,
           this.pathConfig.of(filePath.of(this.path)),
           inlineTitle(this.app),

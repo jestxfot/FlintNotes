@@ -6,12 +6,19 @@
   let { app, panelId }: { app: App; panelId: string } = $props()
 
   let input: HTMLInputElement
-  let typed = $state('')
+  // What was searched for last stays in the field: the panel is taken away and put back
+  // (another widget's tab, a floating sidebar, a reload), and the search is still there.
+  // svelte-ignore state_referenced_locally
+  let typed = $state(app.state.get<string>('search-query', ''))
   // Searching runs a moment after typing stops.
-  let query = $state('')
+  // svelte-ignore state_referenced_locally
+  let query = $state(typed)
   $effect(() => {
     const value = typed
-    const timer = setTimeout(() => (query = value), 150)
+    const timer = setTimeout(() => {
+      query = value
+      app.state.set('search-query', value)
+    }, 150)
     return () => clearTimeout(timer)
   })
 

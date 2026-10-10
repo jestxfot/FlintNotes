@@ -40,6 +40,7 @@ export default class QuickSwitcher extends Plugin {
           ...(app.metadata.get(file.path)?.aliases ?? []).map((alias) => ({ file, alias })),
         ])
         app.suggest<Item>({
+          remember: 'quick-switcher',
           placeholder: 'Имя файла или алиас…',
           items: (typed) => {
             const query = typed.trim().toLowerCase()

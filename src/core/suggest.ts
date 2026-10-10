@@ -10,6 +10,8 @@ export interface SuggestOptions<T> {
   icon?(item: T): { icon?: string; color?: string } | undefined
   /** A big list for finding files: each item shows its detail (a folder) under its label, and the dialog takes most of the window. */
   stacked?: boolean
+  /** A name under which the dialog keeps what was typed last, to open with it again (selected, so typing replaces it). */
+  remember?: string
   onChoose(item: T): void
   /** The dialog was closed without a choice. */
   onCancel?(): void

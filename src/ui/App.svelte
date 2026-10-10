@@ -153,7 +153,7 @@
   const VAULT_SCOPE = new Set(['core:reveal-vault', 'core:vaults'])
   const SIDEBAR_SCOPE = new Set<string>()
   /** Where a core command goes in the note's menu; commands of plugins go to their own section. */
-  const NOTE_SECTIONS: Record<string, string> = { 'core:toggle-editor-mode': 'open', 'core:toggle-readable-width': 'open', 'core:dock-active': 'open', 'core:rename-active': 'action', 'core:copy-path': 'copy', 'core:reveal-active': 'system', 'core:delete-active': 'danger' }
+  const NOTE_SECTIONS: Record<string, string> = { 'core:toggle-editor-mode': 'open', 'core:find': 'copy', 'core:replace': 'copy', 'core:toggle-readable-width': 'open', 'core:dock-active': 'open', 'core:rename-active': 'action', 'core:copy-path': 'copy', 'core:reveal-active': 'system', 'core:delete-active': 'danger' }
 
   /**
    * The menu of the open note ("⋮"). Nothing is listed here by hand: it is made of
