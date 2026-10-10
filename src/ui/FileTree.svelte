@@ -18,7 +18,8 @@
   const collator = new Intl.Collator(undefined, { numeric: true, sensitivity: 'base' })
   const { vault, workspace } = app
 
-  const entries = watch(vault, ['create', 'delete', 'rename'], () => vault.all())
+  // Another program may write hundreds of files in a row; the list follows a moment after, once.
+  const entries = watch(vault, ['create', 'delete', 'rename'], () => vault.all(), 80)
   const activePath = watch(workspace, ['active-change', 'layout-change'], () => workspace.active?.path)
   // Plugins may hide entries, pin them, give them classes and take the click on a folder's name.
   const explorer = watch(app.explorer, ['change'], () => ({}))

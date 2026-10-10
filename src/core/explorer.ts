@@ -52,8 +52,11 @@ export class Explorer extends Events<{ change: [] }> {
 
   /** The answers changed (a setting, a file): the list is drawn again. */
   refresh(): void {
-    this.trigger('change')
+    // Asked for many times in a row (a file event each), it is done once, a moment after the last.
+    clearTimeout(this.refreshing)
+    this.refreshing = setTimeout(() => this.trigger('change'), 60)
   }
+  private refreshing: ReturnType<typeof setTimeout> | undefined
 
   hidden(entry: VaultEntry): boolean {
     return this.hides.some((test) => test(entry))

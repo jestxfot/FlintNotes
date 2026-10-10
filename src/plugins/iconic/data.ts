@@ -92,6 +92,22 @@ function testList(condition: Condition, items: string[]): boolean {
   return negated ? !result : result
 }
 
+/** Expressions of conditions, made once: rules are asked about every file that is drawn. */
+const compiled = new Map<string, RegExp | null>()
+function expression(value: string): RegExp | null {
+  let regex = compiled.get(value)
+  if (regex === undefined) {
+    try {
+      const literal = /^\/(.*)\/([a-z]*)$/.exec(value)
+      regex = literal ? new RegExp(literal[1], literal[2].replace(/[gy]/g, '')) : new RegExp(value)
+    } catch {
+      regex = null
+    }
+    compiled.set(value, regex)
+  }
+  return regex
+}
+
 function test(condition: Condition, kind: 'file' | 'folder', path: string, facts?: (path: string) => NoteFacts | undefined): boolean {
   if (condition.source === 'tags' || condition.source === 'links') {
     const known = kind === 'file' ? facts?.(path) : undefined
@@ -119,12 +135,7 @@ function test(condition: Condition, kind: 'file' | 'folder', path: string, facts
   else if (operator === 'startsWith') result = wanted !== '' && actual.startsWith(wanted)
   else if (operator === 'endsWith') result = wanted !== '' && actual.endsWith(wanted)
   else if (operator === 'matches') {
-    try {
-      const literal = /^\/(.*)\/([a-z]*)$/.exec(condition.value)
-      result = (literal ? new RegExp(literal[1], literal[2]) : new RegExp(condition.value)).test(values[condition.source])
-    } catch {
-      result = false
-    }
+    result = expression(condition.value)?.test(values[condition.source]) ?? false
   }
   return negated ? !result : result
 }

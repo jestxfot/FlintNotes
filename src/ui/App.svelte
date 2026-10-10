@@ -73,7 +73,19 @@
   }
 
   const { workspace, settings } = app
-  const tabs = watch(workspace, ['layout-change'], () => workspace.leaves.map(({ id, path, title }) => ({ id, path, title })))
+  const tabs = watch(workspace, ['layout-change'], () => workspace.leaves.map(({ id, path, title, pinned }) => ({ id, path, title, pinned: !!pinned })))
+  const compactPins = watch(settings, ['change'], () => settings.get<boolean>('core', 'pinnedCompact') !== false)
+  /** What a pinned tab shows when it is only a sign: the first emoji of its name, or its first letter. */
+  const sign = (name: string) => /\p{Extended_Pictographic}(?:\uFE0F|\u200D\p{Extended_Pictographic})*/u.exec(name)?.[0] ?? [...name.trim()][0]?.toUpperCase() ?? '•'
+  function tabMenu(event: MouseEvent, id: number) {
+    const leaf = leafById(id)
+    if (!leaf) return
+    app.menus.show(event, 'tab', leaf, [
+      { section: 'open', icon: leaf.pinned ? 'pin-off' : 'pin', title: leaf.pinned ? 'Открепить вкладку' : 'Закрепить вкладку', onClick: () => workspace.togglePin(leaf) },
+      { section: 'action', icon: 'x', title: 'Закрыть', onClick: () => workspace.close(leaf, true) },
+      { section: 'action', icon: 'copy-x', title: 'Закрыть остальные', onClick: () => workspace.leaves.filter((one) => one !== leaf).forEach((one) => workspace.close(one)) },
+    ])
+  }
   const activeId = watch(workspace, ['active-change'], () => workspace.active?.id ?? null)
   const hasRightPanels = watch(app.panels, ['change'], () => app.panels.has('right'))
   const theme = watch(settings, ['change'], () => settings.get<string>('core', 'theme'))
@@ -190,6 +202,8 @@
 
   /** Makes a note and opens it. `inNewTab` is for the tab strip's "+", which always opens a tab of its own. */
   async function newNote(inNewTab = false) {
+    // The "+" of the tabs may open a home page instead of a new note, if a plugin provides one.
+    if (inNewTab && workspace.newTabPage?.()) return
     try {
       const folder = newNoteFolder()
       if (folder && !app.vault.get(folder)) await app.vault.createFolder(folder)
@@ -294,6 +308,7 @@
           ['core:go-forward', 'Вперёд', 'arrow-right', () => history.forward()],
           ['core:help', 'Справка и сочетания клавиш', 'circle-help', () => (helpOpen = true)],
           ['core:vaults', 'Управление хранилищами', 'vault', () => (vaultsOpen = true)],
+          ['core:toggle-pin-tab', 'Закрепить или открепить вкладку', 'pin', () => workspace.active && workspace.togglePin(workspace.active)],
           ['core:next-tab', 'Следующая вкладка', 'chevron-right', () => stepTab(1)],
           ['core:previous-tab', 'Предыдущая вкладка', 'chevron-left', () => stepTab(-1)],
           ['core:close-other-tabs', 'Закрыть остальные вкладки', 'copy-x', () => workspace.leaves.filter((leaf) => leaf !== workspace.active).forEach((leaf) => workspace.close(leaf))],
@@ -407,7 +422,7 @@
       </button>
       <div class="tabs" role="tablist">
         {#each tabs.current as tab (tab.id)}
-          <div class="tab" class:active={tab.id === activeId.current}>
+          <div class="tab" class:active={tab.id === activeId.current} class:pinned={tab.pinned} class:compact={tab.pinned && compactPins.current} oncontextmenu={(event) => tabMenu(event, tab.id)} role="presentation">
             <button
               class="tab-title"
               role="tab"
@@ -427,11 +442,18 @@
               {#key tabLook(tab.path)?.icon}
                 {#if tabLook(tab.path)?.icon}<span class="tab-icon" style:color={app.icons.css(tabLook(tab.path)?.color)} use:drawIcon={[tabLook(tab.path)?.icon, tab.path]}></span>{/if}
               {/key}
-              {tab.title ?? title(tab.path)}
+              {#if tab.pinned && compactPins.current}
+                <!-- A pinned tab is only a sign: the note's icon, or the emoji or first letter of its name. -->
+                {#if !tabLook(tab.path)?.icon}<span class="tab-sign">{sign(tab.title ?? title(tab.path))}</span>{/if}
+              {:else}
+                {tab.title ?? title(tab.path)}
+              {/if}
             </button>
-            <button class="tab-close" aria-label="Закрыть вкладку" onclick={() => workspace.close(leafById(tab.id))}>
-              ×
-            </button>
+            {#if !tab.pinned}
+              <button class="tab-close" aria-label="Закрыть вкладку" onclick={() => workspace.close(leafById(tab.id))}>
+                ×
+              </button>
+            {/if}
           </div>
         {/each}
         <button class="bar-button" title="Новая вкладка с новой заметкой" aria-label="Новая вкладка" onclick={() => newNote(true)}>
@@ -688,6 +710,29 @@
 
   .crumbs .last {
     color: var(--text);
+  }
+
+  /* A pinned tab takes only the room of its sign. */
+  .tab.compact {
+    flex: 0 0 auto;
+    min-width: 0;
+    max-width: none;
+  }
+
+  .tab.compact .tab-title {
+    justify-content: center;
+    padding: 0 10px;
+  }
+
+  .tab-sign {
+    font-size: 15px;
+    line-height: 1;
+  }
+
+  .tab.pinned:not(.compact) .tab-title::before {
+    content: '📌';
+    margin-right: 5px;
+    font-size: 11px;
   }
 
   .tab-title {

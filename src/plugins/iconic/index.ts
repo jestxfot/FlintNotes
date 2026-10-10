@@ -11,6 +11,15 @@ import { ownLook, renameLooks, ruleLook, setLook, type IconicData } from './data
 export default class Iconic extends Plugin {
   private data: IconicData = {}
   private raw = ''
+  /** Throws the kept answers away and has every icon drawn again. */
+  private fresh(): void {
+    this.looks.clear()
+    this.app.icons.refresh()
+  }
+
+  /** Looks already worked out, by kind and item. */
+  private looks = new Map<string, Look | undefined>()
+  private lookFor: (kind: LookKind, id: string, facts: (path: string) => { tags: string[]; links: string[] } | undefined) => Look | undefined = () => undefined
   /** Custom icons from Obsidian's settings folder: name -> address of the picture. */
   private custom = new Map<string, string>()
 
@@ -42,7 +51,7 @@ export default class Iconic extends Plugin {
     ])
     const inNotes = () => {
       app.icons.inNotes = this.getSetting<boolean>('inNotes') !== false
-      app.icons.refresh()
+      this.fresh()
     }
     inNotes()
     this.onSettingChange((key) => key === 'inNotes' && inNotes())
@@ -61,12 +70,32 @@ export default class Iconic extends Plugin {
       app.metadata.on('resolved', () => {
         if (!usesFacts()) return
         clearTimeout(later)
-        later = setTimeout(() => app.icons.refresh(), 800)
+        // Notes change all the time (typing, other programs writing files); icons are drawn again only
+        // if some icon that is on screen really came out different. Otherwise nothing is touched.
+        later = setTimeout(() => {
+          for (const [key, before] of this.looks) {
+            const at = key.indexOf('\n')
+            if (key.slice(0, at) !== 'file') continue
+            const now = this.lookFor('file', key.slice(at + 1), facts)
+            if (now?.icon !== before?.icon || now?.color !== before?.color) return this.fresh()
+          }
+        }, 1200)
       }),
     )
     this.register(() => clearTimeout(later))
     this.register(
       app.icons.provide((kind, id) => {
+        // An icon is asked for at every place an item is drawn (lists, links, tabs, tables), so the answer
+        // is kept until the data or the notes change: going through all the rules each time would stall the page.
+        const key = `${kind}\n${id}`
+        if (this.looks.has(key)) return this.looks.get(key)
+        const look = this.lookFor(kind, id, facts)
+        this.looks.set(key, look)
+        return look
+      }),
+    )
+    this.lookFor = (kind, id, facts) => {
+      {
         const own = ownLook(this.data, kind, id)
         if (kind !== 'file' && kind !== 'folder') return own
         const ruled = ruleLook(this.data, kind, id, facts)
@@ -75,8 +104,10 @@ export default class Iconic extends Plugin {
         const icon = own?.icon ?? ruled?.icon ?? fallback
         const color = own?.color ?? ruled?.color
         return icon || color ? { icon, color } : undefined
-      }),
-    )
+      }
+    }
+    // The kept answers are thrown away whenever icons are to be drawn again.
+    this.register(app.icons.on('change', () => this.looks.clear()))
     app.icons.pick = (kind, id) => void this.choose(kind, id, kind === 'tag' ? `#${id}` : kind === 'property' ? id : paths.basename(id))
     this.register(() => (app.icons.pick = null))
     const previous = app.icons.custom
@@ -167,7 +198,7 @@ export default class Iconic extends Plugin {
       this.raw = text
       const parsed: unknown = text.trim() ? JSON.parse(text) : {}
       this.data = parsed && typeof parsed === 'object' ? (parsed as IconicData) : {}
-      this.app.icons.refresh()
+      this.fresh()
     } catch (err) {
       // A server that is not answering is reported once, by the app itself; the icons stay as they were.
       if (!(err instanceof ServerDown)) this.app.notice(`Значки: не удалось прочитать ${this.file}: ${errorMessage(err)}`)
@@ -197,7 +228,7 @@ export default class Iconic extends Plugin {
       // Written the way Obsidian writes plugin data, so the file differs only where something changed.
       this.raw = JSON.stringify(this.data, null, 2)
       await this.app.vault.write(this.file, this.raw)
-      this.app.icons.refresh()
+      this.fresh()
     } catch (err) {
       this.app.notice(`Значки: не удалось сохранить: ${errorMessage(err)}`)
     }
@@ -227,7 +258,7 @@ export default class Iconic extends Plugin {
       const path = `${this.config}/custom-icons/${name}.svg`
       await this.app.vault.write(path, svg)
       this.custom.set(name, this.app.vault.url(path))
-      this.app.icons.refresh()
+      this.fresh()
       return name
     } catch (err) {
       this.app.notice(`Значки: не удалось добавить «${file.name}»: ${errorMessage(err)}`)
@@ -240,6 +271,6 @@ export default class Iconic extends Plugin {
     const folder = `${this.config}/custom-icons`
     const files = await this.app.vault.list(folder).catch(() => [])
     this.custom = new Map(files.filter((name) => /\.svg$/i.test(name)).map((name) => [name.replace(/\.svg$/i, '').replace(/\s+/g, '_').toLowerCase().replace(/\./g, '_'), this.app.vault.url(`${folder}/${name}`)]))
-    if (this.custom.size) this.app.icons.refresh()
+    if (this.custom.size) this.fresh()
   }
 }

@@ -1,0 +1,162 @@
+.home-tab {
+  position: relative;
+  display: flex;
+  flex-direction: column;
+  align-items: center;
+  min-height: 100%;
+  padding: 9vh 24px 40px;
+  background-position: center;
+  background-size: cover;
+  font-family: var(--font-ui);
+}
+
+/* With a picture behind, the text needs a veil to stay readable. */
+.home-tab.pictured::before {
+  content: '';
+  position: absolute;
+  inset: 0;
+  background: color-mix(in srgb, var(--bg) 55%, transparent);
+}
+
+.home-tab > * {
+  position: relative;
+}
+
+.home-clock {
+  font-size: clamp(56px, 9vw, 104px);
+  font-weight: 300;
+  line-height: 1;
+  letter-spacing: -0.02em;
+  font-variant-numeric: tabular-nums;
+}
+
+.home-date {
+  margin-top: 8px;
+  color: var(--text-muted);
+  font-size: 16px;
+}
+
+.home-greeting {
+  margin-top: 14px;
+  font-size: 24px;
+}
+
+.home-search {
+  position: relative;
+  width: min(620px, 100%);
+  margin-top: 30px;
+}
+
+.home-search input {
+  width: 100%;
+  padding: 12px 18px;
+  border: 1px solid var(--border);
+  border-radius: 2em;
+  outline: none;
+  background: color-mix(in srgb, var(--bg-alt) 88%, transparent);
+  color: var(--text);
+  font: inherit;
+  font-size: 16px;
+  backdrop-filter: blur(8px);
+}
+
+.home-search input:focus {
+  border-color: var(--accent);
+}
+
+.home-results {
+  display: flex;
+  flex-direction: column;
+  gap: 1px;
+  margin-top: 6px;
+  padding: 6px;
+  border: 1px solid var(--border);
+  border-radius: var(--radius-l);
+  background: var(--bg-alt);
+}
+
+.home-results:empty {
+  display: none;
+}
+
+.home-result {
+  display: flex;
+  align-items: baseline;
+  gap: 10px;
+  padding: 6px 10px;
+  border-radius: var(--radius-m);
+  text-align: left;
+}
+
+.home-result.selected,
+.home-result:hover {
+  background: var(--bg-hover);
+}
+
+.home-result small {
+  flex: 1;
+  min-width: 0;
+  overflow: hidden;
+  color: var(--text-faint);
+  text-overflow: ellipsis;
+  white-space: nowrap;
+}
+
+.home-section {
+  width: min(860px, 100%);
+  margin-top: 34px;
+}
+
+.home-section h3 {
+  margin: 0 0 10px;
+  color: var(--text-muted);
+  font-size: 12px;
+  font-weight: 600;
+  letter-spacing: 0.05em;
+  text-transform: uppercase;
+}
+
+.home-files {
+  display: grid;
+  grid-template-columns: repeat(auto-fill, minmax(190px, 1fr));
+  gap: 8px;
+}
+
+.home-file {
+  display: flex;
+  align-items: center;
+  gap: 9px;
+  min-width: 0;
+  padding: 10px 12px;
+  border: 1px solid var(--border);
+  border-radius: var(--radius-l);
+  background: color-mix(in srgb, var(--bg-alt) 88%, transparent);
+  text-align: left;
+  backdrop-filter: blur(8px);
+}
+
+.home-file:hover {
+  border-color: var(--accent);
+}
+
+.home-file .icon {
+  flex: none;
+  color: var(--text-muted);
+  font-size: 17px;
+}
+
+.home-file-name {
+  min-width: 0;
+  overflow: hidden;
+  text-overflow: ellipsis;
+  white-space: nowrap;
+}
+
+.home-quote {
+  max-width: 640px;
+  margin-top: auto;
+  padding-top: 40px;
+  color: var(--text-muted);
+  font-style: italic;
+  text-align: center;
+}

@@ -198,7 +198,18 @@ export default class LinkEmbed extends Plugin {
         image.src = src
       })
     const block = async (address: string): Promise<string> => {
-      const page = await app.vault.unfurl(address)
+      // A page that does not answer still gets its card: the address is its name, and the picture is looked for later.
+      const page = await app.vault.unfurl(address).catch((err) => {
+        app.notice(`Карточка ссылки: ${errorMessage(err)} — карточка сделана без описания`)
+        let name = address
+        try {
+          const parsed = new URL(address)
+          name = `${parsed.hostname.replace(/^www\./, '')}${decodeURIComponent(parsed.pathname).replace(/\/$/, '')}`
+        } catch {
+          // The address as it is.
+        }
+        return { url: address, title: name, description: '', image: '', favicon: '' }
+      })
       const aspect = await ratio(page.image)
       const lines = [`title: ${quote(page.title || address)}`, `image: ${quote(page.image)}`, `description: ${quote(page.description)}`, `url: ${quote(page.url)}`]
       if (page.favicon) lines.push(`favicon: ${quote(page.favicon)}`)

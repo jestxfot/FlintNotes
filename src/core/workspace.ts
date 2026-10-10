@@ -37,6 +37,8 @@ export interface Leaf {
   viewType: string
   el: HTMLElement
   view: FileView | null
+  /** A pinned tab stays: it is not closed with the others and its note is not replaced by the next one opened. */
+  pinned?: boolean
   /** Counts the times a view was put into the tab: a view that finishes loading late knows it is no longer wanted. */
   mounts?: number
 }
@@ -77,6 +79,8 @@ export class Workspace extends Events<WorkspaceEvents> {
   private embedded = new Set<{ path: string; view: FileView | null }>()
   /** Lets someone else show a file instead of a tab; returns `true` if it did. */
   redirect: ((path: string) => boolean) | null = null
+  /** Shows something in place of a new, empty tab (a home page); returns `true` if it did. Set by a plugin. */
+  newTabPage: (() => boolean) | null = null
   /** Whether the click or Enter being handled right now asks for a new tab (Ctrl or the middle button). */
   private aside = false
   /** Whether the tabs of the last session have been brought back; until then nothing is saved over them. */
@@ -102,7 +106,7 @@ export class Workspace extends Events<WorkspaceEvents> {
       }
     })
     app.vault.on('delete', (entry) => {
-      this.leaves.filter((l) => l.path === entry.path).forEach((leaf) => this.close(leaf))
+      this.leaves.filter((l) => l.path === entry.path).forEach((leaf) => this.close(leaf, true))
     })
     app.vault.on('modify', (entry) => {
       this.leaves.filter((l) => l.path === entry.path).forEach((leaf) => leaf.view?.onExternalChange?.())
@@ -175,7 +179,7 @@ export class Workspace extends Events<WorkspaceEvents> {
       return Object.assign(existing, { ready: Promise.resolve() })
     }
     const current = this.active
-    if (reuse && current && !current.path.startsWith(VIEW_PREFIX)) {
+    if (reuse && current && !current.pinned && !current.path.startsWith(VIEW_PREFIX)) {
       void current.view?.flush?.()
       current.path = path
       // It counts as another tab from here on, so that going to a note is a step in the browser's history.
@@ -201,9 +205,17 @@ export class Workspace extends Events<WorkspaceEvents> {
     this.trigger('active-change', leaf)
   }
 
-  close(leaf: Leaf): void {
+  /** Pins a tab or lets it go. Pinned tabs stand first in the strip, in the order they were pinned. */
+  togglePin(leaf: Leaf): void {
+    leaf.pinned = !leaf.pinned
+    this.leaves = [...this.leaves.filter((one) => one.pinned), ...this.leaves.filter((one) => !one.pinned)]
+    this.changed()
+  }
+
+  /** Closes a tab. A pinned one is closed only when asked for by name (`force`), not along with others. */
+  close(leaf: Leaf, force = false): void {
     const index = this.leaves.indexOf(leaf)
-    if (index < 0) return
+    if (index < 0 || (leaf.pinned && !force)) return
     leaf.view?.destroy()
     leaf.view = null
     leaf.el.remove()
@@ -224,15 +236,15 @@ export class Workspace extends Events<WorkspaceEvents> {
    * them, and stays the one on screen.
    */
   restore(): void {
-    const { tabs, active } = this.app.state.get<{ tabs?: { path: string; title?: string }[]; active?: string }>('tabs', {})
+    const { tabs, active } = this.app.state.get<{ tabs?: { path: string; title?: string; pinned?: boolean }[]; active?: string }>('tabs', {})
     const early = this.leaves
     const wanted = this.active
     this.leaves = []
-    for (const { path, title } of tabs ?? []) {
+    for (const { path, title, pinned } of tabs ?? []) {
       if (!path.startsWith(VIEW_PREFIX) && !this.app.vault.get(path)) continue
       const open = early.find((leaf) => leaf.path === path)
-      if (open) this.leaves.push(open)
-      else if (!this.leaves.some((leaf) => leaf.path === path)) this.leaves.push(this.create(path, title))
+      if (open) this.leaves.push(Object.assign(open, { pinned: open.pinned || pinned }))
+      else if (!this.leaves.some((leaf) => leaf.path === path)) this.leaves.push(Object.assign(this.create(path, title), { pinned }))
     }
     for (const leaf of early) if (!this.leaves.includes(leaf)) this.leaves.push(leaf)
     this.restored = true
@@ -322,6 +334,6 @@ export class Workspace extends Events<WorkspaceEvents> {
     this.trigger('layout-change')
     // Until the saved tabs are back, what is open is not the whole picture and must not replace them.
     if (!this.restored) return
-    this.app.state.set('tabs', { tabs: this.leaves.map(({ path, title }) => ({ path, title })), active: this.active?.path })
+    this.app.state.set('tabs', { tabs: this.leaves.map(({ path, title, pinned }) => ({ path, title, ...(pinned ? { pinned } : {}) })), active: this.active?.path })
   }
 }

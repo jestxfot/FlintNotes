@@ -447,8 +447,32 @@ api.get('/unfurl', async (c) => {
   if (!addresses.length || addresses.some((a) => PRIVATE.test(a.address))) throw new HTTPException(400, { message: 'Страница недоступна' })
   let html = ''
   let final = url.href
+  // A video site answers a plain question about a video (its name, its channel, its frame) far more
+  // surely than its page does, which is heavy and often asks for consent first.
+  if (/(^|\.)(youtube\.com|youtu\.be)$/i.test(url.hostname)) {
+    try {
+      const res = await fetch(`https://www.youtube.com/oembed?format=json&url=${encodeURIComponent(url.href)}`, { signal: AbortSignal.timeout(8000) })
+      if (res.ok) {
+        const video = (await res.json()) as { title?: string; author_name?: string; thumbnail_url?: string }
+        if (video.title) return c.json({ url: url.href, title: video.title, description: video.author_name ?? '', image: video.thumbnail_url ?? '', favicon: 'https://www.youtube.com/favicon.ico' })
+      }
+    } catch {
+      // The page itself is asked below.
+    }
+  }
+  // Pages are asked the way a browser asks: many sites turn anything else away. A slow site gets a second, longer try.
+  const ask = (timeout: number) =>
+    fetch(url, {
+      signal: AbortSignal.timeout(timeout),
+      redirect: 'follow',
+      headers: {
+        'user-agent': 'Mozilla/5.0 (Windows NT 10.0; Win64; x64) AppleWebKit/537.36 (KHTML, like Gecko) Chrome/126.0 Safari/537.36',
+        accept: 'text/html,application/xhtml+xml,*/*;q=0.8',
+        'accept-language': 'ru,en;q=0.8',
+      },
+    })
   try {
-    const res = await fetch(url, { signal: AbortSignal.timeout(8000), headers: { 'user-agent': 'Mozilla/5.0 (compatible; FlintNotes link preview)', accept: 'text/html,*/*;q=0.5' } })
+    const res = await ask(8000).catch(() => ask(20_000))
     final = res.url || url.href
     // The head of the page is enough; a huge page is not read to the end.
     const reader = res.body?.getReader()

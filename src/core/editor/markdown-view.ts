@@ -149,14 +149,46 @@ export class MarkdownView implements FileView {
     }
     // Unsaved local edits win; the pending autosave writes them out.
     if (current !== this.saved) return
-    const doc = this.editor.state.toText(text)
-    const cursor = Math.min(this.editor.state.selection.main.head, doc.length)
     this.eol = text.includes('\r\n') ? '\r\n' : '\n'
-    this.editor.dispatch({
-      changes: { from: 0, to: this.editor.state.doc.length, insert: doc },
-      selection: { anchor: cursor },
-    })
+    // Only what really differs is replaced: the lines before and after it stay as they are on the page
+    // (their drawn blocks, the cursor, the scroll), and the changed ones are lit for a moment.
+    const before = this.editor.state.doc.toString()
+    const after = text.replace(/\r\n/g, '\n')
+    let start = 0
+    const shortest = Math.min(before.length, after.length)
+    while (start < shortest && before.charCodeAt(start) === after.charCodeAt(start)) start++
+    let end = 0
+    while (end < shortest - start && before.charCodeAt(before.length - 1 - end) === after.charCodeAt(after.length - 1 - end)) end++
+    // Whole lines: a change inside a line replaces that line, so what is lit is what was touched.
+    start = before.lastIndexOf('\n', start - 1) + 1
+    const tail = before.indexOf('\n', before.length - end)
+    end = tail < 0 ? 0 : before.length - tail
+    const insert = after.slice(start, after.length - end)
+    this.editor.dispatch({ changes: { from: start, to: before.length - end, insert } })
     this.saved = this.text()
+    this.flash(start, start + insert.length)
+  }
+
+  /** Lights the lines of a part of the text for a moment. */
+  private flash(from: number, to: number): void {
+    requestAnimationFrame(() => {
+      if (this.destroyed) return
+      const { doc } = this.editor.state
+      const { from: top, to: bottom } = this.editor.viewport
+      let pos = Math.max(from, top)
+      const last = Math.min(to, bottom, doc.length)
+      for (let count = 0; pos <= last && count < 300; count++) {
+        const line = doc.lineAt(pos)
+        const node = this.editor.domAtPos(line.from).node
+        const el = (node instanceof Element ? node : node.parentElement)?.closest<HTMLElement>('.cm-line')
+        if (el) {
+          el.classList.remove('line-flash')
+          void el.offsetWidth
+          el.classList.add('line-flash')
+        }
+        pos = line.to + 1
+      }
+    })
   }
 
   onRename(path: string): void {
