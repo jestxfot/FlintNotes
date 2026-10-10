@@ -42,6 +42,7 @@ node release/server.mjs "D:/Мои заметки"      # или FlintNotes.bat 
 | ```` ```chart ````, `window.renderChart` | Графики | Charts |
 | значки и цвета файлов, папок, тегов, свойств | Значки и цвета | Iconic (тот же `data.json` в папке настроек Obsidian) |
 | свои значки (PNG и JPG превращаются в SVG) | Значки и цвета | Add Custom Icons (SVG в `custom-icons` в папке настроек Obsidian) |
+| менеджер задач (вкладка со списками, календарём и карточкой задачи) | Задачи | те же строки `- [ ]` в формате Obsidian Tasks; своих данных у менеджера нет |
 | ```` ```tracker ```` | Трекер | Tracker |
 | заметки папок, ```` ```folder-overview ```` | Заметки папок | Folder notes (те же имена настроек, берутся из его `data.json`) |
 | ```` ```mermaid ```` | Диаграммы Mermaid | встроено в Obsidian (та же библиотека Mermaid) |

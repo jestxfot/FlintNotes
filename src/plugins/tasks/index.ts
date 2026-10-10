@@ -1,5 +1,5 @@
 import { mount, unmount } from 'svelte'
-import { cm, errorMessage, Plugin, renderInline, type CodeBlockContext, type PreviewRenderer } from '../../api'
+import { cm, errorMessage, path as paths, Plugin, renderInline, type CodeBlockContext, type PreviewRenderer } from '../../api'
 import { today } from './dates'
 import { Reminders, stamp } from './reminders'
 import { tasksProcessor } from './render'
@@ -16,6 +16,9 @@ import {
   type TaskFields,
 } from './task'
 import TaskDialog from './TaskDialog.svelte'
+import TaskManager from './TaskManager.svelte'
+
+const MANAGER = 'tasks-manager'
 
 // A date field, a priority, a repeat rule or a reminder, as written in a task line.
 const FIELD = /[📅⏳🛫➕✅❌]\uFE0F?\s*\d{4}-\d{2}-\d{2}|[🔺⏫🔼🔽⏬]\uFE0F?|🔁\uFE0F?\s*[^📅⏳🛫➕✅❌🔺⏫🔼🔽⏬⏰🆔⛔🏁#]+|⏰\uFE0F?\s*(?:\d{4}-\d{2}-\d{2}[ T]?)?(?:\d{1,2}:\d{2})?/gu
@@ -41,6 +44,7 @@ export default class Tasks extends Plugin {
         type: 'lines',
         default: 'not done\ngroup by when\nsort by due\nsort by priority',
       },
+      { key: 'managerFile', name: 'Заметка для новых задач менеджера', desc: 'Сюда попадают задачи, добавленные в менеджере задач не в списке конкретной заметки', type: 'text', default: 'Задачи.md', placeholder: 'Задачи.md' },
       {
         key: 'remindDue',
         name: 'Напоминать о задачах со сроком',
@@ -137,6 +141,28 @@ export default class Tasks extends Plugin {
           return next ? [formatTaskLine(next, prefix), done] : [done]
         })
       })
+
+    // ---- the task manager: a tab of its own over every task of the vault
+    this.registerView(
+      MANAGER,
+      ({ containerEl }) => {
+        containerEl.classList.add('task-manager-view')
+        const manager = mount(TaskManager, {
+          target: containerEl,
+          props: {
+            app,
+            store,
+            inbox: () => paths.normalize(this.getSetting<string>('managerFile') || 'Задачи.md').replace(/(\.md)?$/, '.md'),
+            onedit: editTask,
+          },
+        })
+        return { destroy: () => void unmount(manager) }
+      },
+      [],
+    )
+    const openManager = () => app.workspace.openView(MANAGER, 'Задачи')
+    this.addCommand({ id: 'manager', name: 'Открыть менеджер задач', icon: 'list-todo', scope: 'vault', hotkey: 'Alt+Shift+T', callback: openManager })
+    this.addToolbarButton('tab-bar', { id: 'manager', icon: 'list-todo', title: 'Менеджер задач (Alt+Shift+T)', onClick: openManager })
 
     const addTask = async (fields: TaskFields) => {
       const line = formatTaskLine(isDone(fields) ? { ...fields, done: fields.done ?? today() } : fields)
