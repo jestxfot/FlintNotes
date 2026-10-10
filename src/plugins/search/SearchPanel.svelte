@@ -1,7 +1,7 @@
 <script lang="ts">
   import { onMount } from 'svelte'
   import { path, watch, type App } from '../../api'
-  import { search, textTerms } from './search'
+  import { highlightPattern, search } from './search'
 
   let { app, panelId }: { app: App; panelId: string } = $props()
 
@@ -28,10 +28,7 @@
     void indexed.current
     return search(app, query)
   })
-  const highlight = $derived.by(() => {
-    const words = textTerms(query).map((word) => word.replace(/[.*+?^${}()|[\]\\]/g, '\\$&'))
-    return words.length ? new RegExp(`(${words.join('|')})`, 'gi') : null
-  })
+  const highlight = $derived(highlightPattern(query))
 
   /** Splits a line into plain and matching pieces; odd pieces are matches. */
   const pieces = (text: string) => (highlight ? text.split(highlight) : [text])

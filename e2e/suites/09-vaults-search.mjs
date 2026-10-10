@@ -50,6 +50,18 @@ export async function run(t) {
   await wait(600)
   ok('search finds a note by a part of its title', JSON.stringify(await found()) === JSON.stringify(['Unrelated']))
 
+  // ---- several words are a phrase first; small words do not match inside other words
+  t.write('Phrase.md', 'intro\n\nHe is watching you from the dark.\n')
+  t.write('Scattered.md', 'he said\n\nthis is it\n\nwatching birds\n\nyou too\n')
+  t.write('Noise.md', 'the theory of youtube isbn\n')
+  await wait(1500)
+  await page.locator('aside.left input').fill('He is watching you')
+  await wait(700)
+  ok('a phrase is found first where it stands as written; parts of other words do not count', JSON.stringify(await found()) === JSON.stringify(['Phrase', 'Scattered']), JSON.stringify(await found()))
+  ok('and only the lines that answer are shown, the phrase lit whole', (await page.locator('aside.left .line').first().innerText()).includes('He is watching you from the dark') && (await page.locator('aside.left .line').first().locator('mark').first().innerText()) === 'He is watching you', await page.locator('aside.left .results').innerText())
+  await page.locator('aside.left input').fill('unrel')
+  await wait(500)
+
   await page.keyboard.press('Control+o')
   await page.keyboard.type('road')
   await wait(200)

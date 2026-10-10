@@ -1,7 +1,7 @@
 <script lang="ts">
   import { onMount, tick } from 'svelte'
   import { path, type App } from '../../api'
-  import { search, textTerms } from './search'
+  import { highlightPattern, search } from './search'
 
   let { app, onclose }: { app: App; onclose: () => void } = $props()
 
@@ -32,10 +32,7 @@
   const results = $derived(search(app, query))
   /** Everything that can be opened, in the order it is shown: a note, then the lines found in it. */
   const rows = $derived(results.flatMap((result) => [{ result, line: undefined as number | undefined, text: '' }, ...result.matches.map((match) => ({ result, line: match.line as number | undefined, text: match.text }))]))
-  const highlight = $derived.by(() => {
-    const words = textTerms(query).map((word) => word.replace(/[.*+?^${}()|[\]\\]/g, '\\$&'))
-    return words.length ? new RegExp(`(${words.join('|')})`, 'gi') : null
-  })
+  const highlight = $derived(highlightPattern(query))
   const pieces = (text: string) => (highlight ? text.split(highlight) : [text])
   const title = (file: string) => path.stripExt(path.basename(file))
   const folder = (file: string) => (path.dirname(file) ? `${path.dirname(file)}/` : '')
