@@ -9,7 +9,7 @@ export const vault = {
     'pic.png': fixture('pic.png'),
     'Other.md': '# Other note\n',
     'Test.md':
-      '---\ntitle: Test\ntags: [a]\n---\n# Heading One\n\nText with **bold**, *italic*, ~~strike~~ and `code` and \\*escaped\\*.\n\nA [link](Other.md) and https://example.com here.\n\n> quoted line\n\n- item one\n- [ ] todo\n- [x] done\n\n1. first\n\n```js\nconst a = 1\n```\n\n---\n\n![pic|120](pic.png)\n\n```counter\n3\n```\n\nend\n',
+      '---\ntitle: Test\ntags: [a]\n---\n# Heading One\n\nText with **bold**, *italic*, ~~strike~~ and `code` and \\*escaped\\*.\n\nA [link](Other.md) and https://example.com here.\n\n> quoted line\n\n- item one\n- [ ] todo\n- [x] done\n\n1. first\n\n```js\nconst a = 1\n```\n\n---\n\n![pic|120](pic.png)\n\n```counter\n3\n```\n\nAt 17:44:36 UTC plain.\n\nend\n',
   },
 }
 
@@ -82,4 +82,7 @@ export async function run(t) {
   await t.tab('Test').click()
   await wait(200)
   ok('link click did not reveal its source', !(await t.text()).includes('](Other.md)'))
+  // A time of day is plain text: the digits between its colons are not an emoji code.
+  const time = page.locator(`${leaf} .cm-line`, { hasText: '17:44:36' })
+  ok('a time of day has no part painted differently', (await time.locator('span').count()) === 0, await time.innerHTML().catch(() => 'no line'))
 }

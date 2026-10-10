@@ -32,7 +32,8 @@ const theme = EditorView.theme({
   '.cm-tooltip.cm-tooltip-autocomplete > ul': { fontFamily: 'var(--font-ui)', fontSize: '14px', maxHeight: '19em', minWidth: 'min(460px, 80vw)', maxWidth: 'min(560px, 90vw)' },
   '.cm-tooltip.cm-tooltip-autocomplete > ul > li': {
     display: 'grid',
-    gridTemplateColumns: '1fr auto',
+    gridTemplateColumns: 'auto 1fr auto',
+    columnGap: '0',
     alignItems: 'center',
     padding: '6px 12px',
     borderRadius: '6px',
@@ -40,9 +41,11 @@ const theme = EditorView.theme({
     whiteSpace: 'normal',
   },
   '.cm-tooltip-autocomplete ul li[aria-selected]': { backgroundColor: 'var(--bg-hover)', color: 'var(--text)' },
-  '.cm-completionLabel': { gridColumn: '1', overflow: 'hidden', textOverflow: 'ellipsis' },
-  '.cm-completionDetail': { gridColumn: '1', marginLeft: '0', color: 'var(--text-muted)', fontSize: '12px', fontStyle: 'normal', overflowWrap: 'anywhere' },
-  '.cm-completionAlias': { gridColumn: '2', gridRow: '1 / span 2', color: 'var(--text-faint)', fontSize: '15px' },
+  '.cm-completionLabel': { gridColumn: '2', overflow: 'hidden', textOverflow: 'ellipsis' },
+  '.cm-completionDetail': { gridColumn: '2', marginLeft: '0', color: 'var(--text-muted)', fontSize: '12px', fontStyle: 'normal', overflowWrap: 'anywhere' },
+  // The icon of the note a suggestion stands for, before its name.
+  '.cm-completionNoteIcon': { gridColumn: '1', gridRow: '1 / span 2', display: 'flex', marginRight: '10px', fontSize: '17px', color: 'var(--text-muted)' },
+  '.cm-completionAlias': { gridColumn: '3', gridRow: '1 / span 2', color: 'var(--text-faint)', fontSize: '15px' },
   '.cm-completionMatchedText': { textDecoration: 'none', fontWeight: '700', color: 'inherit' },
   '.cm-link-completion::after': {
     content: '"Введите #, чтобы сослаться на заголовок  ·  Введите |, чтобы изменить отображаемый текст"',

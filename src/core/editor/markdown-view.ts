@@ -51,6 +51,18 @@ export class MarkdownView implements FileView {
             // An alias is marked with an arrow: choosing it links to the note the alias belongs to.
             addToOptions: [
               {
+                // A suggestion that stands for a file shows that file's icon, if it has one.
+                position: 10,
+                render: (completion) => {
+                  const file = (completion as { path?: string }).path
+                  const look = file ? this.app.icons.look('file', file) : undefined
+                  if (!look?.icon) return null
+                  const icon = this.app.icons.draw(look.icon, look.color)
+                  icon.classList.add('cm-completionNoteIcon')
+                  return icon
+                },
+              },
+              {
                 position: 90,
                 render: (completion) => {
                   if (completion.type !== 'alias') return null

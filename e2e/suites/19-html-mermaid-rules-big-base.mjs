@@ -15,6 +15,7 @@ export const vault = {
     'pic.png': fixture('pic.png'),
     'Tagged.md': '---\ntags:\n  - song\n---\nla la\n',
     'Untagged.md': 'no tags\n',
+    'TextTag.md': '---\ntags: "#song"\n---\nbody\n',
     '.obsidian/app.json': '{}',
     '.obsidian/plugins/iconic/data.json': JSON.stringify(iconic, null, 2),
     'Templates/Dish.md': '# <% tp.file.title %>\n',
@@ -30,6 +31,32 @@ export async function run(t) {
 
   await wait(2500)
   ok('a rule may ask about the tags of a note', (await t.row('Tagged').locator('.row-icon svg').count()) === 1 && (await t.row('Untagged').locator('.row-icon').count()) === 0)
+  // ---- tags among the properties
+  await t.open('TextTag')
+  ok('tags written as one text are still shown as tags', (await page.locator(`${leaf} .props-row[data-key="tags"] .props-chip`).count()) === 1 && (await t.flat(page.locator(`${leaf} .props-row[data-key="tags"] .props-chip`))).startsWith('song'))
+  await t.open('Tagged')
+  const tagField = page.locator(`${leaf} .props-row[data-key="tags"] .props-list input`)
+  await tagField.click()
+  await page.keyboard.type('so')
+  await page.evaluate(() => app.icons.refresh())
+  await wait(400)
+  ok('the form is not drawn again while a field is being typed in', (await tagField.inputValue()) === 'so' && (await page.evaluate(() => document.activeElement?.tagName)) === 'INPUT')
+  await page.keyboard.type('ng')
+  await page.keyboard.press('Enter')
+  await wait(900)
+  ok('a tag that is there already is not added again', (await page.locator(`${leaf} .props-row[data-key="tags"] .props-chip`).count()) === 1 && read('Tagged.md').match(/song/g).length === 1, read('Tagged.md'))
+  await page.locator(`${leaf} .props-row[data-key="tags"] .props-list input`).click()
+  await page.keyboard.type('s')
+  await wait(400)
+  ok('a tag the note has is not suggested', !(await t.flat(page.locator('.props-suggest')).catch(() => '')).includes('song'))
+  await page.keyboard.press('Escape')
+  await page.locator(`${leaf} .props-row[data-key="tags"] .props-list input`).fill('')
+  await page.locator(`${leaf} .cm-content`).click({ position: { x: 200, y: 300 } })
+  await t.cursorToEnd()
+  await page.keyboard.type('\n[[Tagg')
+  await page.waitForSelector('.cm-tooltip-autocomplete li', { timeout: 8000 }).catch(() => {})
+  ok('the list of notes for a link shows their icons', (await page.locator('.cm-tooltip-autocomplete li', { hasText: 'Tagged' }).locator('.cm-completionNoteIcon svg').count()) === 1, await page.locator('.cm-tooltip-autocomplete').innerHTML().catch(() => 'no list'))
+  await page.keyboard.press('Escape')
   await t.open('Html')
   const html = page.locator(`${leaf} .lp-html`)
   await html.waitFor()
@@ -83,7 +110,7 @@ export async function run(t) {
   await page.locator('nav button.sub', { hasText: 'Значки и цвета' }).click()
   await wait(600)
   const rules = page.locator('.iconic-rules')
-  ok('the settings show the rules of files and folders', (await rules.locator('.iconic-rule').count()) === 2 && (await rules.locator('.iconic-rule-name').nth(1).inputValue()) === 'Big ones' && (await t.flat(rules.locator('.iconic-rule-count').nth(1))) === '300' && (await t.flat(rules.locator('.iconic-rule-count').first())) === '1', await rules.innerText().catch(() => 'no rules'))
+  ok('the settings show the rules of files and folders', (await rules.locator('.iconic-rule').count()) === 2 && (await rules.locator('.iconic-rule-name').nth(1).inputValue()) === 'Big ones' && (await t.flat(rules.locator('.iconic-rule-count').nth(1))) === '300' && (await t.flat(rules.locator('.iconic-rule-count').first())) === '2', await rules.innerText().catch(() => 'no rules'))
   await rules.locator('.iconic-rule-section').nth(1).locator('.iconic-rule-add').click()
   await wait(900)
   const folderRule = rules.locator('.iconic-rule-section').nth(1).locator('.iconic-rule')

@@ -48,6 +48,8 @@ export const wikilinkCompletion =
           detail: folder ? `${folder}/` : undefined,
           apply: finish(text),
           type: 'note',
+          // The core's list shows the icon of the file a suggestion names.
+          path: file.path,
           // Notes before attachments.
           boost: path.extname(file.path) === 'md' ? 1 : 0,
         }
@@ -57,6 +59,7 @@ export const wikilinkCompletion =
           detail: file.path.replace(/\.md$/, ''),
           apply: finish(`${text}|${alias}`),
           type: 'alias',
+          path: file.path,
           boost: 0,
         }))
         return [note, ...aliases]

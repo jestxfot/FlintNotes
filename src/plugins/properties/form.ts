@@ -53,7 +53,20 @@ const el = <K extends keyof HTMLElementTagNameMap>(tag: K, className = '', text 
 export function propertiesForm(source: string, root: HTMLElement, ctx: CodeBlockContext): CodeBlockInstance {
   root.classList.add('props')
   let written = source
-  const offIcons = ctx.app.icons.on('change', () => render())
+  // Icons may change at any moment (other notes are being read, a rule now fits). The form is not
+  // drawn again under the user's hands: while a field of it is being typed in, that waits.
+  let stale = false
+  const typing = () => root.contains(document.activeElement) && /^(INPUT|TEXTAREA|SELECT)$/.test(document.activeElement?.tagName ?? '')
+  const offIcons = ctx.app.icons.on('change', () => (typing() ? (stale = true) : render()))
+  root.addEventListener('focusout', () => {
+    if (!stale) return
+    // After the field's own change has been taken in.
+    setTimeout(() => {
+      if (!stale || typing()) return
+      stale = false
+      render()
+    }, 150)
+  })
   let doc: Document
 
   const save = () => {
@@ -154,7 +167,9 @@ export function propertiesForm(source: string, root: HTMLElement, ctx: CodeBlock
         save()
       }
 
-      row.append(editor(key, value, kind))
+      // Tags written as one text (`tags: "#food, soup"`) are still tags: they are shown and edited as a list.
+      if (key === 'tags' && typeof value === 'string') row.append(listEditor(key, value.split(/[\s,]+/).filter(Boolean), (next) => (setYamlValue(doc, key, next), save())))
+      else row.append(editor(key, value, kind))
 
       // The type and deleting are in the row's menu (a right click, or a click on the icon's menu): the row itself stays clean.
       return row
@@ -185,12 +200,15 @@ export function propertiesForm(source: string, root: HTMLElement, ctx: CodeBlock
     }
     const open = () => {
       const counts = new Map<string, number>()
+      const had = new Set(taken.map((item) => (key === 'tags' ? item.replace(/^#/, '').toLowerCase() : item.trim())))
       for (const note of ctx.app.metadata.notes()) {
         const value = ctx.app.metadata.get(note)?.frontmatter?.[key]
         for (const item of Array.isArray(value) ? value : [value]) {
           if (typeof item !== 'string' && typeof item !== 'number') continue
           const text = String(item).trim()
-          if (text && !taken.includes(text)) counts.set(text, (counts.get(text) ?? 0) + 1)
+          // A tag is the same tag with or without its `#`, in any case of letters.
+          const same = key === 'tags' ? text.replace(/^#/, '').toLowerCase() : text
+          if (same && !had.has(same)) counts.set(key === 'tags' ? same : text, (counts.get(key === 'tags' ? same : text) ?? 0) + 1)
         }
       }
       const typed = input.value.trim().toLowerCase()
@@ -206,7 +224,12 @@ export function propertiesForm(source: string, root: HTMLElement, ctx: CodeBlock
       for (const [value] of values) {
         const link = /^\[\[([^\]|]+)(?:\|([^\]]+))?\]\]$/.exec(value)
         const row = popup.appendChild(el('button', 'props-suggest-row'))
-        row.append(el('span', '', link ? (link[2] ?? link[1].split('/').pop()!) : key === 'tags' ? value.replace(/^#/, '') : value))
+        // The icon of the tag, or of the note a link leads to.
+        const dest = link ? ctx.app.metadata.resolve(link[1].split('#')[0], ctx.path) : null
+        const look = key === 'tags' ? ctx.app.icons.look('tag', value.replace(/^#/, '')) : dest ? ctx.app.icons.look('file', dest) : undefined
+        const name = el('span', 'props-suggest-name', link ? (link[2] ?? link[1].split('/').pop()!) : key === 'tags' ? value.replace(/^#/, '') : value)
+        if (look?.icon) name.prepend(Object.assign(ctx.app.icons.draw(look.icon, look.color), { className: 'icon props-suggest-icon' }))
+        row.append(name)
         if (link) row.append(ctx.app.icons.draw('link'))
         // The field keeps the focus: the choice is made on the press, before the field would lose it.
         row.onmousedown = (event) => {
@@ -293,7 +316,10 @@ export function propertiesForm(source: string, root: HTMLElement, ctx: CodeBlock
     input.placeholder = items.length ? '' : 'Нет значения'
     suggest(input, key, (value) => set([...items, key === 'tags' ? value.replace(/^#/, '') : value]), items.map(String))
     const add = () => {
-      const fresh = input.value.split(',').map((item) => item.trim().replace(key === 'tags' ? /^#/ : /^$/, '')).filter(Boolean)
+      // What is in the list already is not added a second time.
+      const same = (item: unknown) => (key === 'tags' ? String(item).replace(/^#/, '').toLowerCase() : String(item))
+      const fresh = [...new Set(input.value.split(',').map((item) => item.trim().replace(key === 'tags' ? /^#/ : /^$/, '')).filter(Boolean))].filter((item) => !items.some((had) => same(had) === same(item)))
+      input.value = ''
       if (fresh.length) set([...items, ...fresh])
     }
     input.onchange = add

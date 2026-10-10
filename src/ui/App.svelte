@@ -40,16 +40,26 @@
     if (!on && pinned[side]) return
     // A short wait both ways: a pointer passing by opens nothing, and leaving for a moment closes nothing.
     peekTimers[side] = setTimeout(() => {
-      // A menu or a dialog opened from the sidebar keeps it in place, and so does dragging its edge.
-      if (!on && (menu || document.querySelector('dialog[open]') || document.querySelector('aside.resizing') || document.querySelector('aside :focus'))) return hover(side, false)
+      // A menu opened from the sidebar keeps it in place, and so do dragging its edge and typing a name in it.
+      // A button that was merely clicked there does not: the focus it keeps would hold the sidebar for ever.
+      if (!on && (menu || document.querySelector('aside.resizing') || document.querySelector('aside input:focus'))) return hover(side, false)
       peek[side] = on
     }, on ? 120 : 350)
   }
   // Whether the pointer is on a floating sidebar is worked out from where the pointer is, not from
   // enter and leave events: a sidebar that appears under a pointer standing still gets no "enter".
   const over = { left: false, right: false }
+  $effect(() => {
+    // A window opened over the app (settings, vaults, help) sends the floating sidebars away.
+    if (!(settingsOpen || vaultsOpen || helpOpen) || !floating) return
+    for (const side of ['left', 'right'] as const) {
+      clearTimeout(peekTimers[side])
+      over[side] = false
+      if (!pinned[side]) peek[side] = false
+    }
+  })
   function trackPointer(event: MouseEvent) {
-    if (!floating) return
+    if (!floating || settingsOpen || vaultsOpen || helpOpen) return
     for (const side of ['left', 'right'] as const) {
       const box = document.querySelector(`aside.${side}.floating`)?.getBoundingClientRect()
       const atEdge = side === 'left' ? event.clientX <= 6 : event.clientX >= innerWidth - 6

@@ -118,11 +118,17 @@ export class Vault extends Events<VaultEvents> {
 
   /** Whether the server starts by itself when the user signs in to the computer. */
   async autostart(): Promise<{ supported: boolean; enabled: boolean; file?: string; reason?: string }> {
-    return (await request('/api/autostart')).json()
+    return this.answer(await request('/api/autostart'))
   }
 
   async setAutostart(enabled: boolean): Promise<{ supported: boolean; enabled: boolean; file?: string }> {
-    return (await request('/api/autostart', { method: 'POST', headers: { 'content-type': 'application/json' }, body: JSON.stringify({ enabled }) })).json()
+    return this.answer(await request('/api/autostart', { method: 'POST', headers: { 'content-type': 'application/json' }, body: JSON.stringify({ enabled }) }))
+  }
+
+  /** The server's answer; a server started before an update does not know newer requests and sends the page instead. */
+  private async answer<T>(res: Response): Promise<T> {
+    if (!(res.headers.get('content-type') ?? '').includes('json')) throw new Error('Сервер FlintNotes запущен в старой версии. Закройте его окно и запустите FlintNotes заново')
+    return res.json()
   }
 
   /** Asks the server to make a web request, which a page itself may not make to another site. */

@@ -84,7 +84,9 @@ export class MarkdownSyntax {
   private language(): Extension {
     return markdown({
       base: markdownLanguage,
-      extensions: [...this.configs],
+      // `:name:` is an emoji in GitHub's Markdown, not in Obsidian's: there `17:44:36` is plain text,
+      // so that reading of colons is taken out (it painted the minutes of every time of day).
+      extensions: [{ remove: ['Emoji'] }, ...this.configs],
       // Code in ```js, ```python, ... is highlighted; each language's parser is fetched when first used.
       codeLanguages: languages,
       completeHTMLTags: false,

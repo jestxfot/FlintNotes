@@ -221,3 +221,15 @@
 .props-suggest-row .icon {
   color: var(--text-faint);
 }
+
+.props-suggest-name {
+  display: flex;
+  align-items: center;
+  gap: 8px;
+  min-width: 0;
+}
+
+.props-suggest-row .props-suggest-icon {
+  flex: none;
+  color: inherit;
+}
