@@ -64,7 +64,7 @@ export class DockedNotes {
    * Moves a note from the tabs into a sidebar: into the block `group` at
    * position `at`, or with `group: null` into a block of its own before `at`.
    */
-  dock(path: string, side: Side, group: number | null = null, at = Infinity): void {
+  dock(path: string, side: Side, group: number | null = null, at = Infinity, title?: string): void {
     const { app } = this
     if (this.has(path)) return
     const leaf = app.workspace.leaves.find((l) => l.path === path)
@@ -77,7 +77,7 @@ export class DockedNotes {
       app.panels.reveal(own)
       return
     }
-    const note: Docked = { id: `${PREFIX}${this.next++}`, path, title: leaf?.title }
+    const note: Docked = { id: `${PREFIX}${this.next++}`, path, title: leaf?.title ?? title }
     const place = () => {
       this.notes.push(note)
       this.show(note, side)
@@ -85,8 +85,11 @@ export class DockedNotes {
       this.save()
     }
     // The tab's unsaved text must be on disk before the widget reads the note.
-    if (leaf) void Promise.resolve(leaf.view?.flush?.()).then(() => (app.workspace.close(leaf, true), place()))
-    else place()
+    if (leaf) void Promise.resolve(leaf.view?.flush?.()).then(() => (app.workspace.close(leaf, true), place(), app.panels.reveal(note.id)))
+    else {
+      place()
+      app.panels.reveal(note.id)
+    }
   }
 
   /** Takes the widget away; `open` shows the note in a tab instead. */

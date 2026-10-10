@@ -1,3 +1,4 @@
+import { RibbonItems } from './ribbon-items'
 import { Explorer } from './explorer'
 import { NoteCreation } from './creation'
 import { Commands } from './commands'
@@ -67,6 +68,7 @@ const coreSettings: SettingsSection = {
         { value: 'source', label: 'Исходный текст' },
       ],
     },
+    { key: 'defaultReading', group: 'Редактор', name: 'Открывать заметки для чтения', desc: 'Заметка открывается без возможности случайно её изменить; переключается кнопкой с книгой над заметкой или Ctrl+Shift+E', type: 'toggle', default: false },
     { key: 'inlineTitle', group: 'Редактор', section: 'Отображение', name: 'Встроенный заголовок', desc: 'Имя файла как заголовок над текстом; его правка переименовывает заметку', type: 'toggle', default: true },
     { key: 'readableWidth', group: 'Редактор', section: 'Отображение', name: 'Ограничить максимальную длину строки', desc: 'Длинные абзацы читать удобнее, но на экране помещается меньше', type: 'toggle', default: true },
     {
@@ -264,6 +266,7 @@ export class App {
   readonly icons = new Icons()
   readonly creation = new NoteCreation(this)
   readonly explorer = new Explorer()
+  readonly ribbonItems = new RibbonItems(this)
   readonly menus = new Menus()
   readonly toolbars = new Toolbars()
   readonly notice = notice
@@ -343,6 +346,19 @@ export class App {
       if (editor) openFind(editor, replace)
       else notice('Откройте заметку, чтобы искать в ней')
     }
+    this.commands.add({
+      id: 'core:toggle-reading',
+      name: 'Переключить чтение и редактирование заметки',
+      icon: 'book-open',
+      scope: 'note',
+      hotkey: 'Mod+Shift+E',
+      callback: () => {
+        const view = this.workspace.active?.view
+        if (!view?.setReading) return notice('Эта вкладка не редактируется')
+        view.setReading(!view.reading)
+        this.workspace.trigger('active-change', this.workspace.active)
+      },
+    })
     this.commands.add({ id: 'core:find', name: 'Найти в заметке', icon: 'search', scope: 'note', callback: inNote(false) })
     this.commands.add({ id: 'core:replace', name: 'Найти и заменить в заметке', icon: 'replace', scope: 'note', callback: inNote(true) })
     this.commands.add({
@@ -390,6 +406,7 @@ export class App {
     })
     this.workspace.registerView('markdown', createMarkdownView, ['md'])
     this.docked.init()
+    this.ribbonItems.init()
     this.commands.setCustomHotkeys(this.settings.get<Record<string, string>>('core', 'hotkeys') ?? {})
   }
 }

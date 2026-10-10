@@ -85,4 +85,22 @@ export async function run(t) {
   // A time of day is plain text: the digits between its colons are not an emoji code.
   const time = page.locator(`${leaf} .cm-line`, { hasText: '17:44:36' })
   ok('a time of day has no part painted differently', (await time.locator('span').count()) === 0, await time.innerHTML().catch(() => 'no line'))
+
+  // ---- reading: the note cannot be typed in, and nothing turns back into its source
+  await page.locator('.view-header .reading-toggle').click()
+  await wait(400)
+  const beforeReading = read('Test.md')
+  await page.locator(`${leaf} .cm-content`).click({ position: { x: 200, y: 60 } })
+  await page.keyboard.type('typed while reading')
+  await page.locator(`${leaf} .inline-title`).click({ force: true }).catch(() => {})
+  await page.keyboard.type('renamed')
+  await wait(900)
+  ok('in reading a note cannot be typed in or renamed', t.exists('Test.md') && read('Test.md') === beforeReading && (await page.locator('.view-header .reading-toggle.on').count()) === 1)
+  ok('and everything stays drawn, wherever the click falls', !(await t.text()).includes('**bold**') && (await count('.lp-block')) > 0)
+  await page.keyboard.press('Control+Shift+E')
+  await wait(400)
+  await t.cursorToEnd()
+  await page.keyboard.type('!')
+  await wait(900)
+  ok('back in editing it can be typed in again', read('Test.md').endsWith('!') || read('Test.md').includes('!'), read('Test.md').slice(-30))
 }

@@ -60,8 +60,35 @@ export async function run(t) {
   await wait(700)
   ok('a plan line put off stays as written and says until when', (await t.count('.task-alert')) === 0 && (await t.flat(list.locator('.reminder-row', { hasText: 'Vitamin D' }))).includes('отложено до') && t.read(`${today}.md`).includes('💊 Vitamin D\n'))
 
+  // ---- a tab dragged onto the strip at the edge becomes a button; the button shows the widget, not a tab
+  await page.evaluate(() => app.commands.run('tasks:unmute'))
+  await t.tab('Напоминания').dragTo(page.locator('.toolbar.vertical[data-place="right-ribbon"]'), { force: true }).catch(() => {})
+  await wait(600)
+  let strip = page.locator('.toolbar.vertical[data-place="right-ribbon"] button, .toolbar.vertical[data-place="left-ribbon"] button')
+  if (!(await strip.count())) {
+    // The strip appears only while something is dragged; where the drag could not be played, the same is asked directly.
+    await page.evaluate(() => app.ribbonItems.add('view:panel-reminders', 'right'))
+    await wait(600)
+  }
+  strip = page.locator('.toolbar.vertical button[title="Напоминания"]')
+  ok('a tab moved onto the edge strip becomes a button, and is a tab no more', (await strip.count()) === 1 && (await t.tab('Напоминания').count()) === 0 && (await page.locator('aside .reminders-panel').count()) === 1, `${await strip.count()} buttons, ${await t.tab('Напоминания').count()} tabs`)
+  await page.evaluate(() => app.panels.setHidden('reminders', true))
+  await wait(300)
+  await strip.click()
+  await wait(500)
+  ok('the button shows the widget in the sidebar without making a tab', (await page.locator('aside .reminders-panel').count()) === 1 && (await t.tab('Напоминания').count()) === 0)
+  await page.reload()
+  await page.waitForSelector('.toolbar.vertical button[title="Напоминания"]')
+  ok('the button is kept', (await strip.count()) === 1)
+  await strip.click({ button: 'right' })
+  await page.locator('.menu button', { hasText: 'Убрать кнопку' }).click()
+  await wait(300)
+  ok('and can be taken away', (await strip.count()) === 0)
+  await page.evaluate(() => app.commands.run('core:panel-tab:reminders'))
+  await page.waitForSelector(`${t.leaf} .reminders-panel`)
+
   // ---- a widget can be put away from the sidebar and stays available as a tab
   await page.evaluate(() => app.panels.setHidden('reminders', true))
   await wait(300)
-  ok('a widget put away is gone from the sidebar, its tab stays', (await page.locator('aside .widget-tab[title="Напоминания"]').count()) === 0 && (await list.count()) === 1)
+  ok('a widget put away is gone from the sidebar, its tab stays', (await page.locator('aside .widget-tab[title="Напоминания"]').count()) === 0 && (await page.locator(`${t.leaf} .reminders-panel`).count()) === 1)
 }

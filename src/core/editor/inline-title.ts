@@ -26,7 +26,10 @@ class TitleWidget extends WidgetType {
     el.spellcheck = false
     el.value = name
     el.setAttribute('aria-label', 'Название заметки')
+    // In a note that is being read the name is not to be changed either, by a click or from the keyboard.
+    el.onfocus = () => (el.readOnly = view.state.readOnly)
     const rename = async () => {
+      if (view.state.readOnly) return void (el.value = name)
       const next = el.value.replace(/[\\/:*?"<>|]/g, ' ').trim()
       if (!next || next === name) return void (el.value = name)
       const folder = dirname(path)

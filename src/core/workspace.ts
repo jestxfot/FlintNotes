@@ -11,6 +11,9 @@ export interface FileView {
   /** The file changed on disk. */
   onExternalChange?(): void
   onRename?(path: string): void
+  /** Whether the view only shows its file, without letting it be typed in; views that can do both have `setReading`. */
+  reading?: boolean
+  setReading?(on: boolean): void
   /** Scroll to a zero-based line and put the cursor there. */
   revealLine?(line: number): void
   /** Write unsaved changes now. `unloading` means the page is closing. */

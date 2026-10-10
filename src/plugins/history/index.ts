@@ -49,11 +49,16 @@ export default class NoteHistory extends Plugin {
       }),
     )
     // A note seen for the first time gets its starting point, so that the first change has something to be compared with.
+    // It is also how changes made while this app was closed get into the history: when the note is next
+    // opened, its text is compared with the last version, and what differs is put down as changed outside,
+    // at the time the file says it was changed.
     const begin = (path: string) => {
-      if (!watched(path) || store.paths().includes(path)) return
+      if (!watched(path)) return
       const text = app.metadata.text(path)
       const entry = app.vault.get(path)
-      if (text !== undefined && text !== null) void store.record(path, text, entry?.mtime || Date.now(), 'outside', options(entry))
+      if (text === undefined || text === null) return
+      if (mine.get(path) === text) return
+      void store.record(path, text, entry?.mtime || Date.now(), 'outside', options(entry))
     }
     this.register(app.workspace.on('active-change', (leaf) => leaf && !leaf.path.startsWith('view:') && begin(leaf.path)))
     this.register(app.vault.on('rename', (entry, from) => void store.renamed(from, entry.path)))

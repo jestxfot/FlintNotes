@@ -7,7 +7,7 @@ import type { App } from '../app'
 import { errorMessage } from '../notice'
 import { findInNote } from './find-bar'
 import { inlineTitle } from './inline-title'
-import { filePath } from './state'
+import { filePath, staticPreview } from './state'
 import { editorLook } from './theme'
 import type { FileView, ViewContext } from '../workspace'
 
@@ -22,6 +22,9 @@ export class MarkdownView implements FileView {
   private saveTimer: ReturnType<typeof setTimeout> | undefined
   private destroyed = false
   private pathConfig = new Compartment()
+  private readingConfig = new Compartment()
+  /** Reading: the note is shown as it reads, every element drawn, and cannot be typed in. */
+  reading = false
 
   constructor(
     private app: App,
@@ -33,6 +36,7 @@ export class MarkdownView implements FileView {
     // The index already holds the text of every note, so a note opens without
     // waiting for the server; the file is then compared with the disk.
     const indexed = this.app.metadata.text(this.path)
+    this.reading = this.app.settings.get<boolean>('core', 'defaultReading') === true
     this.saved = indexed ?? (await this.app.vault.read(this.path))
     this.eol = this.saved.includes('\r\n') ? '\r\n' : '\n'
     this.editor = new EditorView({
@@ -85,6 +89,7 @@ export class MarkdownView implements FileView {
           keymap.of([...completionKeymap, ...defaultKeymap, ...historyKeymap, indentWithTab]),
           editorLook,
           this.pathConfig.of(filePath.of(this.path)),
+          this.readingConfig.of(this.readingExtensions()),
           inlineTitle(this.app),
           this.app.livePreview.extension,
           this.app.editor.extension,
@@ -100,6 +105,18 @@ export class MarkdownView implements FileView {
     this.skipFrontmatter()
     if (indexed !== undefined) void this.onExternalChange()
     return this
+  }
+
+  private readingExtensions() {
+    // No cursor reveals the source in a reading view, so everything stays drawn; ticking a task or a click on a link still works.
+    return this.reading ? [EditorState.readOnly.of(true), EditorView.editable.of(false), staticPreview.of(true), EditorView.editorAttributes.of({ class: 'reading' })] : []
+  }
+
+  setReading(on: boolean): void {
+    if (on === this.reading) return
+    this.reading = on
+    this.editor.dispatch({ effects: this.readingConfig.reconfigure(this.readingExtensions()) })
+    this.app.livePreview.refresh()
   }
 
   /** Puts the cursor on the first line after the properties block, where the note's text begins. */

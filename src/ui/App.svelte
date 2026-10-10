@@ -90,6 +90,8 @@
     ])
   }
   const activeId = watch(workspace, ['active-change'], () => workspace.active?.id ?? null)
+  /** Whether the open tab is being read rather than edited; `null` for a tab that has no such choice. */
+  const readable = watch(workspace, ['active-change'], () => (workspace.active?.view?.setReading ? !!workspace.active.view.reading : null))
   const hasRightPanels = watch(app.panels, ['change'], () => app.panels.has('right'))
   const theme = watch(settings, ['change'], () => settings.get<string>('core', 'theme'))
   const fontSize = watch(settings, ['change'], () => settings.get<number>('core', 'fontSize'))
@@ -169,7 +171,7 @@
   const VAULT_SCOPE = new Set(['core:reveal-vault', 'core:vaults'])
   const SIDEBAR_SCOPE = new Set<string>()
   /** Where a core command goes in the note's menu; commands of plugins go to their own section. */
-  const NOTE_SECTIONS: Record<string, string> = { 'core:toggle-editor-mode': 'open', 'core:find': 'copy', 'core:replace': 'copy', 'core:toggle-readable-width': 'open', 'core:dock-active': 'open', 'core:rename-active': 'action', 'core:copy-path': 'copy', 'core:reveal-active': 'system', 'core:delete-active': 'danger' }
+  const NOTE_SECTIONS: Record<string, string> = { 'core:toggle-reading': 'open', 'core:toggle-editor-mode': 'open', 'core:find': 'copy', 'core:replace': 'copy', 'core:toggle-readable-width': 'open', 'core:dock-active': 'open', 'core:rename-active': 'action', 'core:copy-path': 'copy', 'core:reveal-active': 'system', 'core:delete-active': 'danger' }
 
   /**
    * The menu of the open note ("⋮"). Nothing is listed here by hand: it is made of
@@ -406,7 +408,8 @@
 </script>
 
 <div class="app">
-  {#if ribbons.current.left && look.current.ribbon}<Toolbar place="left-ribbon" vertical />{/if}
+  <!-- The strips show while they have buttons, and while something is dragged that could become one. -->
+  {#if (ribbons.current.left || drag.note || drag.panel) && look.current.ribbon}<Toolbar place="left-ribbon" vertical floating={!ribbons.current.left} />{/if}
   {#if floating}
     <!-- A thin strip along the edge of the window: the pointer on it brings the sidebar out over the note. -->
     <div class="edge left" role="presentation"></div>
@@ -511,6 +514,22 @@
           {/each}
         </div>
         <Toolbar place="page-header" />
+        {#if readable.current !== null}
+          <button
+            class="bar-button reading-toggle"
+            class:on={readable.current}
+            title={readable.current ? 'Сейчас чтение — щёлкните, чтобы редактировать (Ctrl+Shift+E)' : 'Сейчас редактирование — щёлкните, чтобы только читать (Ctrl+Shift+E)'}
+            aria-label="Чтение или редактирование"
+            aria-pressed={readable.current}
+            onclick={() => app.commands.run('core:toggle-reading')}
+          >
+            {#if readable.current}
+              <svg viewBox="0 0 16 16" aria-hidden="true"><path d="M8 4.2C6.500 3 4.500 2.700 2 3v9c2.500-.300 4.500 0 6 1.200 1.500-1.200 3.500-1.500 6-1.200V3c-2.500-.300-4.500 0-6 1.200zM8 4.200v9" /></svg>
+            {:else}
+              <svg viewBox="0 0 16 16" aria-hidden="true"><path d="M11 2.500l2.500 2.500L6 12.500l-3 .500.500-3zM9.500 4l2.500 2.500" /></svg>
+            {/if}
+          </button>
+        {/if}
         <button class="bar-button note-menu" title="Действия с заметкой" aria-label="Действия с заметкой" onclick={(event) => (event.stopPropagation(), noteMenu(event))}>
           <svg viewBox="0 0 16 16" aria-hidden="true"><path d="M8 3.2v.01M8 8v.01M8 12.800v.01" stroke-width="2.200" /></svg>
         </button>
@@ -537,7 +556,7 @@
   {#if floating}
     <div class="edge right" role="presentation"></div>
   {/if}
-  {#if ribbons.current.right && look.current.ribbon}<Toolbar place="right-ribbon" vertical />{/if}
+  {#if (ribbons.current.right || drag.note || drag.panel) && look.current.ribbon}<Toolbar place="right-ribbon" vertical floating={!ribbons.current.right} />{/if}
 </div>
 
 {#if settingsOpen}
@@ -739,6 +758,10 @@
 
   .crumbs .last {
     color: var(--text);
+  }
+
+  .reading-toggle.on {
+    color: var(--accent);
   }
 
   /* Where a dragged tab would land. */
