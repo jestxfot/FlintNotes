@@ -135,6 +135,43 @@ const coreSettings: SettingsSection = {
 }
 
 /** The core: owns every subsystem. Plugins receive it as `this.app`. */
+/**
+ * Starting with the computer is a matter of the machine, not of a vault: the
+ * server keeps it as a file where the system looks for programs to run at
+ * sign-in, and the setting shows and changes that file.
+ */
+const autostartSetting = (app: App): SettingsSection['defs'][number] => ({
+  key: 'autostart',
+  group: 'Интерфейс',
+  section: 'Запуск',
+  name: 'Запускать вместе с компьютером',
+  desc: 'Сервер FlintNotes стартует при входе в систему, без окна, и заметки сразу доступны в браузере по адресу этой страницы. Настройка относится к компьютеру, а не к хранилищу',
+  type: 'custom',
+  render: (el) => {
+    const row = el.appendChild(document.createElement('label'))
+    row.className = 'autostart'
+    const box = row.appendChild(document.createElement('input'))
+    box.type = 'checkbox'
+    box.className = 'switch autostart-switch'
+    box.disabled = true
+    const note = row.appendChild(document.createElement('small'))
+    const show = (state: { supported: boolean; enabled: boolean; file?: string; reason?: string }) => {
+      box.disabled = !state.supported
+      box.checked = state.enabled
+      note.textContent = !state.supported ? (state.reason ?? 'Недоступно в этой системе') : state.enabled ? `Включено: ${state.file}` : 'Выключено'
+    }
+    const fail = (err: unknown) => (note.textContent = err instanceof Error ? err.message : String(err))
+    void app.vault.autostart().then(show, fail)
+    box.onchange = () => void app.vault.setAutostart(box.checked).then(show, fail)
+    // The command below changes the same thing while the page is open.
+    const off = app.settings.on('change', (scope, key) => scope === 'core' && key === 'autostartSeen' && void app.vault.autostart().then(show, fail))
+    return () => {
+      off()
+      row.remove()
+    }
+  },
+})
+
 export class App {
   readonly vault = new Vault()
   readonly settings = new Settings(this.vault)
@@ -178,7 +215,26 @@ export class App {
     // requested as soon as the settings say which plugins are on.
     await Promise.all([this.vault.load(), this.state.load(), this.settings.load().then(() => this.plugins.preload())])
     this.panels.init()
+    // Once only: the page may be set up again (a vault is switched), the list of settings is the same object.
+    if (!coreSettings.defs.some((def) => def.key === 'autostart')) coreSettings.defs.splice(coreSettings.defs.findIndex((def) => def.key === 'zoom'), 0, autostartSetting(this))
     this.settings.addSection(coreSettings)
+    this.commands.add({
+      id: 'core:toggle-autostart',
+      name: 'Включить или выключить запуск вместе с компьютером',
+      icon: 'power',
+      callback: () =>
+        void this.vault
+          .autostart()
+          .then((state) => (state.supported ? this.vault.setAutostart(!state.enabled) : Promise.reject(new Error(state.reason ?? 'Недоступно в этой системе'))))
+          .then(
+            (state) => {
+              notice(state.enabled ? 'FlintNotes будет запускаться вместе с компьютером' : 'Запуск вместе с компьютером выключен')
+              // Tells an open settings page to read the state again.
+              this.settings.set('core', 'autostartSeen', Date.now())
+            },
+            (err) => notice(err instanceof Error ? err.message : String(err)),
+          ),
+    })
     this.metadata.init()
     this.livePreview.init()
     this.embeds.on('change', () => this.livePreview.refresh())

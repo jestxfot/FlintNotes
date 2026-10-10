@@ -108,4 +108,22 @@ export async function run(t) {
   await wait(500)
   ok('a vault can be forgotten; its folder stays', (await t.count('dialog .vault')) === 1 && fs.existsSync(path.join(second, 'Second note.md')))
   fs.rmSync(second, { recursive: true, force: true })
+
+  // ---- starting with the computer: a file where the system looks for programs to run at sign-in
+  await page.keyboard.press('Escape')
+  await wait(400)
+  const state = await page.evaluate(() => app.vault.autostart())
+  ok('start with the computer is offered and off at first', state.supported === true && state.enabled === false && /flintnotes/i.test(state.file), JSON.stringify(state))
+  await page.evaluate(() => app.commands.run('core:settings'))
+  await page.locator('nav button', { hasText: 'Интерфейс' }).click()
+  await wait(500)
+  await page.locator('.autostart-switch').check()
+  await wait(900)
+  const files = await import('node:fs')
+  const made = files.existsSync(state.file) ? files.readFileSync(state.file, 'utf8') : ''
+  ok('switching it on writes that file, naming this server', made.includes('server') && (await t.flat(page.locator('.autostart'))).includes('Включено'), made.slice(0, 200))
+  await page.locator('.autostart-switch').uncheck()
+  await wait(900)
+  ok('switching it off removes the file', !files.existsSync(state.file) && (await t.flat(page.locator('.autostart'))).includes('Выключено'))
+  await page.keyboard.press('Escape')
 }

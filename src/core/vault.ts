@@ -116,6 +116,15 @@ export class Vault extends Events<VaultEvents> {
     return ((await res.json()) as { output: string }).output
   }
 
+  /** Whether the server starts by itself when the user signs in to the computer. */
+  async autostart(): Promise<{ supported: boolean; enabled: boolean; file?: string; reason?: string }> {
+    return (await request('/api/autostart')).json()
+  }
+
+  async setAutostart(enabled: boolean): Promise<{ supported: boolean; enabled: boolean; file?: string }> {
+    return (await request('/api/autostart', { method: 'POST', headers: { 'content-type': 'application/json' }, body: JSON.stringify({ enabled }) })).json()
+  }
+
   /** Asks the server to make a web request, which a page itself may not make to another site. */
   async requestUrl(options: { url: string; method?: string; headers?: Record<string, string>; body?: string; contentType?: string }): Promise<{ status: number; headers: Record<string, string>; text: string }> {
     return (await request('/api/request', { method: 'POST', headers: { 'content-type': 'application/json' }, body: JSON.stringify(options) })).json()

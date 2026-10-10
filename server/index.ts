@@ -354,6 +354,53 @@ api.post('/exec', async (c) => {
   return c.json({ output: output.trimEnd() })
 })
 
+// ---- starting with the computer: a small file where the system looks for programs to run at sign-in
+const AUTOSTART_DIR = process.env.FLINT_AUTOSTART_DIR
+function autostart(): { file: string; text: string; encoding: BufferEncoding } | { reason: string } {
+  const script = process.argv[1] ? path.resolve(process.argv[1]) : ''
+  if (!script) return { reason: 'Не удалось определить, откуда запущен сервер' }
+  // The same Node and the same server file as now; the vault is the one opened last, so no folder is named.
+  const command = [process.execPath, ...process.execArgv, script]
+  if (process.platform === 'win32') {
+    const dir = AUTOSTART_DIR ?? path.join(process.env.APPDATA ?? path.join(os.homedir(), 'AppData', 'Roaming'), 'Microsoft', 'Windows', 'Start Menu', 'Programs', 'Startup')
+    // A script for Windows Script Host: it starts the server with no window. Doubled quotes are how VBScript writes a quote.
+    const line = command.map((part) => `""${part}""`).join(' ')
+    return { file: path.join(dir, 'FlintNotes.vbs'), text: `' FlintNotes: запускает сервер заметок при входе в Windows. Создан в настройках приложения; удалите файл, чтобы отключить.\r\nCreateObject("WScript.Shell").Run "${line}", 0, False\r\n`, encoding: 'utf16le' }
+  }
+  if (process.platform === 'darwin') {
+    const dir = AUTOSTART_DIR ?? path.join(os.homedir(), 'Library', 'LaunchAgents')
+    const escape = (text: string) => text.replace(/&/g, '&amp;').replace(/</g, '&lt;')
+    return {
+      file: path.join(dir, 'com.flintnotes.server.plist'),
+      text: `<?xml version="1.0" encoding="UTF-8"?>\n<!DOCTYPE plist PUBLIC "-//Apple//DTD PLIST 1.0//EN" "http://www.apple.com/DTDs/PropertyList-1.0.dtd">\n<plist version="1.0"><dict>\n<key>Label</key><string>com.flintnotes.server</string>\n<key>ProgramArguments</key><array>${command.map((part) => `<string>${escape(part)}</string>`).join('')}</array>\n<key>RunAtLoad</key><true/>\n</dict></plist>\n`,
+      encoding: 'utf8',
+    }
+  }
+  if (!AUTOSTART_DIR && /microsoft/i.test(os.release())) return { reason: 'Сервер запущен внутри WSL: автозапуск настраивается в самой Windows (запустите FlintNotes.bat и включите настройку там)' }
+  const dir = AUTOSTART_DIR ?? path.join(process.env.XDG_CONFIG_HOME ?? path.join(os.homedir(), '.config'), 'autostart')
+  const quoted = command.map((part) => `"${part.replace(/(["\\$`])/g, '\\$1')}"`).join(' ')
+  return { file: path.join(dir, 'flintnotes.desktop'), text: `[Desktop Entry]\nType=Application\nName=FlintNotes\nComment=Сервер заметок FlintNotes\nExec=${quoted}\nTerminal=false\nX-GNOME-Autostart-enabled=true\n`, encoding: 'utf8' }
+}
+
+api.get('/autostart', (c) => {
+  const entry = autostart()
+  return c.json('reason' in entry ? { supported: false, enabled: false, reason: entry.reason } : { supported: true, enabled: existsSync(entry.file), file: entry.file })
+})
+
+api.post('/autostart', async (c) => {
+  const origin = c.req.header('origin')
+  if (!origin || new URL(origin).host !== c.req.header('host')) throw new HTTPException(403, { message: 'Только со страницы самого приложения' })
+  const { enabled } = (await c.req.json()) as { enabled: boolean }
+  const entry = autostart()
+  if ('reason' in entry) throw new HTTPException(400, { message: entry.reason })
+  if (enabled) {
+    await fs.mkdir(path.dirname(entry.file), { recursive: true })
+    // Windows Script Host reads names in any language only from a file that starts with this mark.
+    await fs.writeFile(entry.file, entry.encoding === 'utf16le' ? Buffer.concat([Buffer.from([0xff, 0xfe]), Buffer.from(entry.text, 'utf16le')]) : entry.text)
+  } else await fs.rm(entry.file, { force: true })
+  return c.json({ supported: true, enabled, file: entry.file })
+})
+
 // ---- what a web page says about itself, for link cards
 const PRIVATE = /^(127\.|10\.|192\.168\.|169\.254\.|172\.(1[6-9]|2\d|3[01])\.|0\.|::1$|f[cd]|fe80)/i
 
@@ -540,15 +587,37 @@ app.get('*', async (c) => {
   })
 })
 
-serve({ fetch: app.fetch, port, hostname: '127.0.0.1' }, () => {
+const openBrowser = (url: string) => {
+  const [command, args] = process.platform === 'win32' ? ['cmd', ['/c', 'start', '', url]] : process.platform === 'darwin' ? ['open', [url]] : ['xdg-open', [url]]
+  spawn(command, args, { stdio: 'ignore', detached: true }).on('error', () => {})
+}
+
+const server = serve({ fetch: app.fetch, port, hostname: '127.0.0.1' }, () => {
   const url = `http://localhost:${port}`
   console.log(`FlintNotes: ${url}`)
   console.log(`Хранилище: ${root}${needsPolling() ? ' (опрос изменений)' : ''}`)
   if (!staticDir) console.log('Приложение не собрано: выполните `npm run build` или запустите `npm run dev`.')
   // The launchers set FLINT_OPEN so the app appears in the browser once it is ready.
-  if (process.env.FLINT_OPEN) {
-    const [command, args] =
-      process.platform === 'win32' ? ['cmd', ['/c', 'start', '', url]] : process.platform === 'darwin' ? ['open', [url]] : ['xdg-open', [url]]
-    spawn(command, args, { stdio: 'ignore', detached: true }).on('error', () => {})
-  }
+  if (process.env.FLINT_OPEN) openBrowser(url)
+})
+
+// The port is taken: most likely FlintNotes is running already (started with the computer).
+// Then the launcher only has to show it, not to fail.
+server.on('error', (err: NodeJS.ErrnoException) => {
+  if (err.code !== 'EADDRINUSE') throw err
+  const url = `http://localhost:${port}`
+  void fetch(`${url}/api/autostart`, { signal: AbortSignal.timeout(3000) })
+    .then((res) => res.json())
+    .then(
+      (answer: { supported?: unknown }) => {
+        if (typeof answer?.supported !== 'boolean') throw new Error('not FlintNotes')
+        console.log(`FlintNotes уже запущен: ${url}`)
+        if (process.env.FLINT_OPEN) openBrowser(url)
+        setTimeout(() => process.exit(0), 300)
+      },
+    )
+    .catch(() => {
+      console.error(`Порт ${port} занят другой программой. Задайте другой: FLINT_PORT=4601`)
+      process.exit(1)
+    })
 })
