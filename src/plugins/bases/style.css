@@ -485,10 +485,9 @@
 .base-file {
   display: flex;
   flex-direction: column;
-  max-width: 1100px;
+  /* A base in a tab of its own has the whole page: cards and tables need the room. */
   min-height: 100%;
-  margin: 0 auto;
-  padding: 20px 28px;
+  padding: 16px 28px 20px;
 }
 
 .base-file-head {

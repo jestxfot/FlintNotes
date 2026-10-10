@@ -276,4 +276,37 @@ export async function run(t) {
   await wait(900)
   text = await flat(page.locator(`${leaf} .lp-embed`))
   ok('an embedded base opens on the named view', (await page.locator(`${leaf} .lp-embed .base-view-switch b`).innerText()) === 'Names' && text.includes('Ulysses') && (await page.locator(`${leaf} .lp-embed .base-list`).count()) === 1, text)
+
+  // ---- the view chosen in an embedded base is remembered for that note
+  await t.open('Embed')
+  await wait(600)
+  const embedded = page.locator(`${leaf} .lp-embed.base, ${leaf} .lp-embed .base`).first()
+  await embedded.locator('.base-view-switch').click()
+  await embedded.locator('.base-tabs [role=tab]', { hasText: 'Table' }).click()
+  await wait(900)
+  await page.reload()
+  await page.waitForSelector(`${leaf} .lp-embed .base-view-switch, ${leaf} .lp-embed.base .base-view-switch`)
+  await wait(900)
+  ok('the view chosen in an embedded base comes back', (await page.locator(`${leaf} .base-view-switch b`).first().innerText()) === 'Table' && read('Embed.md') === '![[Books.base#Names]]\n\nend\n', await page.locator(`${leaf} .base-view-switch b`).first().innerText())
+
+  // ---- a filter on a link may name a part of the file; the value field offers what there is
+  t.write('Linked.md', "```base\nfilters: 'file.hasLink(\"Books.base#Names\")'\nviews:\n  - type: table\n    name: Who\n```\n\n```base\nfilters: 'file.hasLink(\"Books.base#Table\")'\nviews:\n  - type: table\n    name: Nobody\n```\n\nend\n")
+  await wait(1500)
+  await t.open('Linked')
+  await wait(900)
+  const linked = page.locator(`${leaf} .base`)
+  ok('a link filter with a part after # finds the notes that link to that part', (await t.flat(linked.nth(0))).includes('Embed') && (await linked.nth(0).locator('tbody tr').count()) === 1 && (await linked.nth(1).locator('tbody tr').count()) === 0, await t.flat(linked.nth(0)))
+  await linked.nth(0).locator('.base-tool', { hasText: 'Фильтр' }).click()
+  await wait(400)
+  const field = page.locator('.base-pop .base-condition-value').first()
+  const offered = await page.locator(`#${await field.getAttribute('list')} option`).evaluateAll((options) => options.map((o) => o.value))
+  ok('the value of a link filter offers the notes there are', (await field.inputValue()) === 'Books.base#Names' && offered.includes('Embed') && offered.includes('Books.base'), offered.slice(0, 12).join(','))
+  await page.keyboard.press('Escape')
+  await page.mouse.click(5, 5)
+
+  // ---- a base in a tab of its own has the whole width
+  await t.row('Books.base').click()
+  await wait(900)
+  const widths = await page.evaluate(() => [document.querySelector('.leaf:not([hidden]) .base-file').getBoundingClientRect().width, document.querySelector('.leaf:not([hidden])').getBoundingClientRect().width])
+  ok('a base opened in a tab takes the whole page', widths[0] > widths[1] - 40, widths.join(' of '))
 }

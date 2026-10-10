@@ -33,7 +33,8 @@ export interface FileInfo {
   /** The file a link target refers to, seen from this file. */
   resolve(target: string): string | null
   /** Whether this file links to the file at `path`; a quick answer from the link index. */
-  linksTo?(path: string): boolean
+  /** Whether the file links to `path`; with `subpath` (`#Heading`, a view of a base), only links to that very part count. */
+  linksTo?(path: string, subpath?: string): boolean
 }
 
 /** A file as a value in expressions: `file.name`, `file.hasTag("x")`. */

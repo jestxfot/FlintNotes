@@ -1,4 +1,4 @@
-import { errorMessage, expr, plural, setProperties, type App } from '../../api'
+import { errorMessage, expr, path as paths, plural, setProperties, type App } from '../../api'
 import { createRecord } from './create'
 import { h } from './dom'
 import { BaseEngine, groupRule, noteKey, type Row, type ViewResult } from './engine'
@@ -85,6 +85,8 @@ export interface BaseHost {
   setSource(source: string): void
   /** Name of the view to show first. */
   initialView?: string
+  /** Names this showing of the base (which note it is in, which file it is). The view chosen in it is remembered under this name. */
+  memory?: string
 }
 
 export interface MountedBase {
@@ -100,7 +102,19 @@ export function mountBase(el: HTMLElement, host: BaseHost, initial: string): Mou
   const { app } = host
   el.classList.add('base')
   let source = initial
-  let active = Math.max(0, viewsOf(parseBase(initial).config).findIndex((view) => view.name === host.initialView))
+  // The view last chosen in this very place comes back; it is kept with the vault's layout, the note is not touched.
+  const chosen = () => app.state.get<Record<string, string>>('base-views', {})
+  const remembered = host.memory ? chosen()[host.memory] : undefined
+  const startAt = (name: string | undefined) => viewsOf(parseBase(initial).config).findIndex((view) => view.name === name)
+  let active = Math.max(0, startAt(remembered) >= 0 ? startAt(remembered) : startAt(host.initialView))
+  const rememberView = (name: string | undefined) => {
+    if (!host.memory || !name) return
+    const all = { ...chosen() }
+    delete all[host.memory]
+    all[host.memory] = name
+    // Only the latest few hundred places are kept.
+    app.state.set('base-views', Object.fromEntries(Object.entries(all).slice(-300)))
+  }
   /** Which panel of the toolbar is open. */
   let open: 'views' | 'view' | 'sort' | 'group' | 'filter' | 'props' | null = null
   let searching = false
@@ -338,6 +352,7 @@ export function mountBase(el: HTMLElement, host: BaseHost, initial: string): Mou
               role: 'tab',
               onclick: () => {
                 active = i
+                rememberView(views[i]?.name)
                 open = null
                 draw()
               },
@@ -466,6 +481,29 @@ export function mountBase(el: HTMLElement, host: BaseHost, initial: string): Mou
     }
 
     if (open === 'filter') {
+      let hintLists = 0
+      const bare = (op: string) => op.replace(/^!/, '')
+      const placeholderFor = (condition: Condition) =>
+        condition.subject !== 'file' ? 'Нет значения' : bare(condition.op) === 'hasLink' ? 'заметка или База.base#Вид' : bare(condition.op) === 'hasTag' ? 'тег' : bare(condition.op) === 'inFolder' ? 'папка' : 'свойство'
+      /** What the value of a condition may be, from what the vault has. */
+      const suggestions = (condition: Condition): string[] => {
+        const { vault, metadata } = app
+        const sorted = (items: Iterable<string>) => [...new Set(items)].filter(Boolean).sort((a, b) => a.localeCompare(b, undefined, { numeric: true }))
+        if (condition.subject === 'file') {
+          const kind = bare(condition.op)
+          // A note is named as a link names it; a base also by its views, which notes embed one by one.
+          if (kind === 'hasLink') return sorted([...vault.files().map((file) => (paths.extname(file.path) === 'md' ? paths.stripExt(paths.basename(file.path)) : paths.basename(file.path))), ...views.map((one) => `${paths.basename(ctx.sourcePath)}#${one.name}`)])
+          if (kind === 'hasTag') return sorted(metadata.notes().flatMap((note) => metadata.get(note)?.tags ?? []))
+          if (kind === 'inFolder') return sorted(vault.all().filter((entry) => entry.kind === 'folder').map((entry) => entry.path))
+          return sorted(available.filter((property) => !property.startsWith('file.') && !property.startsWith('formula.')))
+        }
+        const values: string[] = []
+        for (const row of ctx.result.rows.slice(0, 3000)) {
+          const found = engine.value(row, condition.subject)
+          for (const item of Array.isArray(found) ? found : [found]) if (!expr.isEmpty(item)) values.push(expr.toText(item))
+        }
+        return sorted(values).slice(0, 300)
+      }
       /** One condition as three fields, or as an expression when it is not of a kind the fields can show. */
       const conditionRow = (text: string, write: (next: string | null) => void) => {
         const parsed = raw.has(text) ? null : parseCondition(text)
@@ -486,9 +524,14 @@ export function mountBase(el: HTMLElement, host: BaseHost, initial: string): Mou
           ...[...new Set([parsed.subject, ...available])].filter((property) => property !== 'file').map((property) => h('option', { value: property, selected: property === parsed.subject }, engine.label(property))),
         )
         const op = h('select', { class: 'base-condition-op', onchange: () => commit({ ...parsed, op: op.value }) }, ...operatorsFor(parsed.subject).map(([id, label]) => h('option', { value: id, selected: id === parsed.op }, label)))
-        const value = NO_VALUE.has(parsed.op) ? null : h('input', { type: 'text', class: 'base-condition-value', value: parsed.value, placeholder: 'Нет значения', onchange: () => commit({ ...parsed, value: (value as HTMLInputElement).value }) })
+        // What can be meant is offered as it is typed: notes for a link, tags, folders, the values the property has.
+        const hints = NO_VALUE.has(parsed.op) ? null : h('datalist', { id: `base-hints-${++hintLists}` }, ...suggestions(parsed).map((text) => h('option', { value: text })))
+        const value = NO_VALUE.has(parsed.op)
+          ? null
+          : h('input', { type: 'text', class: 'base-condition-value', value: parsed.value, placeholder: placeholderFor(parsed), onchange: () => commit({ ...parsed, value: (value as HTMLInputElement).value }) })
+        if (value && hints) value.setAttribute('list', hints.id)
         const asText = h('button', { class: 'base-pop-remove', title: 'Показать выражением', onclick: () => (raw.add(text), draw()) }, app.icons.draw('code-xml'))
-        return h('div', { class: 'base-setting base-condition' }, h('span', {}, 'Где'), h('div', { class: 'base-joined' }, subject, op, value, asText, bin))
+        return h('div', { class: 'base-setting base-condition' }, h('span', {}, 'Где'), h('div', { class: 'base-joined' }, subject, op, value, asText, bin), hints)
       }
 
       /** A group of conditions: how they combine, each of them, and groups nested in it. */

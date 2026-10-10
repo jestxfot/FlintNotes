@@ -171,9 +171,13 @@ const METHODS: Record<string, Record<string, Method>> = {
       return !wanted || own === wanted || own.startsWith(`${wanted}/`)
     },
     hasLink: (file: FileRef, other) => {
-      const target = other instanceof FileRef ? other.path : other instanceof Link ? other.target : str(other)
+      const written = other instanceof FileRef ? other.path : other instanceof Link ? other.target : str(other)
+      // `Food.base#Breakfast`: the file, and the part of it the link must point at (a heading, a view of a base).
+      const at = other instanceof FileRef ? -1 : written.indexOf('#')
+      const target = at < 0 ? written : written.slice(0, at)
+      const subpath = at < 0 ? '' : written.slice(at)
       const wanted = file.info.resolve(target) ?? target
-      if (file.info.linksTo) return file.info.linksTo(wanted)
+      if (file.info.linksTo) return file.info.linksTo(wanted, subpath || undefined)
       return file.info.links().some((link) => (file.info.resolve(link.target) ?? link.target) === wanted)
     },
   },

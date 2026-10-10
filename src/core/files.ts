@@ -50,7 +50,11 @@ export function fileRef(app: App, path: string): FileRef {
       return properties
     },
     resolve: (target) => metadata.resolve(target, path),
-    linksTo: (target) => metadata.resolvedLinks.get(path)?.has(target) ?? false,
+    linksTo: (target, subpath) => {
+      if (!subpath) return metadata.resolvedLinks.get(path)?.has(target) ?? false
+      const part = subpath.toLowerCase()
+      return (metadata.get(path)?.links ?? []).some((link) => link.subpath.toLowerCase() === part && metadata.resolve(link.target, path) === target)
+    },
   })
   cached.refs.set(path, ref)
   return ref

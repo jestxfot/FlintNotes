@@ -33,6 +33,7 @@ async function fileBase(app: App, path: string, el: HTMLElement, initialView?: s
       // In an embedded base `this` is the note it is embedded in, as in Obsidian.
       sourcePath: embeddedIn,
       initialView,
+      memory: `${embeddedIn}|${path}|${initialView ?? ''}`,
       setSource: (source) =>
         void app.vault.write(path, `${source}\n`).catch((err) => app.notice(`Не удалось сохранить базу: ${errorMessage(err)}`)),
     },
