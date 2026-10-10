@@ -160,11 +160,14 @@ export class MarkdownView implements FileView {
     let end = 0
     while (end < shortest - start && before.charCodeAt(before.length - 1 - end) === after.charCodeAt(after.length - 1 - end)) end++
     // Whole lines: a change inside a line replaces that line, so what is lit is what was touched.
-    start = before.lastIndexOf('\n', start - 1) + 1
-    const tail = before.indexOf('\n', before.length - end)
+    start = start === 0 ? 0 : before.lastIndexOf('\n', start - 1) + 1
+    const tail = end === 0 ? -1 : before.indexOf('\n', before.length - end)
     end = tail < 0 ? 0 : before.length - tail
     const insert = after.slice(start, after.length - end)
-    this.editor.dispatch({ changes: { from: start, to: before.length - end, insert } })
+    // The text must come out exactly as it is in the file. If the parts do not add up to it
+    // (which would be a mistake here, not in the file), the whole text is taken instead.
+    const exact = before.slice(0, start) + insert + before.slice(before.length - end) === after
+    this.editor.dispatch({ changes: exact ? { from: start, to: before.length - end, insert } : { from: 0, to: before.length, insert: after } })
     this.saved = this.text()
     this.flash(start, start + insert.length)
   }

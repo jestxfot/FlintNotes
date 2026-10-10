@@ -187,4 +187,21 @@ export async function run(t) {
   await page.waitForSelector(`${t.leaf} .cm-content`)
   await wait(1000)
   ok('and a reload right after a reload keeps them all', (await names()) === before, await names())
+
+  // ---- a note changed by another program: the text on the page is exactly the file's, whatever changed
+  const exact = async (name, before, after) => {
+    t.write('Outside.md', before)
+    await wait(1300)
+    if (!(await t.tab('Outside').count())) await t.open('Outside')
+    else await t.tab('Outside').click()
+    await wait(700)
+    t.write('Outside.md', after)
+    await wait(1800)
+    const shown = await page.evaluate(() => app.workspace.activeEditor.state.doc.toString())
+    ok(name, shown === after, JSON.stringify([after, shown]))
+  }
+  await exact('a change at the very start of a note that begins with an empty line', '\nfirst\nsecond\n', 'new\n\nfirst\nsecond\n')
+  await exact('a change in the middle keeps the rest', '\nfirst\nsecond\nthird\n', '\nfirst\nSECOND and more\n\nthird\n')
+  await exact('lines taken away at the end', 'a\n\n\nb\n\n\n', 'a\n\n\nb\n')
+  await exact('everything replaced', 'one\n', '\n\ntwo\n\n')
 }

@@ -1,0 +1,45 @@
+.cm-editor .note-map {
+  position: absolute;
+  top: 0;
+  right: 0;
+  bottom: 0;
+  z-index: 3;
+  width: var(--map-width, 90px);
+  border-left: 1px solid color-mix(in srgb, var(--border) 60%, transparent);
+  background: color-mix(in srgb, var(--bg) 82%, transparent);
+  cursor: pointer;
+  opacity: 0.75;
+  transition: opacity 0.15s;
+  user-select: none;
+}
+
+.cm-editor .note-map:hover,
+.cm-editor .note-map.dragging {
+  opacity: 1;
+}
+
+.cm-editor .note-map[hidden] {
+  display: none;
+}
+
+.note-map canvas {
+  display: block;
+  width: 100%;
+}
+
+/* What is on screen now. It is moved, never redrawn. */
+.note-map-window {
+  position: absolute;
+  right: 0;
+  left: 0;
+  top: 0;
+  border-radius: 2px;
+  background: color-mix(in srgb, var(--text) 12%, transparent);
+  pointer-events: none;
+  will-change: transform;
+}
+
+/* The text keeps clear of the map. */
+.cm-editor.has-note-map .cm-scroller {
+  padding-right: var(--map-width, 90px);
+}
