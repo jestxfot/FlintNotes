@@ -1,5 +1,5 @@
 import { pickLook, type App, type Look } from '../../api'
-import { ruleLook, type Condition, type IconicData, type Rule } from './data'
+import { ruleLook, type Condition, type IconicData, type NoteFacts, type Rule } from './data'
 
 /** What a condition may look at, among what this app checks. Iconic has more (tags, dates); those stay as written. */
 const SOURCES: [value: string, label: string][] = [
@@ -8,7 +8,21 @@ const SOURCES: [value: string, label: string][] = [
   ['filename', 'Имя с расширением'],
   ['extension', 'Расширение'],
   ['path', 'Путь'],
+  ['tags', 'Теги заметки'],
+  ['links', 'Ссылки в заметке'],
 ]
+/** Operators for the sources that are lists. */
+const LIST_OPERATORS: [value: string, label: string][] = [
+  ['includes', 'есть элемент'],
+  ['!includes', 'нет элемента'],
+  ['anyContain', 'какой-то содержит'],
+  ['anyStartWith', 'какой-то начинается с'],
+  ['anyMatch', 'какой-то подходит под выражение'],
+  ['noneContain', 'ни один не содержит'],
+  ['allAre', 'все равны'],
+  ['countIsMore', 'их больше чем'],
+]
+const isList = (source: string) => source === 'tags' || source === 'links'
 const OPERATORS: [value: string, label: string][] = [
   ['is', 'равно'],
   ['!is', 'не равно'],
@@ -49,7 +63,7 @@ const newId = () => Array.from({ length: 5 }, () => 'ABCDEFGHIJKLMNOPQRSTUVWXYZa
  * to every file or folder that fits their conditions. The first rule that fits
  * wins; an icon given to an item itself is stronger than any rule.
  */
-export function drawRules(root: HTMLElement, app: App, data: () => IconicData, save: () => Promise<void>): void {
+export function drawRules(root: HTMLElement, app: App, data: () => IconicData, save: () => Promise<void>, facts?: (path: string) => NoteFacts | undefined): void {
   const changed = () => void save().then(() => draw())
   const draw = () => {
     root.replaceChildren()
@@ -97,7 +111,7 @@ export function drawRules(root: HTMLElement, app: App, data: () => IconicData, s
         select(line, MATCH, rule.match ?? 'any', (value) => ((rule.match = value), changed()))
         // How many items the rule gives its look to right now.
         const one = { ...data(), [key]: [{ ...rule, enabled: true }] } as IconicData
-        const count = all.filter((entry) => ruleLook(one, kind, entry.path)).length
+        const count = all.filter((entry) => ruleLook(one, kind, entry.path, facts)).length
         el(line, 'span', 'iconic-rule-count', String(count)).title = 'Сколько подходит сейчас'
         const move = (by: number, label: string, text: string) => {
           const button = el(line, 'button', 'iconic-rule-tool', text)
@@ -120,8 +134,14 @@ export function drawRules(root: HTMLElement, app: App, data: () => IconicData, s
         const conditions = (rule.conditions ??= [])
         conditions.forEach((condition: Condition, at) => {
           const row = el(card, 'div', 'iconic-condition')
-          select(row, SOURCES, condition.source, (value) => ((condition.source = value), changed()))
-          select(row, OPERATORS, condition.operator, (value) => ((condition.operator = value), changed()))
+          // Tags and links are asked about only of files; a folder has neither.
+          select(row, kind === 'file' ? SOURCES : SOURCES.filter(([value]) => !isList(value)), condition.source, (value) => {
+            // A list and a text are asked different questions.
+            if (isList(value) !== isList(condition.source)) condition.operator = isList(value) ? 'includes' : 'is'
+            condition.source = value
+            changed()
+          })
+          select(row, isList(condition.source) ? LIST_OPERATORS : OPERATORS, condition.operator, (value) => ((condition.operator = value), changed()))
           const value = el(row, 'input', 'iconic-rule-value')
           value.placeholder = condition.source === 'tree' ? 'life/Calendar' : condition.operator === 'matches' ? '/^\\d{4}-\\d{2}/' : 'значение'
           value.value = condition.value ?? ''

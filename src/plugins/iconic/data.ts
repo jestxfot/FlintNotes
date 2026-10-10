@@ -59,7 +59,44 @@ export function renameLooks(data: IconicData, from: string, to: string): boolean
   return changed
 }
 
-function test(condition: Condition, kind: 'file' | 'folder', path: string): boolean {
+/** What a rule may ask about a note besides its name and place: its tags (without `#`) and the links it has. */
+export interface NoteFacts {
+  tags: string[]
+  links: string[]
+}
+
+/** A condition on a list (tags, links), with the operators Iconic has for lists. */
+function testList(condition: Condition, items: string[]): boolean {
+  const negated = condition.operator.startsWith('!')
+  const operator = negated ? condition.operator.slice(1) : condition.operator
+  const list = items.map((item) => item.toLowerCase())
+  const wanted = String(condition.value ?? '').toLowerCase()
+  const regex = () => {
+    const literal = /^\/(.*)\/([a-z]*)$/.exec(condition.value)
+    return literal ? new RegExp(literal[1], literal[2]) : new RegExp(condition.value)
+  }
+  const each = (how: string): ((item: string) => boolean) =>
+    how === 'Are' ? (item) => item === wanted : how.startsWith('Contain') ? (item) => item.includes(wanted) : how.startsWith('StartWith') ? (item) => item.startsWith(wanted) : how.startsWith('EndWith') ? (item) => item.endsWith(wanted) : (item) => regex().test(item)
+  let result = false
+  try {
+    if (operator === 'includes') result = list.includes(wanted)
+    else if (operator.startsWith('all')) result = list.length > 0 && list.every(each(operator.slice(3)))
+    else if (operator.startsWith('any')) result = list.some(each(operator.slice(3)))
+    else if (operator.startsWith('none')) result = !list.some(each(operator.slice(4)))
+    else if (operator === 'countIs') result = wanted !== '' && list.length === Number(wanted)
+    else if (operator === 'countIsLess') result = wanted !== '' && list.length < Number(wanted)
+    else if (operator === 'countIsMore') result = wanted !== '' && list.length > Number(wanted)
+  } catch {
+    result = false
+  }
+  return negated ? !result : result
+}
+
+function test(condition: Condition, kind: 'file' | 'folder', path: string, facts?: (path: string) => NoteFacts | undefined): boolean {
+  if (condition.source === 'tags' || condition.source === 'links') {
+    const known = kind === 'file' ? facts?.(path) : undefined
+    return known ? testList(condition, condition.source === 'tags' ? known.tags : known.links) : false
+  }
   const name = paths.basename(path)
   const parent = paths.dirname(path)
   const values: Record<string, string> = {
@@ -93,10 +130,10 @@ function test(condition: Condition, kind: 'file' | 'folder', path: string): bool
 }
 
 /** The look the first matching rule gives to a file or folder. */
-export function ruleLook(data: IconicData, kind: 'file' | 'folder', path: string): Look | undefined {
+export function ruleLook(data: IconicData, kind: 'file' | 'folder', path: string, facts?: (path: string) => NoteFacts | undefined): Look | undefined {
   for (const rule of (kind === 'file' ? data.fileRules : data.folderRules) ?? []) {
     if (!rule.enabled || !rule.conditions?.length || !(rule.icon || rule.color)) continue
-    const hits = rule.conditions.map((condition) => test(condition, kind, path))
+    const hits = rule.conditions.map((condition) => test(condition, kind, path, facts))
     const matches = rule.match === 'all' ? hits.every(Boolean) : rule.match === 'none' ? !hits.some(Boolean) : hits.some(Boolean)
     if (matches) return { icon: rule.icon, color: rule.color }
   }

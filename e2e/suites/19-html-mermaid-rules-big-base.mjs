@@ -3,7 +3,7 @@ import { fixture } from '../helpers.mjs'
 
 const iconic = {
   fileIcons: { 'Templates/Dish.md': { icon: 'lucide-soup', color: 'orange' } },
-  fileRules: [{ id: 'aaaaa', name: 'Big ones', match: 'any', conditions: [{ source: 'tree', operator: 'is', value: 'Big' }], enabled: true, icon: 'lucide-star' }],
+  fileRules: [{ id: 'ttttt', name: 'Songs', match: 'all', conditions: [{ source: 'tags', operator: 'includes', value: 'song' }], enabled: true, icon: 'flint-song-wave' }, { id: 'aaaaa', name: 'Big ones', match: 'any', conditions: [{ source: 'tree', operator: 'is', value: 'Big' }], enabled: true, icon: 'lucide-star' }],
   folderRules: [],
 }
 const many = Object.fromEntries(Array.from({ length: 300 }, (_, i) => [`Big/N ${String(i).padStart(3, '0')}.md`, `---\nn: ${i}\n---\n`]))
@@ -13,6 +13,8 @@ export const vault = {
   files: {
     ...many,
     'pic.png': fixture('pic.png'),
+    'Tagged.md': '---\ntags:\n  - song\n---\nla la\n',
+    'Untagged.md': 'no tags\n',
     '.obsidian/app.json': '{}',
     '.obsidian/plugins/iconic/data.json': JSON.stringify(iconic, null, 2),
     'Templates/Dish.md': '# <% tp.file.title %>\n',
@@ -26,6 +28,8 @@ export const vault = {
 export async function run(t) {
   const { page, ok, wait, read, leaf } = t
 
+  await wait(2500)
+  ok('a rule may ask about the tags of a note', (await t.row('Tagged').locator('.row-icon svg').count()) === 1 && (await t.row('Untagged').locator('.row-icon').count()) === 0)
   await t.open('Html')
   const html = page.locator(`${leaf} .lp-html`)
   await html.waitFor()
@@ -79,20 +83,20 @@ export async function run(t) {
   await page.locator('nav button.sub', { hasText: 'Значки и цвета' }).click()
   await wait(600)
   const rules = page.locator('.iconic-rules')
-  ok('the settings show the rules of files and folders', (await rules.locator('.iconic-rule').count()) === 1 && (await rules.locator('.iconic-rule-name').inputValue()) === 'Big ones' && (await t.flat(rules.locator('.iconic-rule-count'))) === '300', await rules.innerText().catch(() => 'no rules'))
+  ok('the settings show the rules of files and folders', (await rules.locator('.iconic-rule').count()) === 2 && (await rules.locator('.iconic-rule-name').nth(1).inputValue()) === 'Big ones' && (await t.flat(rules.locator('.iconic-rule-count').nth(1))) === '300' && (await t.flat(rules.locator('.iconic-rule-count').first())) === '1', await rules.innerText().catch(() => 'no rules'))
   await rules.locator('.iconic-rule-section').nth(1).locator('.iconic-rule-add').click()
   await wait(900)
   const folderRule = rules.locator('.iconic-rule-section').nth(1).locator('.iconic-rule')
   await folderRule.locator('.iconic-rule-name').fill('Big folder')
   await folderRule.locator('.iconic-rule-name').press('Tab')
   await wait(600)
-  await rules.locator('.iconic-rule-section').nth(1).locator('.iconic-rule-select').nth(1).selectOption('name')
+  await rules.locator('.iconic-rule-section').nth(1).locator('.iconic-condition .iconic-rule-select').first().selectOption('name')
   await wait(600)
   await rules.locator('.iconic-rule-section').nth(1).locator('.iconic-rule-value').fill('Big')
   await rules.locator('.iconic-rule-section').nth(1).locator('.iconic-rule-value').press('Tab')
   await wait(1200)
   const saved = JSON.parse(read('.obsidian/plugins/iconic/data.json'))
-  ok("a rule made here is written in Iconic's own form", saved.folderRules.length === 1 && saved.folderRules[0].name === 'Big folder' && saved.folderRules[0].enabled === true && /^[A-Za-z0-9]{5}$/.test(saved.folderRules[0].id) && JSON.stringify(saved.folderRules[0].conditions) === '[{"source":"name","operator":"is","value":"Big"}]' && saved.fileRules[0].id === 'aaaaa', JSON.stringify(saved.folderRules))
+  ok("a rule made here is written in Iconic's own form", saved.folderRules.length === 1 && saved.folderRules[0].name === 'Big folder' && saved.folderRules[0].enabled === true && /^[A-Za-z0-9]{5}$/.test(saved.folderRules[0].id) && JSON.stringify(saved.folderRules[0].conditions) === '[{"source":"name","operator":"is","value":"Big"}]' && saved.fileRules[1].id === 'aaaaa', JSON.stringify(saved.folderRules))
   await page.keyboard.press('Escape')
   await wait(500)
   ok('and works at once', (await t.row('Big').locator('.row-icon').count()) === 1)

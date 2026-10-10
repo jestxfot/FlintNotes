@@ -35,7 +35,7 @@ export default class Iconic extends Plugin {
         type: 'custom',
         render: (el) => {
           const holder = el.appendChild(document.createElement('div'))
-          void this.read().then(() => drawRules(holder, app, () => this.data, () => this.save()))
+          void this.read().then(() => drawRules(holder, app, () => this.data, () => this.save(), facts))
           return () => holder.remove()
         },
       },
@@ -49,11 +49,27 @@ export default class Iconic extends Plugin {
     await this.read()
     void this.readCustomIcons()
 
+    // Rules may ask about a note's tags and links, which the index of notes knows.
+    const facts = (path: string) => {
+      const meta = app.metadata.get(path)
+      return meta ? { tags: meta.tags, links: meta.links.map((link) => link.target) } : undefined
+    }
+    const usesFacts = () => [...(this.data.fileRules ?? [])].some((rule) => rule.enabled && rule.conditions?.some((condition) => condition.source === 'tags' || condition.source === 'links'))
+    // When notes change, so may what such rules say; icons are drawn again, but not on every keystroke.
+    let later: ReturnType<typeof setTimeout> | undefined
+    this.register(
+      app.metadata.on('resolved', () => {
+        if (!usesFacts()) return
+        clearTimeout(later)
+        later = setTimeout(() => app.icons.refresh(), 800)
+      }),
+    )
+    this.register(() => clearTimeout(later))
     this.register(
       app.icons.provide((kind, id) => {
         const own = ownLook(this.data, kind, id)
         if (kind !== 'file' && kind !== 'folder') return own
-        const ruled = ruleLook(this.data, kind, id)
+        const ruled = ruleLook(this.data, kind, id, facts)
         // Iconic's "show all icons" settings give every file and folder an icon; here the default is a plain one.
         const fallback = kind === 'file' ? (this.data.showAllFileIcons ? 'lucide-file' : undefined) : this.data.showAllFolderIcons ? 'lucide-folder' : undefined
         const icon = own?.icon ?? ruled?.icon ?? fallback
