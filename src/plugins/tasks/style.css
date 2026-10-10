@@ -111,7 +111,7 @@
   font-size: 0.85em;
 }
 
-/* The reminder that takes over the whole screen */
+/* The reminder that takes over the whole screen: the page dims and blurs behind a card that cannot be missed. */
 .task-alert {
   width: 100vw;
   max-width: none;
@@ -120,27 +120,26 @@
   margin: 0;
   padding: 0;
   border: none;
-  background: var(--accent);
-  color: var(--accent-text);
-  animation: task-alert-pulse 1.6s ease-in-out infinite alternate;
+  background:
+    radial-gradient(1200px 700px at 50% 38%, color-mix(in srgb, var(--accent) 34%, transparent), transparent 70%),
+    color-mix(in srgb, var(--bg) 78%, transparent);
+  color: var(--text);
+  backdrop-filter: blur(18px) saturate(1.2);
+  animation: task-alert-in 0.28s ease-out;
+}
+
+.task-alert::backdrop {
+  background: rgb(0 0 0 / 0.35);
 }
 
 .task-alert[open] {
   display: flex;
 }
 
-@keyframes task-alert-pulse {
+@keyframes task-alert-in {
   from {
-    filter: brightness(1);
-  }
-  to {
-    filter: brightness(1.12);
-  }
-}
-
-@media (prefers-reduced-motion: reduce) {
-  .task-alert {
-    animation: none;
+    opacity: 0;
+    scale: 1.03;
   }
 }
 
@@ -148,40 +147,116 @@
   display: flex;
   flex-direction: column;
   align-items: center;
-  width: min(900px, 100%);
+  width: min(760px, 100%);
   max-height: 100%;
   margin: auto;
   padding: 32px 24px;
   overflow-y: auto;
 }
 
+/* The bell swings a little, and rings: two arcs beside it come and go. */
 .alert-bell {
-  font-size: 72px;
-  line-height: 1;
+  display: flex;
+  align-items: center;
+  justify-content: center;
+  width: 84px;
+  height: 84px;
+  border-radius: 50%;
+  background: color-mix(in srgb, var(--accent) 22%, var(--bg));
+  box-shadow: 0 0 0 10px color-mix(in srgb, var(--accent) 10%, transparent);
+  color: var(--accent);
+}
+
+.alert-bell svg {
+  width: 44px;
+  height: 44px;
+  fill: none;
+  stroke: currentColor;
+  stroke-width: 1.7;
+  stroke-linecap: round;
+  stroke-linejoin: round;
+  transform-origin: 50% 12%;
+  animation: alert-swing 2.4s ease-in-out infinite;
+}
+
+.alert-ring {
+  animation: alert-ring 2.4s ease-in-out infinite;
+}
+
+@keyframes alert-swing {
+  0%,
+  40%,
+  100% {
+    rotate: 0deg;
+  }
+  8% {
+    rotate: 13deg;
+  }
+  16% {
+    rotate: -11deg;
+  }
+  24% {
+    rotate: 7deg;
+  }
+  32% {
+    rotate: -4deg;
+  }
+}
+
+@keyframes alert-ring {
+  0%,
+  45%,
+  100% {
+    opacity: 0;
+  }
+  10%,
+  30% {
+    opacity: 1;
+  }
+}
+
+@media (prefers-reduced-motion: reduce) {
+  .task-alert,
+  .alert-bell svg,
+  .alert-ring {
+    animation: none;
+  }
 }
 
 .task-alert h1 {
-  margin: 12px 0 24px;
-  font-size: 34px;
+  margin: 18px 0 2px;
+  color: var(--text-muted);
+  font-size: 15px;
+  font-weight: 600;
+  letter-spacing: 0.08em;
+  text-transform: uppercase;
+}
+
+.alert-clock {
+  margin-bottom: 22px;
+  font-size: 46px;
+  font-weight: 300;
+  line-height: 1.1;
+  font-variant-numeric: tabular-nums;
 }
 
 .alert-list {
   display: flex;
   flex-direction: column;
-  gap: 14px;
+  gap: 12px;
   width: 100%;
 }
 
 .alert-task {
-  padding: 20px 24px;
+  padding: 20px 22px 16px;
+  border: 1px solid var(--border);
   border-radius: var(--radius-xl);
-  background: var(--bg);
-  color: var(--text);
-  box-shadow: 0 8px 30px rgb(0 0 0 / 0.25);
+  background: color-mix(in srgb, var(--bg-alt) 92%, transparent);
+  box-shadow: 0 18px 50px rgb(0 0 0 / 0.28);
 }
 
 .alert-text {
-  font-size: 26px;
+  font-size: 24px;
   font-weight: 650;
   line-height: 1.3;
   overflow-wrap: anywhere;
@@ -190,37 +265,53 @@
 .alert-when {
   margin: 6px 0 16px;
   color: var(--text-muted);
+  font-size: 13.5px;
 }
 
 .alert-actions,
 .alert-footer {
   display: flex;
   flex-wrap: wrap;
-  gap: 8px;
+  align-items: center;
+  gap: 6px;
 }
 
 .alert-footer {
-  margin-top: 20px;
+  justify-content: center;
+  margin-top: 18px;
 }
 
 .task-alert button {
-  padding: 9px 16px;
+  padding: 7px 14px;
   border: 1px solid var(--border);
-  border-radius: var(--radius-l);
+  border-radius: 2em;
   background: var(--bg);
   color: var(--text);
-  font-size: 15px;
+  font-size: 13.5px;
+  transition: background 0.12s, border-color 0.12s;
 }
 
 .task-alert button:hover {
+  border-color: var(--accent);
   background: var(--bg-hover);
 }
 
+/* "Done" is the one that matters; the ways to put it off are quieter. */
 .task-alert button.primary {
-  border-color: var(--accent);
+  padding: 9px 20px;
+  border-color: transparent;
   background: var(--accent);
   color: var(--accent-text);
+  font-size: 15px;
   font-weight: 600;
+}
+
+.task-alert button.primary:hover {
+  filter: brightness(1.08);
+}
+
+.task-alert button.later {
+  color: var(--text-muted);
 }
 
 /* A task's fields in the editor */
@@ -704,8 +795,13 @@
   padding: 14px 16px;
 }
 
-.task-alert.banner .alert-bell {
+.task-alert.banner .alert-bell,
+.task-alert.banner .alert-clock {
   display: none;
+}
+
+.task-alert.banner {
+  backdrop-filter: none;
 }
 
 .task-alert.banner h1 {

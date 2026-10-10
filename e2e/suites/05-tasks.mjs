@@ -20,10 +20,12 @@ export async function run(t) {
   await page.waitForSelector('.task-alert[open]', { timeout: 8000 }).catch(() => {})
   const alert = page.locator('.task-alert')
   ok('fullscreen alert appears', (await alert.count()) === 1 && (await alert.getAttribute('data-count')) === '3', await alert.getAttribute('data-count').catch(() => 'none'))
+  // The alert comes in with a short movement; it is measured once it stands still.
+  await wait(500)
   const box = await alert.boundingBox()
   ok('alert covers the whole screen', box?.width === 1300 && box?.height === 1000, JSON.stringify(box))
   let text = await alert.innerText()
-  ok('alert lists the due tasks', text.includes('Ping') && text.includes('Write report') && text.includes('Water plants') && text.includes('Напоминания: 3'), text.slice(0, 200))
+  ok('alert lists the due tasks', text.includes('Ping') && text.includes('Write report') && text.includes('Water plants') && text.toLowerCase().includes('напоминания: 3'), text.slice(0, 200))
   await page.keyboard.press('Escape')
   await wait(300)
   ok('Escape does not dismiss the alert', (await t.count('.task-alert[open]')) === 1)

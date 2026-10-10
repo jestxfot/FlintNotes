@@ -91,24 +91,66 @@ class Beeper {
 
   private unlock = () => void this.context?.resume()
 
+  /** Which signal to play and how loud (0..1); set from the settings before each start. */
+  sound = 'chime'
+  volume = 0.6
+
+  /** Plays the signal once, for trying it out in the settings. */
+  preview(): void {
+    this.beep()
+  }
+
   private beep(): void {
     this.count++
     try {
       const context = (this.context ??= new AudioContext())
       void context.resume()
-      ;[880, 1100, 1320].forEach((frequency, i) => {
-        const start = context.currentTime + i * 0.22
-        const oscillator = context.createOscillator()
-        const gain = context.createGain()
-        oscillator.frequency.value = frequency
-        // A quick fade in and out avoids clicks at the edges of each beep.
-        gain.gain.setValueAtTime(0, start)
-        gain.gain.linearRampToValueAtTime(0.35, start + 0.02)
-        gain.gain.linearRampToValueAtTime(0, start + 0.18)
-        oscillator.connect(gain).connect(context.destination)
-        oscillator.start(start)
-        oscillator.stop(start + 0.2)
-      })
+      const out = context.createGain()
+      out.gain.value = Math.max(0, Math.min(1, this.volume))
+      out.connect(context.destination)
+      /** One struck note: it sounds at once and dies away, like a bell or a chime bar, with overtones above it. */
+      const strike = (frequency: number, at: number, length: number, loud: number, overtones: [ratio: number, share: number][] = [[2, 0.22], [3, 0.08]], type: OscillatorType = 'sine') => {
+        const start = context.currentTime + at
+        for (const [ratio, share] of [[1, 1], ...overtones] as [number, number][]) {
+          const oscillator = context.createOscillator()
+          const gain = context.createGain()
+          oscillator.type = type
+          oscillator.frequency.value = frequency * ratio
+          gain.gain.setValueAtTime(0.0001, start)
+          gain.gain.exponentialRampToValueAtTime(loud * share, start + 0.012)
+          // Overtones die sooner than the note itself, which is what makes it sound struck rather than switched on.
+          gain.gain.exponentialRampToValueAtTime(0.0001, start + length / Math.sqrt(ratio))
+          oscillator.connect(gain).connect(out)
+          oscillator.start(start)
+          oscillator.stop(start + length + 0.05)
+        }
+      }
+      if (this.sound === 'bell') {
+        // A small bell: one note with the uneven overtones of metal.
+        strike(659.25, 0, 2.4, 0.5, [[2.76, 0.35], [5.4, 0.18], [8.93, 0.08]])
+        strike(659.25, 0.9, 2.0, 0.3, [[2.76, 0.3], [5.4, 0.12]])
+      } else if (this.sound === 'soft') {
+        // Two quiet notes, a fifth apart.
+        strike(523.25, 0, 1.1, 0.32, [[2, 0.12]], 'triangle')
+        strike(783.99, 0.22, 1.4, 0.28, [[2, 0.1]], 'triangle')
+      } else if (this.sound === 'classic') {
+        // Three rising beeps: plain, and hard to miss.
+        ;[880, 1100, 1320].forEach((frequency, i) => {
+          const start = context.currentTime + i * 0.22
+          const oscillator = context.createOscillator()
+          const gain = context.createGain()
+          oscillator.frequency.value = frequency
+          gain.gain.setValueAtTime(0, start)
+          gain.gain.linearRampToValueAtTime(0.35, start + 0.02)
+          gain.gain.linearRampToValueAtTime(0, start + 0.18)
+          oscillator.connect(gain).connect(out)
+          oscillator.start(start)
+          oscillator.stop(start + 0.2)
+        })
+      } else {
+        // A chime: a rising chord, each note ringing into the next.
+        ;[783.99, 987.77, 1174.66, 1567.98].forEach((frequency, i) => strike(frequency, i * 0.14, 1.6, 0.36))
+      }
     } catch {
       // No audio device or audio blocked: the alert is still on screen.
     }
@@ -190,6 +232,17 @@ export class Reminders {
     return this.timed().filter(({ key, at, closed }) => !closed && at.getTime() - lead <= now && at.getTime() >= oldest && !((snoozed[key] ?? 0) > now))
   }
 
+  private tune(): void {
+    this.beeper.sound = this.setting<string>('soundKind') ?? 'chime'
+    this.beeper.volume = Math.max(0, Math.min(100, this.setting<number>('volume') ?? 60)) / 100
+  }
+
+  /** Plays the chosen signal once. */
+  playSound(): void {
+    this.tune()
+    this.beeper.preview()
+  }
+
   /** Whether alerts are held back right now: "do not disturb" was asked for, or it is the quiet time of day. */
   muted(): boolean {
     if ((this.setting<number>('muteUntil') ?? 0) > Date.now()) return true
@@ -221,7 +274,10 @@ export class Reminders {
       return
     }
     this.render(due)
-    if (this.setting<boolean>('sound')) this.beeper.start(this.setting<number>('repeatSeconds'))
+    if (this.setting<boolean>('sound')) {
+      this.tune()
+      this.beeper.start(this.setting<number>('repeatSeconds'))
+    }
     if (this.setting<boolean>('system') && globalThis.Notification?.permission === 'granted') {
       for (const { key, task } of fresh) {
         const note = new Notification(task.plain ? 'Напоминание' : 'Напоминание о задаче', { body: task.description, tag: key, requireInteraction: true })
@@ -371,6 +427,7 @@ export class Reminders {
     )
     ;(footer as HTMLElement).hidden = due.length < 2
     dialog.querySelector('h1')!.textContent = due.length > 1 ? `Напоминания: ${due.length}` : 'Напоминание'
+    dialog.querySelector('.alert-clock')!.textContent = new Date().toLocaleTimeString('ru', { hour: '2-digit', minute: '2-digit' })
 
     if (!this.flash) {
       // The tab's title follows the open note, so it is remembered when the flashing starts.
@@ -387,7 +444,7 @@ export class Reminders {
     const dialog = document.createElement('dialog')
     dialog.className = 'task-alert'
     dialog.innerHTML =
-      '<div class="alert-body"><div class="alert-bell">🔔</div><h1></h1><div class="alert-list"></div><div class="alert-footer"></div></div>'
+      '<div class="alert-body"><div class="alert-bell"><svg viewBox="0 0 24 24" aria-hidden="true"><path d="M6 9a6 6 0 0 1 12 0c0 6 2.5 7 2.5 8.500h-17C3.500 16 6 15 6 9z"/><path d="M10 20.500a2.200 2.200 0 0 0 4 0"/><path class="alert-ring" d="M3.500 4.500C2.500 5.800 2 7.200 2 9"/><path class="alert-ring" d="M20.500 4.500c1 1.300 1.500 2.700 1.500 4.500"/></svg></div><h1></h1><div class="alert-clock"></div><div class="alert-list"></div><div class="alert-footer"></div></div>'
     // Escape must not make it go away: every reminder needs a decision.
     dialog.addEventListener('cancel', (event) => event.preventDefault())
     document.body.append(dialog)

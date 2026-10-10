@@ -105,6 +105,20 @@ export default class Tasks extends Plugin {
         ],
       },
       { key: 'sound', name: 'Звуковой сигнал', type: 'toggle', default: true },
+      {
+        key: 'soundKind',
+        name: 'Звук',
+        desc: 'Послушать: команда «Проиграть звук напоминания»',
+        type: 'select',
+        default: 'chime',
+        options: [
+          { value: 'chime', label: 'Перезвон' },
+          { value: 'bell', label: 'Колокольчик' },
+          { value: 'soft', label: 'Тихий, две ноты' },
+          { value: 'classic', label: 'Три гудка (прежний)' },
+        ],
+      },
+      { key: 'volume', name: 'Громкость, %', type: 'number', default: 60, min: 0, max: 100, step: 5 },
       { key: 'repeatSeconds', name: 'Повторять сигнал каждые, секунд', type: 'number', default: 5, min: 2, max: 120 },
       {
         key: 'system',
@@ -296,6 +310,9 @@ export default class Tasks extends Plugin {
     })
     // Whatever is put off, closed or muted shows in the lists at once.
     this.onSettingChange((key) => ['acknowledged', 'snoozed', 'muteUntil', 'planner', 'plannerOverdueDays', 'remindDue', 'defaultTime', 'remindPlain'].includes(key) && store.trigger('change'))
+    this.addCommand({ id: 'play-sound', name: 'Проиграть звук напоминания', icon: 'volume-2', callback: () => reminders.playSound() })
+    // A sound chosen in the settings is heard at once.
+    this.onSettingChange((key) => (key === 'soundKind' || key === 'volume') && reminders.playSound())
     this.addCommand({ id: 'mute-hour', name: 'Не беспокоить напоминаниями 1 час', icon: 'bell-off', callback: () => reminders.mute(60) })
     this.addCommand({ id: 'unmute', name: 'Включить напоминания (снять «не беспокоить»)', icon: 'bell', callback: () => reminders.mute(0) })
 
