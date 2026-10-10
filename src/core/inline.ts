@@ -20,7 +20,7 @@ function element<K extends keyof HTMLElementTagNameMap>(tag: K, className: strin
 export function renderInline(app: App, text: string, sourcePath: string): DocumentFragment {
   const out = document.createDocumentFragment()
   const link = (label: string, href: string, wiki: boolean) => {
-    const a = element('a', 'inline-link', label)
+    const a = element('a', !wiki && /^[a-z][a-z0-9+.-]*:/i.test(href) ? 'inline-link external-link' : 'inline-link', label)
     a.href = '#'
     a.title = href
     a.onclick = (event) => {

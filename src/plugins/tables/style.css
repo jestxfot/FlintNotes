@@ -11,14 +11,16 @@
   overflow-x: auto;
 }
 
+/* A table takes the whole width of the page; its columns share it by what they hold. */
 .ft table {
+  width: 100%;
   border-collapse: collapse;
 }
 
 .ft th,
 .ft td {
   min-width: 60px;
-  max-width: 380px;
+  overflow-wrap: anywhere;
   padding: 5px 10px;
   border: 1px solid var(--border);
   vertical-align: top;

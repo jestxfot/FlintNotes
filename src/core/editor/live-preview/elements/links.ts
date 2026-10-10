@@ -26,7 +26,7 @@ export const links = (app: App): PreviewRenderer => {
       if (node.name === 'URL') {
         if (NOT_STANDALONE.has(node.node.parent?.name ?? '')) return
         const href = ctx.text(node.from, node.to)
-        ctx.mark(node.from, node.to, { class: 'lp-url', attributes: { 'data-href': href } })
+        ctx.mark(node.from, node.to, { class: 'lp-url external-link', attributes: { 'data-href': href } })
         return
       }
       if (ctx.isActive(node.from, node.to)) return
@@ -40,7 +40,8 @@ export const links = (app: App): PreviewRenderer => {
       const href = ctx.text(url.from, url.to)
       ctx.hide(marks[0].from, marks[0].to)
       ctx.hide(marks[1].from, node.to)
-      ctx.mark(marks[0].to, marks[1].from, { class: 'lp-link', attributes: { 'data-href': href, title: href } })
+      // A link that leaves the vault is marked as such, so it is told from a link to a note at a glance.
+      ctx.mark(marks[0].to, marks[1].from, { class: /^[a-z][a-z0-9+.-]*:/i.test(href) ? 'lp-link external-link' : 'lp-link', attributes: { 'data-href': href, title: href } })
     },
     extension: EditorView.domEventHandlers({
       // Swallowing mousedown keeps the cursor out of the link, which would reveal its source.

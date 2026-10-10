@@ -25,8 +25,17 @@ export default class LinkEmbed extends Plugin {
   /** A picture that can be told from the address alone, or one found earlier. */
   private knownPicture(url: string): string {
     // A video's preview has a fixed address; no need to ask the page.
-    const video = /(?:youtube\.com\/(?:watch\?(?:.*&)?v=|shorts\/|embed\/)|youtu\.be\/)([\w-]{11})/.exec(url)
-    return video ? `https://i.ytimg.com/vi/${video[1]}/hqdefault.jpg` : this.pictures[url] || ''
+    return this.videoPictures(url)[0] ?? (this.pictures[url] || '')
+  }
+
+  /**
+   * The preview frames of a video, best first. The large one does not exist for every
+   * video (a small grey stand-in comes instead); the medium one always does and, unlike
+   * the old default, has no black bars above and below.
+   */
+  private videoPictures(url: string): string[] {
+    const video = /(?:youtube\.com\/(?:watch\?(?:.*&)?v=|shorts\/|embed\/|live\/)|youtu\.be\/)([\w-]{11})/.exec(url)
+    return video ? [`https://i.ytimg.com/vi/${video[1]}/maxresdefault.jpg`, `https://i.ytimg.com/vi/${video[1]}/mqdefault.jpg`] : []
   }
 
   /** Asks the page for its picture, a few pages at a time, and remembers the answer. */
@@ -109,27 +118,41 @@ export default class LinkEmbed extends Plugin {
         }
         site.append(url)
 
-        const show = (picture: string) => {
+        /**
+         * Shows the first of the pictures that really is one. A picture that does not load, or is
+         * a stand-in a few dots wide, gives way to the next; when none is left, the page is asked.
+         */
+        const show = (pictures: string[], asked = false) => {
+          const [picture, ...rest] = pictures
+          const next = () => {
+            frame.remove()
+            if (rest.length) return show(rest, asked)
+            if (!asked && WEB.test(url) && this.getSetting<boolean>('findPictures') !== false) void this.findPicture(url).then((found) => found && found !== picture && box.isConnected && show([found], true))
+          }
           const frame = box.appendChild(document.createElement('div'))
           frame.className = 'embed-card-image'
-          const ratio = Number(text(data.aspectRatio))
-          // Link Embed stores the picture's height as a percentage of its width.
-          if (ratio > 0) frame.style.aspectRatio = `100 / ${ratio}`
           const image = frame.appendChild(document.createElement('img'))
-          image.src = picture
           image.alt = ''
           image.loading = 'lazy'
-          image.onerror = () => frame.remove()
+          image.decoding = 'async'
+          image.onerror = next
+          image.onload = () => {
+            // The stand-in a video site sends for a missing frame is 120 dots wide; an icon is not a picture either.
+            const standIn = /i\.ytimg\.com/.test(picture) && image.naturalWidth <= 120 && rest.length > 0
+            if (standIn || image.naturalWidth < 16) next()
+          }
+          image.src = picture
         }
-        const picture = source(text(data.image), path) || this.knownPicture(url)
-        if (picture) show(picture)
+        const written = source(text(data.image), path)
+        const candidates = [...(written ? [written] : []), ...this.videoPictures(url), ...(this.pictures[url] ? [this.pictures[url]] : [])]
+        if (candidates.length) show([...new Set(candidates)])
         // A card saved without a picture gets the page's own (its og:image), looked up once the card is on screen.
         else if (WEB.test(url) && this.getSetting<boolean>('findPictures') !== false && this.pictures[url] === undefined) {
           watching?.disconnect()
           watching = new IntersectionObserver((entries) => {
             if (!entries.some((entry) => entry.isIntersecting)) return
             watching?.disconnect()
-            void this.findPicture(url).then((found) => found && box.isConnected && !box.querySelector('.embed-card-image') && show(found))
+            void this.findPicture(url).then((found) => found && box.isConnected && !box.querySelector('.embed-card-image') && show([found], true))
           })
           watching.observe(box)
         }
@@ -150,11 +173,17 @@ export default class LinkEmbed extends Plugin {
         default: true,
       },
       {
-        key: 'paste',
-        name: 'Вставленную ссылку превращать в карточку',
-        desc: 'Адрес страницы, вставленный в пустую строку, заменяется карточкой. Отменяется как обычно, Ctrl+Z',
-        type: 'toggle',
-        default: true,
+        key: 'pasteMode',
+        name: 'Когда вставлен адрес страницы',
+        desc: 'Выбор появляется у курсора: оставить адрес, сделать карточку или ссылку с названием страницы. Отменяется как обычно, Ctrl+Z',
+        type: 'select',
+        default: 'ask',
+        options: [
+          { value: 'ask', label: 'Спросить, что с ним сделать' },
+          { value: 'card', label: 'Сразу делать карточку (если адрес один в строке)' },
+          { value: 'link', label: 'Сразу делать ссылку с названием страницы' },
+          { value: 'off', label: 'Оставлять как есть' },
+        ],
       },
     ])
     const quote = (value: string) => `"${value.replace(/\\/g, '\\\\').replace(/"/g, '\\"').replace(/\s+/g, ' ').trim()}"`
@@ -189,17 +218,55 @@ export default class LinkEmbed extends Plugin {
         app.notice(`Карточка ссылки: ${errorMessage(err)}`)
       }
     }
+    /** Puts `[title of the page](address)` in place of the address at `from`. */
+    const titled = async (view: InstanceType<typeof cm.view.EditorView>, address: string, from: number) => {
+      try {
+        const page = await app.vault.unfurl(address)
+        const at = view.state.sliceDoc(from, from + address.length) === address ? from : view.state.doc.toString().indexOf(address)
+        if (at < 0) return
+        const link = `[${(page.title || address).replace(/[\[\]]/g, ' ').replace(/\s+/g, ' ').trim()}](${address})`
+        view.dispatch({ changes: { from: at, to: at + address.length, insert: link }, selection: { anchor: at + link.length } })
+      } catch (err) {
+        app.notice(`Ссылка: ${errorMessage(err)}`)
+      }
+    }
     this.registerEditorExtension(
       cm.view.EditorView.domEventHandlers({
         paste: (event, view) => {
-          if (!this.getSetting<boolean>('paste')) return false
+          const mode = this.getSetting<string>('pasteMode') ?? 'ask'
           const pasted = event.clipboardData?.getData('text/plain').trim() ?? ''
+          if (mode === 'off' || !/^https?:\/\/\S+$/i.test(pasted)) return false
           const { from, to } = view.state.selection.main
+          // An address pasted over selected words is a link on those words; that is not asked about.
+          if (from !== to) return false
           const line = view.state.doc.lineAt(from)
-          // Only an address alone on an empty line: inside a sentence a link is meant to stay a link.
-          if (!/^https?:\/\/\S+$/i.test(pasted) || from !== to || line.text.trim()) return false
+          const alone = !line.text.trim()
+          if (mode === 'card' && !alone) return false
           event.preventDefault()
-          void embed(view, pasted, line.from, line.to)
+          if (mode === 'card') return void embed(view, pasted, line.from, line.to), true
+          // The address goes in as it is; what to make of it is then chosen, or decided by the setting.
+          view.dispatch({ changes: { from, insert: pasted }, selection: { anchor: from + pasted.length }, userEvent: 'input.paste' })
+          if (mode === 'link') return void titled(view, pasted, from), true
+          const place = view.coordsAtPos(from + pasted.length)
+          app.menus.show({ x: place?.left ?? 0, y: (place?.bottom ?? 0) + 6 }, 'pasted-link', pasted, [
+            { icon: 'x', title: 'Оставить как есть', onClick: () => view.focus() },
+            {
+              icon: 'panel-top',
+              title: 'Создать карточку',
+              onClick: () => {
+                const now = view.state.doc.lineAt(Math.min(from, view.state.doc.length))
+                // A card is a block of its own: an address inside a sentence gets it on the next line.
+                if (now.text.trim() === pasted) void embed(view, pasted, now.from, now.to)
+                else {
+                  view.dispatch({ changes: { from, to: from + pasted.length, insert: '' } })
+                  const end = view.state.doc.lineAt(Math.min(from, view.state.doc.length)).to
+                  view.dispatch({ changes: { from: end, insert: `\n\n` } })
+                  void embed(view, pasted, end + 2, end + 2)
+                }
+              },
+            },
+            { icon: 'link', title: 'Создать ссылку с названием страницы', onClick: () => void titled(view, pasted, from) },
+          ])
           return true
         },
       }),

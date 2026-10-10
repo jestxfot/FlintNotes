@@ -1,6 +1,7 @@
+/* A link as a card: what the page says about itself on the left, its picture, whole and large, on the right. */
 .embed-card {
   display: flex;
-  max-height: 150px;
+  align-items: stretch;
   overflow: hidden;
   border: 1px solid var(--border);
   border-radius: var(--radius-l);
@@ -16,11 +17,12 @@
 
 .embed-card-text {
   display: flex;
-  flex: 1 1 60%;
+  flex: 1 1 56%;
   flex-direction: column;
-  gap: 4px;
+  justify-content: center;
+  gap: 6px;
   min-width: 0;
-  padding: 10px 14px;
+  padding: 14px 18px;
 }
 
 .embed-card-title {
@@ -32,14 +34,13 @@
 
 .embed-card-description {
   display: -webkit-box;
-  flex: 1;
   overflow: hidden;
   color: var(--text-muted);
   font-size: 0.88em;
   line-height: 1.4;
   -webkit-box-orient: vertical;
-  -webkit-line-clamp: 3;
-  line-clamp: 3;
+  -webkit-line-clamp: 4;
+  line-clamp: 4;
 }
 
 .embed-card-url {
@@ -59,17 +60,33 @@
 }
 
 .embed-card-image {
-  flex: 0 1 40%;
-  max-width: 280px;
-  min-width: 0;
+  display: flex;
+  flex: 0 0 auto;
+  align-items: center;
+  width: min(44%, 480px);
   border-left: 1px solid var(--border);
+  background: var(--bg);
 }
 
+/* The picture keeps its own proportions and is shown whole: nothing of it is cut away. */
 .embed-card-image img {
   display: block;
   width: 100%;
-  height: 100%;
-  object-fit: cover;
+  height: auto;
+  max-height: 340px;
+  object-fit: contain;
+}
+
+@container (max-width: 520px) {
+  .embed-card {
+    flex-direction: column-reverse;
+  }
+
+  .embed-card-image {
+    width: 100%;
+    border-left: none;
+    border-bottom: 1px solid var(--border);
+  }
 }
 
 .embed-card-error {
