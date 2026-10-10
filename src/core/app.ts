@@ -141,6 +141,43 @@ const coreSettings: SettingsSection = {
  * server keeps it as a file where the system looks for programs to run at
  * sign-in, and the setting shows and changes that file.
  */
+/** Which widgets are in the sidebars, and a way to open any of them as a tab. */
+const panelsSetting = (app: App): SettingsSection['defs'][number] => ({
+  key: 'panels',
+  group: 'Интерфейс',
+  section: 'Панели',
+  name: 'Панели плагинов',
+  desc: 'Каждая панель может стоять в боковой панели, открываться отдельной вкладкой на всю страницу или быть убранной. Перетаскивайте значки панелей, чтобы переставить их; правый щелчок по значку — те же действия',
+  type: 'custom',
+  render: (el) => {
+    const box = el.appendChild(document.createElement('div'))
+    box.className = 'panel-settings'
+    const draw = () => {
+      box.replaceChildren()
+      for (const def of app.panels.list().sort((a, b) => a.title.localeCompare(b.title))) {
+        const row = box.appendChild(document.createElement('div'))
+        row.className = 'panel-setting'
+        row.appendChild(document.createElement('span')).textContent = def.title
+        const label = row.appendChild(document.createElement('label'))
+        const shown = label.appendChild(document.createElement('input'))
+        shown.type = 'checkbox'
+        shown.checked = !app.panels.isHidden(def.id)
+        shown.onchange = () => app.panels.setHidden(def.id, !shown.checked)
+        label.append(' в боковой панели')
+        const tab = row.appendChild(document.createElement('button'))
+        tab.textContent = 'Открыть вкладкой'
+        tab.onclick = () => app.commands.run(`core:panel-tab:${def.id}`)
+      }
+    }
+    draw()
+    const off = app.panels.on('change', draw)
+    return () => {
+      off()
+      box.remove()
+    }
+  },
+})
+
 const autostartSetting = (app: App): SettingsSection['defs'][number] => ({
   key: 'autostart',
   group: 'Интерфейс',
@@ -217,6 +254,7 @@ export class App {
     await Promise.all([this.vault.load(), this.state.load(), this.settings.load().then(() => this.plugins.preload())])
     this.panels.init()
     // Once only: the page may be set up again (a vault is switched), the list of settings is the same object.
+    if (!coreSettings.defs.some((def) => def.key === 'panels')) coreSettings.defs.splice(coreSettings.defs.findIndex((def) => def.key === 'zoom'), 0, panelsSetting(this))
     if (!coreSettings.defs.some((def) => def.key === 'autostart')) coreSettings.defs.splice(coreSettings.defs.findIndex((def) => def.key === 'zoom'), 0, autostartSetting(this))
     this.settings.addSection(coreSettings)
     // One plain sign that the server is not answering, instead of an error from every part that asks it something.
@@ -227,6 +265,42 @@ export class App {
     connection.on('change', (online) => {
       down.hidden = online
       if (online) notice('Связь с сервером FlintNotes восстановлена')
+    })
+    // Every widget of the sidebars can also be opened as a tab of its own, with the whole page to itself.
+    // Nothing is asked of the plugins for it: a widget is the same thing in either place.
+    const asTabs = new Map<string, () => void>()
+    const syncPanelTabs = () => {
+      const defs = new Map(this.panels.list().map((def) => [def.id, def]))
+      for (const [id, off] of asTabs) {
+        if (defs.has(id)) continue
+        off()
+        asTabs.delete(id)
+      }
+      for (const def of defs.values()) {
+        if (asTabs.has(def.id)) continue
+        const type = `panel-${def.id}`
+        const offView = this.workspace.registerView(
+          type,
+          ({ containerEl }) => {
+            containerEl.classList.add('panel-tab')
+            const off = this.panels.get(def.id)?.mount(containerEl)
+            return { destroy: () => off?.() }
+          },
+          [],
+        )
+        const offCommand = this.commands.add({ id: `core:panel-tab:${def.id}`, name: `Открыть «${def.title}» во вкладке`, icon: 'panel-top', scope: 'sidebar', callback: () => this.workspace.openView(type, def.title) })
+        asTabs.set(def.id, () => {
+          offView()
+          offCommand()
+        })
+      }
+    }
+    this.panels.on('change', syncPanelTabs)
+    this.menus.register('panel', (id: string, add) => {
+      const def = this.panels.get(id)
+      if (!def) return
+      add({ icon: 'panel-top', title: 'Открыть во вкладке', onClick: () => this.workspace.openView(`panel-${id}`, def.title) })
+      add({ icon: 'eye-off', title: 'Убрать из боковой панели', onClick: () => this.panels.setHidden(id, true) })
     })
     // Finding in the open note: the keys work in the editor itself; the commands are for the palette, menus and buttons.
     const inNote = (replace: boolean) => () => {

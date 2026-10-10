@@ -639,3 +639,49 @@ input[type='checkbox']:disabled {
   background-color: var(--color-orange);
   color: #1a1a1a;
 }
+
+/* A widget of the sidebars opened as a tab: the same thing with the page to itself. */
+.leaf-view.panel-tab {
+  display: flex;
+  flex-direction: column;
+  max-width: 980px;
+  margin: 0 auto;
+  padding: 12px 20px 0;
+}
+
+.panel-settings {
+  display: flex;
+  flex-direction: column;
+  gap: 4px;
+  width: 100%;
+}
+
+.panel-setting {
+  display: flex;
+  align-items: center;
+  gap: 14px;
+  padding: 4px 0;
+}
+
+.panel-setting > span {
+  flex: 1;
+}
+
+.panel-setting label {
+  display: flex;
+  align-items: center;
+  gap: 6px;
+  color: var(--text-muted);
+  font-size: 13px;
+}
+
+.panel-setting button {
+  padding: 3px 10px;
+  border: 1px solid var(--border);
+  border-radius: var(--radius-m);
+  font-size: 13px;
+}
+
+.panel-setting button:hover {
+  background: var(--bg-hover);
+}

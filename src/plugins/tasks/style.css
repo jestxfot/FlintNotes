@@ -551,3 +551,169 @@
   overflow: hidden;
   container-type: inline-size;
 }
+
+/* ---- the page of reminders */
+.reminders-head {
+  display: flex;
+  flex-wrap: wrap;
+  align-items: center;
+  gap: 4px;
+  padding: 2px 0 4px;
+}
+
+.reminders-chip {
+  display: flex;
+  align-items: center;
+  gap: 5px;
+  padding: 3px 9px;
+  border-radius: 2em;
+  color: var(--text-muted);
+  font-size: 12.5px;
+}
+
+.reminders-chip:hover,
+.reminders-chip.on {
+  background: var(--bg-hover);
+  color: var(--text);
+}
+
+.reminders-chip.late {
+  color: var(--color-red);
+}
+
+.reminders-badge {
+  min-width: 18px;
+  padding: 0 5px;
+  border-radius: 2em;
+  background: var(--bg-hover);
+  color: var(--text-muted);
+  font-size: 11px;
+  font-weight: 600;
+  line-height: 16px;
+  text-align: center;
+  font-variant-numeric: tabular-nums;
+}
+
+.reminders-chip.late .reminders-badge,
+.reminders-panel h4.overdue .reminders-badge {
+  background: var(--color-red);
+  color: #fff;
+}
+
+.reminders-panel h4 {
+  display: flex;
+  align-items: center;
+  gap: 7px;
+}
+
+.reminders-grow {
+  flex: 1;
+}
+
+.reminders-tool {
+  display: flex;
+  padding: 4px;
+  border-radius: var(--radius-s);
+  color: var(--text-muted);
+  font-size: 15px;
+}
+
+.reminders-tool:hover {
+  background: var(--bg-hover);
+  color: var(--text);
+}
+
+.reminders-tool.on {
+  color: var(--color-orange);
+}
+
+.reminder-row {
+  align-items: baseline;
+  cursor: pointer;
+}
+
+.reminder-row.closed {
+  opacity: 0.5;
+}
+
+.reminder-text {
+  flex: 1;
+  min-width: 0;
+}
+
+.reminder-snoozed {
+  flex: none;
+  color: var(--color-orange);
+  font-size: 11.5px;
+}
+
+.reminder-tools {
+  display: none;
+  flex: none;
+  gap: 1px;
+  align-self: center;
+}
+
+.reminder-row:hover .reminder-tools {
+  display: flex;
+}
+
+.reminder-tools button {
+  display: flex;
+  padding: 3px;
+  border-radius: var(--radius-s);
+  color: var(--text-muted);
+  font-size: 14px;
+}
+
+.reminder-tools button:hover {
+  background: var(--bg);
+  color: var(--text);
+}
+
+/* As a tab of its own the list has room: larger text, wider rows. */
+.panel-tab .reminders-panel {
+  font-size: 14.5px;
+}
+
+.panel-tab .reminder-row {
+  padding: 6px 8px;
+}
+
+.panel-tab .reminder-tools {
+  display: flex;
+}
+
+/* A reminder as a card in the corner instead of over the whole screen. */
+.task-alert.banner {
+  position: fixed;
+  inset: auto 16px 16px auto;
+  z-index: 60;
+  width: min(420px, calc(100vw - 32px));
+  height: auto;
+  max-height: 70vh;
+  border: 1px solid var(--border);
+  border-radius: var(--radius-xl);
+  background: var(--bg-alt);
+  box-shadow: var(--shadow);
+  overflow-y: auto;
+  animation: none;
+}
+
+.task-alert.banner .alert-body {
+  padding: 14px 16px;
+}
+
+.task-alert.banner .alert-bell {
+  display: none;
+}
+
+.task-alert.banner h1 {
+  margin: 0 0 10px;
+  font-size: 16px;
+}
+
+.task-alert.banner button {
+  padding: 5px 10px;
+  font-size: 13px;
+}

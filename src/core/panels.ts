@@ -54,6 +54,8 @@ export class Panels extends Events<PanelEvents> {
   private entries = new Map<string, PanelEntry>()
   private layout: Layout = { left: [], right: [] }
   private nextKey = 1
+  /** Widgets the user has taken out of the sidebars; they can still be opened as tabs. */
+  private hidden = new Set<string>()
 
   constructor(private state: VaultState) {
     super()
@@ -65,6 +67,7 @@ export class Panels extends Events<PanelEvents> {
     const groups = (list: unknown): StoredGroup[] =>
       Array.isArray(list) ? list.filter((g) => Array.isArray(g?.tabs)).map((g) => ({ tabs: g.tabs.map(String), active: g.active })) : []
     this.layout = { left: groups(saved.left), right: groups(saved.right) }
+    this.hidden = new Set(this.state.get<string[]>('hidden-panels', []))
   }
 
   add(def: PanelDef): Off {
@@ -95,9 +98,30 @@ export class Panels extends Events<PanelEvents> {
     this.save()
   }
 
-  /** Number of widgets currently available. */
+  /** Number of widgets currently shown in the sidebars. */
   count(): number {
-    return this.entries.size
+    return [...this.entries.keys()].filter((id) => !this.hidden.has(id)).length
+  }
+
+  /** Every widget there is, shown in a sidebar or not. */
+  list(): PanelDef[] {
+    return [...this.entries.values()].map((entry) => entry.def)
+  }
+
+  get(id: string): PanelDef | undefined {
+    return this.entries.get(id)?.def
+  }
+
+  isHidden(id: string): boolean {
+    return this.hidden.has(id)
+  }
+
+  /** Takes a widget out of the sidebars or puts it back; out of them it is still there to open as a tab. */
+  setHidden(id: string, hidden: boolean): void {
+    if (hidden) this.hidden.add(id)
+    else this.hidden.delete(id)
+    this.state.set('hidden-panels', [...this.hidden])
+    this.trigger('change')
   }
 
   has(side: Side): boolean {
@@ -112,7 +136,7 @@ export class Panels extends Events<PanelEvents> {
   groups(side: Side): PanelGroup[] {
     return this.layout[side]
       .map((group, index) => {
-        const entries = group.tabs.map((id) => this.entries.get(id)).filter((entry): entry is PanelEntry => !!entry)
+        const entries = group.tabs.map((id) => (this.hidden.has(id) ? undefined : this.entries.get(id))).filter((entry): entry is PanelEntry => !!entry)
         const active = entries.find((entry) => entry.def.id === group.active) ?? entries[0]
         return { index, entries, active: active?.def.id ?? '' }
       })
@@ -123,6 +147,9 @@ export class Panels extends Events<PanelEvents> {
   reveal(id: string): void {
     const found = this.locate(id)
     if (!found || !this.entries.has(id)) return
+    // Asked for by name, a widget that was put away comes back.
+    this.hidden.delete(id)
+    this.state.set('hidden-panels', [...this.hidden])
     found.group.active = id
     this.save()
     this.trigger('reveal', id)

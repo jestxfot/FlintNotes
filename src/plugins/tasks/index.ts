@@ -2,6 +2,7 @@ import { mount, unmount } from 'svelte'
 import { cm, errorMessage, path as paths, Plugin, renderInline, type CodeBlockContext, type PreviewRenderer } from '../../api'
 import { today } from './dates'
 import { Reminders, stamp } from './reminders'
+import { mountReminders } from './reminders-panel'
 import { tasksProcessor } from './render'
 import { TaskStore } from './store'
 import './style.css'
@@ -52,6 +53,23 @@ export default class Tasks extends Plugin {
         type: 'toggle',
         default: true,
       },
+      {
+        key: 'alertStyle',
+        name: 'Как показывать напоминание',
+        desc: 'На весь экран — не пропустить; карточкой в углу — не отрываться от работы; только в списке — без всплывающих окон',
+        type: 'select',
+        default: 'fullscreen',
+        options: [
+          { value: 'fullscreen', label: 'На весь экран' },
+          { value: 'banner', label: 'Карточкой в углу' },
+          { value: 'off', label: 'Только в списке напоминаний' },
+        ],
+      },
+      { key: 'leadMinutes', name: 'Напоминать заранее, минут', desc: '0 — точно в назначенное время', type: 'number', default: 0, min: 0, max: 240 },
+      { key: 'planner', name: 'План дня из ежедневных заметок', desc: 'Строка задачи в заметке дня, которая начинается со времени — «- [ ] 17:00 - 17:10 Витамин D», как в плагине Day Planner, — напоминает о себе в это время', type: 'toggle', default: true },
+      { key: 'plannerOverdueDays', name: 'Сколько дней помнить невыполненный план дня', desc: 'Неотмеченные строки плана старше этого срока не считаются просроченными и не показываются', type: 'number', default: 1, min: 0, max: 60 },
+      { key: 'quietFrom', name: 'Тихие часы: с', desc: 'В тихие часы напоминания не всплывают и не звучат, но остаются в списке. Пусто — без тихих часов', type: 'text', default: '', placeholder: '23:00' },
+      { key: 'quietTo', name: 'Тихие часы: до', type: 'text', default: '', placeholder: '08:00' },
       {
         key: 'remindPlain',
         name: 'Напоминать и по обычным строкам',
@@ -274,56 +292,12 @@ export default class Tasks extends Plugin {
       title: 'Напоминания',
       side: 'right',
       icon: 'M8 2.5a4 4 0 0 0-4 4c0 3-1.5 4-1.5 5h11c0-1-1.5-2-1.5-5a4 4 0 0 0-4-4zM6.5 13.5a1.6 1.6 0 0 0 3 0',
-      mount: (target) => {
-        const list = target.appendChild(document.createElement('div'))
-        list.className = 'reminders-panel'
-        const draw = () => {
-          const now = new Date()
-          const dayOf = (date: Date) => `${date.getFullYear()}-${String(date.getMonth() + 1).padStart(2, '0')}-${String(date.getDate()).padStart(2, '0')}`
-          const tomorrow = new Date(now.getFullYear(), now.getMonth(), now.getDate() + 1)
-          const groups = new Map<string, ReturnType<typeof reminders.upcoming>>()
-          for (const due of reminders.upcoming()) {
-            const day = dayOf(due.at)
-            const name = due.at < now ? 'Просрочено' : day === dayOf(now) ? 'Сегодня' : day === dayOf(tomorrow) ? 'Завтра' : due.at.toLocaleDateString('ru', { day: 'numeric', month: 'long', weekday: 'short' })
-            groups.set(name, [...(groups.get(name) ?? []), due])
-          }
-          list.replaceChildren()
-          if (!groups.size) {
-            const none = list.appendChild(document.createElement('p'))
-            none.className = 'reminders-none'
-            none.textContent = 'Напоминаний нет. Допишите к задаче ⏰ 14:00 или (@2026-10-10 14:00).'
-          }
-          for (const [name, items] of groups) {
-            const title = list.appendChild(document.createElement('h4'))
-            title.className = name === 'Просрочено' ? 'overdue' : ''
-            title.textContent = name
-            for (const { task, at } of items) {
-              const row = list.appendChild(document.createElement('button'))
-              row.className = 'reminder-row'
-              row.title = task.path
-              const time = row.appendChild(document.createElement('span'))
-              time.className = 'reminder-time'
-              time.textContent = name === 'Просрочено' ? at.toLocaleString('ru', { day: 'numeric', month: 'short', hour: '2-digit', minute: '2-digit' }) : at.toLocaleTimeString('ru', { hour: '2-digit', minute: '2-digit' })
-              const text = row.appendChild(document.createElement('span'))
-              text.className = 'reminder-text'
-              text.append(renderInline(app, task.description, task.path))
-              row.onclick = (event) => {
-                if (!(event.target as Element).closest('a')) app.workspace.openFile(task.path, { line: task.line })
-              }
-              row.oncontextmenu = (event) => app.menus.show(event, 'task', task, [{ icon: 'pencil', title: 'Изменить задачу…', onClick: () => editTask(task) }])
-            }
-          }
-        }
-        draw()
-        const off = store.on('change', draw)
-        // Reminders move from "today" to "overdue" as time passes.
-        const timer = setInterval(draw, 60_000)
-        return () => {
-          off()
-          clearInterval(timer)
-        }
-      },
+      mount: (target) => mountReminders(app, store, reminders, editTask, target),
     })
+    // Whatever is put off, closed or muted shows in the lists at once.
+    this.onSettingChange((key) => ['acknowledged', 'snoozed', 'muteUntil', 'planner', 'plannerOverdueDays', 'remindDue', 'defaultTime', 'remindPlain'].includes(key) && store.trigger('change'))
+    this.addCommand({ id: 'mute-hour', name: 'Не беспокоить напоминаниями 1 час', icon: 'bell-off', callback: () => reminders.mute(60) })
+    this.addCommand({ id: 'unmute', name: 'Включить напоминания (снять «не беспокоить»)', icon: 'bell', callback: () => reminders.mute(0) })
 
     // ---- typing a reminder: after "(@" a list of times is offered
     this.registerCompletionSource((context) => {

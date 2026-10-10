@@ -1,4 +1,5 @@
 import { path as paths, renderInline, type Off, type Plugin } from '../../api'
+import { fromIso } from './dates'
 import type { TaskStore } from './store'
 import { formatTaskLine, isOpen, movePlainReminder, parseTaskLine, reminderTime, type Task } from './task'
 
@@ -10,6 +11,26 @@ export interface Due {
   key: string
   task: Task
   at: Date
+  /** It comes from a day's plan (`17:00 - 17:10 ...` in a daily note), not from a reminder written on the task. */
+  planned?: boolean
+  /** The user has closed it: it will not alert again, and lists show it only on request. */
+  closed?: boolean
+}
+
+const PLANNED = /^(\d{1,2}):(\d{2})(?:\s*[-–—]\s*\d{1,2}:\d{2})?(?=\s|$)/
+/**
+ * The moment a line of a day's plan is for, in the form the Day Planner plugin has:
+ * a task of a daily note that begins with a time, `- [ ] 17:00 - 17:10 Vitamin D`.
+ * The day is the note's (its name is a date), or the task's own date.
+ */
+export function plannedTime(task: Task): Date | null {
+  const time = PLANNED.exec(task.description)
+  if (!time) return null
+  const day = /^(\d{4}-\d{2}-\d{2})/.exec(paths.basename(task.path))?.[1] ?? task.scheduled ?? task.due
+  if (!day) return null
+  const at = fromIso(day)
+  at.setHours(Number(time[1]), Number(time[2]), 0, 0)
+  return Number.isNaN(at.getTime()) ? null : at
 }
 
 const pad = (n: number) => String(n).padStart(2, '0')
@@ -138,27 +159,59 @@ export class Reminders {
     return { ...(this.setting<Record<string, number> | undefined>(key) ?? {}) }
   }
 
-  /** Reminders whose time has come and that were neither handled nor postponed. */
-  due(): Due[] {
-    const now = Date.now()
-    const acknowledged = this.marks('acknowledged')
-    const snoozed = this.marks('snoozed')
+  /** Every open task that has a moment to remind at, soonest first, with what the user did about it. */
+  private timed(): Due[] {
     const defaultTime = this.setting<boolean>('remindDue') ? this.setting<string>('defaultTime') : null
-    const oldest = now - this.setting<number>('maxAgeDays') * 24 * 60 * MINUTE
+    const fallback = /^\d{1,2}:\d{2}$/.test(defaultTime ?? '') ? defaultTime : null
+    const planner = this.setting<boolean>('planner') !== false
+    // A line of a past day's plan that was never ticked is not a debt for ever.
+    const plannerFrom = Date.now() - Math.max(0, this.setting<number>('plannerOverdueDays') ?? 1) * 24 * 60 * MINUTE
+    const acknowledged = this.marks('acknowledged')
     const result: Due[] = []
     for (const task of this.candidates()) {
       if (!isOpen(task)) continue
-      const at = reminderTime(task, /^\d{1,2}:\d{2}$/.test(defaultTime ?? '') ? defaultTime : null)
-      if (!at || at.getTime() > now || at.getTime() < oldest) continue
+      const planned = planner && !task.reminder ? plannedTime(task) : null
+      if (planned && planned.getTime() < plannerFrom) continue
+      const at = planned ?? reminderTime(task, fallback)
+      if (!at) continue
       const key = `${task.path}|${task.description}|${at.getTime()}`
-      if (acknowledged[key] || (snoozed[key] ?? 0) > now) continue
-      result.push({ key, task, at })
+      result.push({ key, task, at, planned: !!planned, closed: !!acknowledged[key] })
     }
     return result.sort((a, b) => a.at.getTime() - b.at.getTime())
   }
 
+  /** Reminders whose time has come and that were neither handled nor postponed. */
+  due(): Due[] {
+    const now = Date.now()
+    const snoozed = this.marks('snoozed')
+    const oldest = now - this.setting<number>('maxAgeDays') * 24 * 60 * MINUTE
+    // "Remind N minutes before": the alert comes that much earlier than the moment itself.
+    const lead = Math.max(0, this.setting<number>('leadMinutes') ?? 0) * MINUTE
+    return this.timed().filter(({ key, at, closed }) => !closed && at.getTime() - lead <= now && at.getTime() >= oldest && !((snoozed[key] ?? 0) > now))
+  }
+
+  /** Whether alerts are held back right now: "do not disturb" was asked for, or it is the quiet time of day. */
+  muted(): boolean {
+    if ((this.setting<number>('muteUntil') ?? 0) > Date.now()) return true
+    const from = this.setting<string>('quietFrom') ?? ''
+    const to = this.setting<string>('quietTo') ?? ''
+    if (!/^\d{1,2}:\d{2}$/.test(from) || !/^\d{1,2}:\d{2}$/.test(to) || from === to) return false
+    const minutes = (text: string) => Number(text.split(':')[0]) * 60 + Number(text.split(':')[1])
+    const now = new Date().getHours() * 60 + new Date().getMinutes()
+    // The quiet time may run over midnight: 23:00 to 07:00.
+    return minutes(from) < minutes(to) ? now >= minutes(from) && now < minutes(to) : now >= minutes(from) || now < minutes(to)
+  }
+
+  /** Holds alerts back for so many minutes; `0` lets them through again. */
+  mute(minutes: number): void {
+    this.plugin.setSetting('muteUntil', minutes > 0 ? Date.now() + minutes * MINUTE : 0)
+    this.shown = ''
+    this.check()
+  }
+
   check(): void {
-    const due = this.due()
+    const style = this.setting<string>('alertStyle') ?? 'fullscreen'
+    const due = this.muted() || style === 'off' ? [] : this.due()
     const signature = due.map((d) => d.key).join('\n')
     if (signature === this.shown) return
     const fresh = due.filter((d) => !this.shown.split('\n').includes(d.key))
@@ -171,7 +224,12 @@ export class Reminders {
     if (this.setting<boolean>('sound')) this.beeper.start(this.setting<number>('repeatSeconds'))
     if (this.setting<boolean>('system') && globalThis.Notification?.permission === 'granted') {
       for (const { key, task } of fresh) {
-        new Notification(task.plain ? 'Напоминание' : 'Напоминание о задаче', { body: task.description, tag: key, requireInteraction: true })
+        const note = new Notification(task.plain ? 'Напоминание' : 'Напоминание о задаче', { body: task.description, tag: key, requireInteraction: true })
+        // A click on the system's notification brings this tab forward, at the task.
+        note.onclick = () => {
+          window.focus()
+          this.plugin.app.workspace.openFile(task.path, { line: task.line })
+        }
       }
     }
   }
@@ -187,6 +245,29 @@ export class Reminders {
 
   private acknowledge(keys: string[]): void {
     this.mark('acknowledged', keys, Date.now())
+  }
+
+  /** Closes a reminder for good: it will not alert again. */
+  dismiss(due: Due): void {
+    this.acknowledge([due.key])
+  }
+
+  /** Brings a closed reminder back. */
+  restore(due: Due): void {
+    const marks = this.marks('acknowledged')
+    delete marks[due.key]
+    this.plugin.setSetting('acknowledged', marks)
+    this.check()
+  }
+
+  /** The "later" choices, for lists that offer them. */
+  choices(): { label: string; at: Date }[] {
+    return this.laterOptions()
+  }
+
+  /** Reminds of it at another moment. */
+  postpone(due: Due, at: Date): void {
+    this.later(due, at)
   }
 
   private snooze(keys: string[], until: number): void {
@@ -208,7 +289,8 @@ export class Reminders {
    * Obsidian too; a task that only has a due date is put off here alone.
    */
   private later(due: Due, at: Date): void {
-    if (!due.task.reminder) return this.snooze([due.key], at.getTime())
+    // A task that only has a due date, or a line of a day's plan, is put off here alone: its text stays as it is.
+    if (!due.task.reminder || due.planned) return this.snooze([due.key], at.getTime())
     void this.store.edit(due.task, (raw) => {
       if (due.task.plain) return [movePlainReminder(raw, stamp(at))]
       const parsed = parseTaskLine(raw)
@@ -218,14 +300,13 @@ export class Reminders {
 
   /** Every open task that has a time to remind at, soonest first: what the reminders panel lists. */
   upcoming(): Due[] {
-    const defaultTime = this.setting<boolean>('remindDue') ? this.setting<string>('defaultTime') : null
-    const result: Due[] = []
-    for (const task of this.candidates()) {
-      if (!isOpen(task)) continue
-      const at = reminderTime(task, /^\d{1,2}:\d{2}$/.test(defaultTime ?? '') ? defaultTime : null)
-      if (at) result.push({ key: `${task.path}|${task.description}|${at.getTime()}`, task, at })
-    }
-    return result.sort((a, b) => a.at.getTime() - b.at.getTime())
+    return this.timed()
+  }
+
+  /** Until when a reminder is put off, if it is. */
+  snoozedUntil(due: Due): number {
+    const until = this.marks('snoozed')[due.key] ?? 0
+    return until > Date.now() ? until : 0
   }
 
   private close(): void {
@@ -310,7 +391,11 @@ export class Reminders {
     // Escape must not make it go away: every reminder needs a decision.
     dialog.addEventListener('cancel', (event) => event.preventDefault())
     document.body.append(dialog)
-    dialog.showModal()
+    // Over the whole screen, or as a card in the corner that lets the work go on.
+    if ((this.setting<string>('alertStyle') ?? 'fullscreen') === 'banner') {
+      dialog.classList.add('banner')
+      dialog.show()
+    } else dialog.showModal()
     // Tests and curious users can see that the signal is sounding.
     const counter = setInterval(() => {
       if (!dialog.isConnected) clearInterval(counter)

@@ -113,6 +113,7 @@
               aria-label={def.title}
               draggable="true"
               onclick={() => app.panels.reveal(def.id)}
+              oncontextmenu={(event) => app.menus.show(event, 'panel', def.id)}
               ondragstart={(event) => {
                 event.dataTransfer?.setData('text/plain', def.id)
                 // Showing the drop places moves things on the page, and Chrome cancels a
