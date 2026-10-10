@@ -1,0 +1,191 @@
+.day-plan {
+  display: flex;
+  flex: 1;
+  flex-direction: column;
+  min-height: 0;
+  font: 13px/1.35 var(--font-ui);
+}
+
+.day-plan-head {
+  display: flex;
+  align-items: center;
+  gap: 4px;
+  padding: 6px 10px;
+}
+
+.day-plan-head button {
+  display: flex;
+  align-items: center;
+  padding: 3px 7px;
+  border-radius: var(--radius-s);
+  color: var(--text-muted);
+}
+
+.day-plan-head button:hover {
+  background: var(--bg-hover);
+  color: var(--text);
+}
+
+.day-plan-date {
+  flex: 1;
+  font-weight: 600;
+  text-align: center;
+}
+
+.day-plan-date.today {
+  color: var(--accent);
+}
+
+/* How much of the plan is done. */
+.day-plan-progress {
+  height: 3px;
+  margin: 0 10px 4px;
+  border-radius: 2px;
+  background: var(--bg-hover);
+}
+
+.day-plan-progress > div {
+  height: 100%;
+  border-radius: 2px;
+  background: var(--accent);
+  transition: width 0.2s;
+}
+
+.day-plan-loose {
+  display: flex;
+  flex-direction: column;
+  gap: 2px;
+  padding: 0 10px 6px;
+}
+
+.day-plan-loose .day-block {
+  position: static;
+  height: auto;
+}
+
+.day-plan-scroll {
+  position: relative;
+  flex: 1;
+  min-height: 0;
+  overflow-y: auto;
+  border-top: 1px solid var(--border);
+}
+
+.day-plan-grid {
+  position: relative;
+  margin-left: 42px;
+}
+
+.day-hour {
+  position: absolute;
+  right: 0;
+  left: -42px;
+  border-top: 1px solid var(--border);
+  color: var(--text-faint);
+  font-size: 11px;
+  pointer-events: none;
+}
+
+.day-hour span {
+  position: absolute;
+  top: 2px;
+  left: 6px;
+}
+
+.day-block {
+  position: absolute;
+  display: flex;
+  align-items: flex-start;
+  gap: 6px;
+  box-sizing: border-box;
+  padding: 2px 6px;
+  overflow: hidden;
+  border: 1px solid color-mix(in srgb, var(--accent) 45%, var(--border));
+  border-left: 3px solid var(--accent);
+  border-radius: var(--radius-s);
+  background: color-mix(in srgb, var(--accent) 14%, var(--bg));
+  cursor: grab;
+  user-select: none;
+}
+
+.day-block:hover {
+  border-color: var(--accent);
+}
+
+.day-block.done {
+  border-left-color: var(--text-faint);
+  background: var(--bg-alt);
+  color: var(--text-faint);
+}
+
+.day-block.done .day-block-text {
+  text-decoration: line-through;
+}
+
+.day-block.now {
+  box-shadow: 0 0 0 2px color-mix(in srgb, var(--accent) 40%, transparent);
+}
+
+.day-block.moving {
+  z-index: 5;
+  cursor: grabbing;
+  opacity: 0.85;
+}
+
+.day-block input {
+  flex: none;
+  margin-top: 2px;
+}
+
+.day-block-time {
+  flex: none;
+  color: var(--text-muted);
+  font-size: 11.5px;
+  font-variant-numeric: tabular-nums;
+}
+
+.day-block-text {
+  flex: 1;
+  min-width: 0;
+  overflow: hidden;
+}
+
+/* The lower edge of a block is its handle for making it longer or shorter. */
+.day-block-size {
+  position: absolute;
+  right: 0;
+  bottom: 0;
+  left: 0;
+  height: 5px;
+  cursor: ns-resize;
+}
+
+.day-now {
+  position: absolute;
+  right: 0;
+  left: -6px;
+  z-index: 4;
+  height: 0;
+  border-top: 2px solid var(--color-red);
+  pointer-events: none;
+}
+
+.day-now::before {
+  content: '';
+  position: absolute;
+  top: -5px;
+  left: 0;
+  width: 8px;
+  height: 8px;
+  border-radius: 50%;
+  background: var(--color-red);
+}
+
+.day-plan-empty {
+  padding: 10px;
+  color: var(--text-faint);
+}
+
+.status-item.day-plan-status {
+  cursor: pointer;
+}
