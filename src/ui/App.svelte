@@ -25,6 +25,40 @@
   let suggest = $state.raw<SuggestOptions<any> | null>(null)
   let leftOpen = $state(true)
   let rightOpen = $state(true)
+  // Floating sidebars (a setting): they stay out of the way and slide over the note
+  // while the pointer is at that edge of the window or on the sidebar itself.
+  const peek = $state({ left: false, right: false })
+  const peekTimers: Partial<Record<'left' | 'right', ReturnType<typeof setTimeout>>> = {}
+  /** Sidebars the user has pinned open with their button: those do not leave with the pointer. */
+  const pinned = $state({ left: false, right: false })
+  function pin(side: 'left' | 'right') {
+    pinned[side] = !pinned[side]
+    peek[side] = pinned[side]
+  }
+  function hover(side: 'left' | 'right', on: boolean) {
+    clearTimeout(peekTimers[side])
+    if (!on && pinned[side]) return
+    // A short wait both ways: a pointer passing by opens nothing, and leaving for a moment closes nothing.
+    peekTimers[side] = setTimeout(() => {
+      // A menu or a dialog opened from the sidebar keeps it in place, and so does dragging its edge.
+      if (!on && (menu || document.querySelector('dialog[open]') || document.querySelector('aside.resizing') || document.querySelector('aside :focus'))) return hover(side, false)
+      peek[side] = on
+    }, on ? 120 : 350)
+  }
+  // Whether the pointer is on a floating sidebar is worked out from where the pointer is, not from
+  // enter and leave events: a sidebar that appears under a pointer standing still gets no "enter".
+  const over = { left: false, right: false }
+  function trackPointer(event: MouseEvent) {
+    if (!floating) return
+    for (const side of ['left', 'right'] as const) {
+      const box = document.querySelector(`aside.${side}.floating`)?.getBoundingClientRect()
+      const atEdge = side === 'left' ? event.clientX <= 6 : event.clientX >= innerWidth - 6
+      const inside = atEdge || (!!box && event.clientX >= box.left - 10 && event.clientX <= box.right + 10 && event.clientY >= box.top - 10 && event.clientY <= box.bottom + 10)
+      if (inside === over[side]) continue
+      over[side] = inside
+      hover(side, inside)
+    }
+  }
 
   const { workspace, settings } = app
   const tabs = watch(workspace, ['layout-change'], () => workspace.leaves.map(({ id, path, title }) => ({ id, path, title })))
@@ -32,6 +66,8 @@
   const hasRightPanels = watch(app.panels, ['change'], () => app.panels.has('right'))
   const theme = watch(settings, ['change'], () => settings.get<string>('core', 'theme'))
   const fontSize = watch(settings, ['change'], () => settings.get<number>('core', 'fontSize'))
+  const floatingSetting = watch(settings, ['change'], () => settings.get<boolean>('core', 'floatingSidebars'))
+  const floating = $derived(!!floatingSetting.current)
   const readableWidth = watch(settings, ['change'], () => settings.get<boolean>('core', 'readableWidth'))
   const inlineTitle = watch(settings, ['change'], () => settings.get<boolean>('core', 'inlineTitle'))
   const look = watch(settings, ['change'], () => ({
@@ -43,10 +79,13 @@
   /** Folders and name of the open file, for the path shown above it. */
   const crumbs = watch(workspace, ['active-change', 'layout-change'], () => {
     const path = workspace.active?.path
-    if (!path || path.startsWith('view:')) return workspace.active?.title ? [workspace.active.title] : []
+    if (!path || path.startsWith('view:')) return workspace.active?.title ? [{ text: workspace.active.title, folder: '' }] : []
     const parts = path.split('/')
-    return [...parts.slice(0, -1), title(parts[parts.length - 1])]
+    return [...parts.slice(0, -1).map((text, i) => ({ text, folder: parts.slice(0, i + 1).join('/') })), { text: title(parts[parts.length - 1]), folder: '' }]
   })
+  // A folder in the path may look and act as plugins say (a folder with a note of its own opens it).
+  const explorer = watch(app.explorer, ['change'], () => ({}))
+  const crumbEntry = (folder: string) => (folder ? app.vault.get(folder) : undefined)
 
   const root = document.documentElement
   $effect(() => {
@@ -97,6 +136,33 @@
     if (path && !path.startsWith('view:')) action(path)
     else app.notice('Откройте файл')
   }
+  // What the frame's own commands act on; plugins say the same about theirs with `scope`.
+  const NOTE_SCOPE = new Set(['core:rename-active', 'core:dock-active', 'core:copy-path', 'core:reveal-active', 'core:toggle-readable-width', 'core:delete-active'])
+  const VAULT_SCOPE = new Set(['core:reveal-vault', 'core:vaults'])
+  const SIDEBAR_SCOPE = new Set<string>()
+  /** Where a core command goes in the note's menu; commands of plugins go to their own section. */
+  const NOTE_SECTIONS: Record<string, string> = { 'core:toggle-editor-mode': 'open', 'core:toggle-readable-width': 'open', 'core:dock-active': 'open', 'core:rename-active': 'action', 'core:copy-path': 'copy', 'core:reveal-active': 'system', 'core:delete-active': 'danger' }
+
+  /**
+   * The menu of the open note ("⋮"). Nothing is listed here by hand: it is made of
+   * every command that says it acts on a note, of the commands that insert
+   * something (as one list), and of what plugins add to the menu of a file.
+   */
+  function noteMenu(event: MouseEvent) {
+    const path = workspace.active?.path
+    const entry = path && !path.startsWith('view:') ? app.vault.get(path) : null
+    if (!entry) return
+    const commands = app.commands.list()
+    const item = (command: Command): MenuItem => ({ icon: command.icon, title: command.name, onClick: () => command.callback() })
+    const items: MenuItem[] = commands
+      .filter((command) => command.scope === 'note')
+      .map((command) => ({ ...item(command), section: NOTE_SECTIONS[command.id] ?? 'plugin', danger: NOTE_SECTIONS[command.id] === 'danger' }))
+    const inserts = commands.filter((command) => command.scope === 'insert').sort((a, b) => a.name.localeCompare(b.name))
+    if (inserts.length && extname(entry.path) === 'md') items.push({ section: 'new', icon: 'plus', title: 'Вставить', submenu: inserts.map((command) => ({ ...item(command), title: command.name.replace(/^Вставить\s+/, '').replace(/^./, (c) => c.toUpperCase()) })) })
+    const box = (event.currentTarget as HTMLElement).getBoundingClientRect()
+    app.menus.show({ x: box.right - 4, y: box.bottom + 4 }, 'file', entry, items)
+  }
+
   function stepTab(by: number) {
     const { leaves, active } = workspace
     if (leaves.length > 1 && active) workspace.setActive(leaves[(leaves.indexOf(active) + by + leaves.length) % leaves.length])
@@ -153,7 +219,9 @@
     const offs = [
       app.ui.on('suggest', (options) => (suggest = options)),
       app.panels.on('reveal', (id) => {
-        if (app.panels.sideOf(id) === 'left') leftOpen = true
+        const side = app.panels.sideOf(id) === 'left' ? 'left' : 'right'
+        if (floating) peek[side] = pinned[side] = true
+        else if (side === 'left') leftOpen = true
         else rightOpen = true
       }),
       app.panels.add({
@@ -182,13 +250,13 @@
         id: 'core:toggle-sidebar',
         name: 'Показать или скрыть левую панель',
         hotkey: 'Mod+Backslash',
-        callback: () => (leftOpen = !leftOpen),
+        callback: () => (floating ? pin('left') : (leftOpen = !leftOpen)),
       }),
       app.commands.add({
         id: 'core:toggle-right-sidebar',
         name: 'Показать или скрыть правую панель',
         hotkey: 'Mod+Shift+Backslash',
-        callback: () => (rightOpen = !rightOpen),
+        callback: () => (floating ? pin('right') : (rightOpen = !rightOpen)),
       }),
       app.commands.add({ id: 'core:new-note', name: 'Новая заметка', hotkey: 'Alt+N', callback: () => void newNote() }),
       app.commands.add({
@@ -225,7 +293,7 @@
           ['core:font-smaller', 'Уменьшить шрифт заметки', 'a-arrow-down', () => stepFont(-1)],
           ['core:toggle-readable-width', 'Переключить удобную ширину строки', 'chevrons-left-right', () => settings.set('core', 'readableWidth', !settings.get<boolean>('core', 'readableWidth'))],
         ] as [string, string, string, () => unknown][]
-      ).map(([id, name, icon, callback]) => app.commands.add({ id, name, icon, callback: () => void callback() })),
+      ).map(([id, name, icon, callback]) => app.commands.add({ id, name, icon, scope: NOTE_SCOPE.has(id) ? 'note' : VAULT_SCOPE.has(id) ? 'vault' : SIDEBAR_SCOPE.has(id) ? 'sidebar' : undefined, callback: () => void callback() })),
     ]
     // In full screen the browser lets a page have its own Ctrl+W, Ctrl+T and Ctrl+Tab (the
     // Keyboard Lock API of Chrome and Edge); outside it those keys never reach the page.
@@ -278,6 +346,8 @@
     window.addEventListener('blur', closeMenu)
     offs.push(() => (window.removeEventListener('click', closeMenu), window.removeEventListener('blur', closeMenu)))
     window.addEventListener('keydown', onKey, true)
+    window.addEventListener('mousemove', trackPointer)
+    offs.push(() => window.removeEventListener('mousemove', trackPointer))
     window.addEventListener('wheel', onWheel, { passive: false })
     document.addEventListener('visibilitychange', onHide)
     return () => {
@@ -291,8 +361,12 @@
 
 <div class="app">
   {#if ribbons.current.left && look.current.ribbon}<Toolbar place="left-ribbon" vertical />{/if}
-  {#if leftOpen}
-    <Sidebar side="left">
+  {#if floating}
+    <!-- A thin strip along the edge of the window: the pointer on it brings the sidebar out over the note. -->
+    <div class="edge left" role="presentation"></div>
+  {/if}
+  {#if floating ? peek.left : leftOpen}
+    <Sidebar side="left" {floating}>
       {#snippet footer()}
         <MainMenu onvaults={() => (vaultsOpen = true)} onhelp={() => (helpOpen = true)} onsettings={() => (settingsOpen = true)} />
       {/snippet}
@@ -301,7 +375,7 @@
 
   <main>
     <div class="tabbar">
-      <button class="bar-button" title="Левая панель" aria-label="Левая панель" aria-pressed={leftOpen} onclick={() => (leftOpen = !leftOpen)}>
+      <button class="bar-button" title="Левая панель" aria-label="Левая панель" aria-pressed={floating ? peek.left : leftOpen} onclick={() => (floating ? pin('left') : (leftOpen = !leftOpen))}>
         <svg viewBox="0 0 16 16" aria-hidden="true"><rect x="1.5" y="2.5" width="13" height="11" rx="2" /><path d="M6 2.5v11" /></svg>
       </button>
       <div class="tabs" role="tablist">
@@ -338,7 +412,7 @@
         </button>
       </div>
       <Toolbar place="tab-bar" />
-      <button class="bar-button" title="Правая панель" aria-label="Правая панель" aria-pressed={rightOpen} onclick={() => (rightOpen = !rightOpen)}>
+      <button class="bar-button" title="Правая панель" aria-label="Правая панель" aria-pressed={floating ? peek.right : rightOpen} onclick={() => (floating ? pin('right') : (rightOpen = !rightOpen))}>
         <svg viewBox="0 0 16 16" aria-hidden="true"><rect x="1.5" y="2.5" width="13" height="11" rx="2" /><path d="M10 2.5v11" /></svg>
       </button>
     </div>
@@ -353,10 +427,15 @@
         <div class="crumbs">
           {#each crumbs.current as part, i (i)}
             {#if i}<span class="sep">/</span>{/if}
-            <span class:last={i === crumbs.current.length - 1}>{part}</span>
+            {@const entry = explorer.current && crumbEntry(part.folder)}
+            <!-- svelte-ignore a11y_click_events_have_key_events, a11y_no_static_element_interactions (the same folders are reachable from the list of files) -->
+            <span class="crumb {entry ? app.explorer.classes(entry) : ''}" class:last={i === crumbs.current.length - 1} onclick={(event) => entry && app.explorer.folderClick(entry, event)}>{part.text}</span>
           {/each}
         </div>
         <Toolbar place="page-header" />
+        <button class="bar-button note-menu" title="Действия с заметкой" aria-label="Действия с заметкой" onclick={(event) => (event.stopPropagation(), noteMenu(event))}>
+          <svg viewBox="0 0 16 16" aria-hidden="true"><path d="M8 3.2v.01M8 8v.01M8 12.800v.01" stroke-width="2.200" /></svg>
+        </button>
       </div>
     {/if}
 
@@ -374,8 +453,11 @@
   </main>
 
   <!-- An empty right sidebar appears while a widget is dragged, so it can be dropped there. -->
-  {#if rightOpen && (hasRightPanels.current || drag.panel || drag.note)}
-    <Sidebar side="right" />
+  {#if (floating ? peek.right : rightOpen) && (hasRightPanels.current || drag.panel || drag.note)}
+    <Sidebar side="right" {floating} />
+  {/if}
+  {#if floating}
+    <div class="edge right" role="presentation"></div>
   {/if}
   {#if ribbons.current.right && look.current.ribbon}<Toolbar place="right-ribbon" vertical />{/if}
 </div>
@@ -402,8 +484,26 @@
 
 <style>
   .app {
+    position: relative;
     display: flex;
     height: 100%;
+  }
+
+  /* Where the pointer calls a floating sidebar out. */
+  .edge {
+    position: absolute;
+    top: 0;
+    bottom: 0;
+    z-index: 30;
+    width: 6px;
+  }
+
+  .edge.left {
+    left: 0;
+  }
+
+  .edge.right {
+    right: 0;
   }
 
   main {

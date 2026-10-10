@@ -78,7 +78,7 @@ for (const [index, file] of suites.entries()) {
     const notices = await page.locator('.notice').allInnerTexts().catch(() => [])
     const screen = (await page.locator('body').innerText().catch(() => '')).replace(/\s+/g, ' ').slice(0, 300)
     const context = [...errors.map((e) => `console: ${e}`), ...notices.map((n) => `notice: ${n}`), `screen: ${screen}`].join('\n')
-    t.ok('suite ran to the end', false, `${String(error).split('\n').slice(0, 8).join(' ¶ ')}\n${context}`)
+    t.ok('suite ran to the end', false, `${String(error).split('\n').slice(0, 16).join(' ¶ ')}\n${context}`)
   }
   await page.close()
   server.kill()

@@ -5,7 +5,8 @@
   import { drag } from './drag.svelte'
   import { watch } from './reactive.svelte'
 
-  let { side, footer }: { side: Side; footer?: Snippet } = $props()
+  let { side, footer, floating = false }: { side: Side; footer?: Snippet; floating?: boolean } = $props()
+  let resizing = $state(false)
 
   const MIN = 180
   const MAX = 640
@@ -62,7 +63,9 @@
       const delta = side === 'left' ? e.clientX - start : start - e.clientX
       width = Math.min(MAX, Math.max(MIN, initial + delta))
     }
+    resizing = true
     const up = () => {
+      resizing = false
       handle.removeEventListener('pointermove', move)
       app.state.set(`sidebar-${side}`, width)
     }
@@ -71,7 +74,15 @@
   }
 </script>
 
-<aside class={side} class:dragging={!!drag.panel || !!drag.note} style:flex-basis="{width}px" ondragleave={() => (target = null)}>
+<aside
+  class={side}
+  class:dragging={!!drag.panel || !!drag.note}
+  class:floating
+  class:resizing
+  style:flex-basis="{width}px"
+  style:width={floating ? `${width}px` : null}
+  ondragleave={() => (target = null)}
+>
   {#each groups.current as group, i (group.index)}
     {@const activeDef = group.entries.find((entry) => entry.def.id === group.active)?.def}
     <!-- While a widget is dragged, the gaps between blocks accept it as a block of its own. -->
@@ -163,6 +174,36 @@
     flex-direction: column;
     min-width: 0;
     background: var(--bg-alt);
+  }
+
+  /* A floating sidebar lies over the note instead of taking room beside it. */
+  .floating {
+    position: absolute;
+    top: 8px;
+    bottom: 8px;
+    z-index: 31;
+    overflow: hidden;
+    border: 1px solid var(--border);
+    border-radius: var(--radius-l);
+    box-shadow: var(--shadow);
+    animation: slide-in 0.14s ease-out;
+  }
+
+  .floating.left {
+    left: 8px;
+    --from: -24px;
+  }
+
+  .floating.right {
+    right: 8px;
+    --from: 24px;
+  }
+
+  @keyframes slide-in {
+    from {
+      opacity: 0;
+      translate: var(--from) 0;
+    }
   }
 
   .left {

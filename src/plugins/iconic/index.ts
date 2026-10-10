@@ -127,6 +127,7 @@ export default class Iconic extends Plugin {
     this.addCommand({
       id: 'active-file',
       name: 'Значок и цвет открытой заметки',
+      icon: 'image-plus',
       callback: () => {
         const path = app.workspace.active?.path
         if (path && !path.startsWith('view:')) void this.choose('file', path, paths.basename(path))

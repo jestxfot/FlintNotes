@@ -1,3 +1,4 @@
+import { Explorer } from './explorer'
 import { NoteCreation } from './creation'
 import { Commands } from './commands'
 import { EditorExtensions } from './editor/extensions'
@@ -48,6 +49,7 @@ const coreSettings: SettingsSection = {
     // ---- Интерфейс
     { key: 'viewHeader', group: 'Интерфейс', name: 'Строка заголовка', desc: 'Строка над заметкой с кнопками «назад» и «вперёд» и путём к файлу', type: 'toggle', default: true },
     { key: 'ribbon', group: 'Интерфейс', name: 'Вертикальная панель', desc: 'Полосы кнопок по краям окна (их наполняет плагин «Быстрые кнопки и команды»)', type: 'toggle', default: true },
+    { key: 'floatingSidebars', group: 'Интерфейс', name: 'Плавающие боковые панели', desc: 'Панели убраны и выезжают поверх заметки, когда указатель подведён к левому или правому краю окна; уезжают, когда указатель уходит. Ширина каждой панели запоминается. Кнопки панелей в полосе вкладок закрепляют панель открытой', type: 'toggle', default: false },
     { key: 'zoom', group: 'Интерфейс', section: 'Расширенные', name: 'Уровень масштабирования, %', desc: 'Общий масштаб приложения', type: 'number', default: 100, min: 50, max: 200, step: 5 },
     { key: 'nativeMenu', group: 'Интерфейс', section: 'Расширенные', name: 'Системное контекстное меню', desc: 'По правому щелчку показывать меню браузера, а не приложения', type: 'toggle', default: false },
 
@@ -152,6 +154,7 @@ export class App {
   readonly docked = new DockedNotes(this)
   readonly icons = new Icons()
   readonly creation = new NoteCreation(this)
+  readonly explorer = new Explorer()
   readonly menus = new Menus()
   readonly toolbars = new Toolbars()
   readonly notice = notice
@@ -193,6 +196,8 @@ export class App {
     switched('spellcheck', EditorView.contentAttributes.of({ spellcheck: 'true' }))
     this.commands.add({
       id: 'core:toggle-editor-mode',
+      scope: 'note',
+      icon: 'code-xml',
       name: 'Переключить Live Preview и исходный текст',
       hotkey: 'Mod+E',
       callback: () => {

@@ -3,7 +3,7 @@
   import { app } from '../instance'
   import ContextMenu from './ContextMenu.svelte'
 
-  let { x, y, items, onclose, nested = false }: { x: number; y: number; items: MenuItem[]; onclose: () => void; nested?: boolean } = $props()
+  let { x, y, items, onclose, nested = false, parentLeft = x }: { x: number; y: number; items: MenuItem[]; onclose: () => void; nested?: boolean; /** The left edge of the row a submenu belongs to. */ parentLeft?: number } = $props()
 
   let el: HTMLElement
   // Where the menu really goes: moved up or left if it would not fit on the screen.
@@ -17,7 +17,7 @@
     let left = x
     let top = y
     // A submenu that does not fit to the right opens to the left of its parent.
-    if (left + box.width > innerWidth - margin) left = nested ? Math.max(margin, x - box.width - 2 * (x - (sub?.left ?? x))) : innerWidth - box.width - margin
+    if (left + box.width > innerWidth - margin) left = nested ? Math.max(margin, parentLeft - box.width + 2) : innerWidth - box.width - margin
     if (top + box.height > innerHeight - margin) top = Math.max(margin, innerHeight - box.height - margin)
     at = { left: Math.max(margin, left), top, ready: true }
   })
@@ -65,7 +65,7 @@
 </div>
 {#if sub && items[sub.index]?.submenu}
   {#key sub.index}
-    <ContextMenu x={sub.x} y={sub.y} items={items[sub.index].submenu ?? []} {onclose} nested />
+    <ContextMenu x={sub.x} y={sub.y} items={items[sub.index].submenu ?? []} {onclose} nested parentLeft={sub.left} />
   {/key}
 {/if}
 

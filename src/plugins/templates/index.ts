@@ -117,9 +117,9 @@ export default class Templates extends Plugin {
     }
     this.provide('templates', service)
 
-    this.addCommand({ id: 'insert', name: 'Вставить шаблон', hotkey: 'Alt+E', callback: () => this.pick((path) => this.insert(path)) })
-    this.addCommand({ id: 'create', name: 'Создать заметку из шаблона', hotkey: 'Mod+Alt+N', callback: () => this.pick((path) => this.createFrom(path)) })
-    this.addCommand({ id: 'replace', name: 'Выполнить команды шаблона в этой заметке', hotkey: 'Mod+Alt+R', callback: () => void this.replaceInActive() })
+    this.addCommand({ id: 'insert', name: 'Вставить шаблон', scope: 'note', icon: 'layout-template', hotkey: 'Alt+E', callback: () => this.pick((path) => this.insert(path)) })
+    this.addCommand({ id: 'create', name: 'Создать заметку из шаблона', scope: 'vault', icon: 'file-plus-2', hotkey: 'Mod+Alt+N', callback: () => this.pick((path) => this.createFrom(path)) })
+    this.addCommand({ id: 'replace', name: 'Выполнить команды шаблона в этой заметке', scope: 'note', icon: 'layout-template', hotkey: 'Mod+Alt+R', callback: () => void this.replaceInActive() })
     this.addCommand({
       id: 'next-cursor',
       name: 'Перейти к следующей метке курсора',

@@ -40,6 +40,8 @@ export interface GraphSettings {
   linkStrength: number
   /** 30..500 */
   linkDistance: number
+  /** Not in Obsidian, 0..1: how strongly notes that link mostly to one another gather into a group, away from other groups. */
+  clusterStrength: number
   /** Not in Obsidian: where the layout is worked out — by the graphics card for big graphs, always, or never. */
   gpuLayout: 'auto' | 'on' | 'off'
   /** Which sections of the panel are folded, and whether the panel is closed. */
@@ -69,6 +71,7 @@ export const DEFAULTS: GraphSettings = {
   repelStrength: 10,
   linkStrength: 1,
   linkDistance: 250,
+  clusterStrength: 0.6,
   gpuLayout: 'auto',
   'collapse-filter': false,
   'collapse-color-groups': false,

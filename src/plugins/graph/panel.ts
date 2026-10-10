@@ -154,6 +154,7 @@ export function buildPanel(host: HTMLElement, settings: GraphSettings, changed: 
     slider(forces, 'Сила отталкивания', 'repelStrength', 0, 20, 0.1)
     slider(forces, 'Сила связи', 'linkStrength', 0, 1, 0.01)
     slider(forces, 'Расстояние между узлами', 'linkDistance', 30, 500, 1)
+    slider(forces, 'Кучкование групп', 'clusterStrength', 0, 1, 0.01)
     const where = el(forces, 'label', 'graph-row')
     el(where, 'span', '', 'Расчёт раскладки')
     const gpu = el(where, 'select', 'graph-select')

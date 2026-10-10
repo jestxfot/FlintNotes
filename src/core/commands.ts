@@ -1,5 +1,7 @@
 import { Events, type Off } from './events'
 
+export type CommandScope = 'note' | 'insert' | 'vault' | 'sidebar'
+
 export interface Command {
   id: string
   name: string
@@ -11,6 +13,16 @@ export interface Command {
   hotkey?: string
   /** A Lucide icon name, for a button that runs the command. */
   icon?: string
+  /**
+   * What the command acts on. This is the language plugins and the core share: a
+   * command only says what it is for, and the core puts it where such actions are
+   * offered. `note`: the open note (its "⋮" menu). `insert`: puts something into
+   * the open note (the "Вставить" list of that menu). `vault`: the whole vault
+   * (the menu at the bottom of the left sidebar). `sidebar`: the side panels
+   * (the menu of a sidebar's empty space). Without it the command is offered
+   * in the command palette only.
+   */
+  scope?: CommandScope
   callback: () => void
 }
 

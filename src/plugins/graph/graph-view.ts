@@ -27,6 +27,8 @@ export interface GraphNode extends SimulationNodeDatum {
   group: string
   /** The colour of the first colour group the note matches. */
   color?: string
+  /** The group of notes it belongs to by its links: notes of one group link mostly to one another. */
+  cluster?: number
 }
 
 type GraphLink = SimulationLinkDatum<GraphNode>
@@ -35,7 +37,7 @@ type GraphLink = SimulationLinkDatum<GraphNode>
 const baseRadius = (node: GraphNode) => 3 + Math.min(20, Math.sqrt(node.degree) * 1.3)
 const PALETTE = ['blue', 'green', 'orange', 'purple', 'cyan', 'pink', 'yellow', 'red']
 const DRAG_THRESHOLD = 4
-const FORCES = new Set<keyof GraphSettings>(['centerStrength', 'repelStrength', 'linkStrength', 'linkDistance', 'nodeSizeMultiplier', 'gpuLayout'])
+const FORCES = new Set<keyof GraphSettings>(['centerStrength', 'repelStrength', 'linkStrength', 'linkDistance', 'clusterStrength', 'nodeSizeMultiplier', 'gpuLayout'])
 /** From this many dots on, the layout is worked out by the graphics card unless the settings say otherwise. */
 const GPU_FROM = 1200
 /** From this many dots on, a layout the graphics card does not do is done on a thread of its own. */
@@ -164,6 +166,51 @@ export class GraphView implements FileView {
     }
   }
 
+  /**
+   * Finds the groups of the graph: sets of notes that link mostly to one another.
+   * Every note repeatedly takes the group most of its neighbours are in (a neighbour
+   * with many links counts for less, so one hub does not pull the whole vault into
+   * a single group). A note that has no place yet starts near its group, and the
+   * groups start apart, so the layout does not have to pull them out of one pile.
+   */
+  private findClusters(): void {
+    const { nodes, neighbours } = this
+    nodes.forEach((n, i) => (n.cluster = i))
+    // Notes with the most links speak first: the groups form around them.
+    const order = [...nodes].sort((a, b) => b.degree - a.degree)
+    for (let round = 0; round < 8; round++) {
+      let changed = 0
+      for (const n of order) {
+        const around = neighbours.get(n)
+        if (!around?.size) continue
+        const votes = new Map<number, number>()
+        for (const other of around) votes.set(other.cluster!, (votes.get(other.cluster!) ?? 0) + 1 / Math.sqrt(other.degree || 1))
+        let best = n.cluster!
+        let most = 0
+        for (const [cluster, weight] of votes) if (weight > most || (weight === most && cluster < best)) [best, most] = [cluster, weight]
+        if (best !== n.cluster) {
+          n.cluster = best
+          changed++
+        }
+      }
+      if (changed < nodes.length / 200) break
+    }
+    const sizes = new Map<number, number>()
+    for (const n of nodes) sizes.set(n.cluster!, (sizes.get(n.cluster!) ?? 0) + 1)
+    // The groups start on a spiral, the largest in the middle; only notes that have no place yet are put there.
+    const rank = new Map([...sizes].filter(([, size]) => size > 1).sort((a, b) => b[1] - a[1]).map(([cluster], i) => [cluster, i]))
+    const spread = 90 * Math.sqrt(Math.max(1, nodes.length / Math.max(1, rank.size)))
+    for (const n of nodes) {
+      const at = rank.get(n.cluster!)
+      if (at === undefined || n.x !== undefined) continue
+      const angle = at * 2.39996
+      const radius = spread * Math.sqrt(at)
+      const jitter = 12 * Math.sqrt(sizes.get(n.cluster!)!)
+      n.x = Math.cos(angle) * radius + (Math.random() - 0.5) * jitter
+      n.y = Math.sin(angle) * radius + (Math.random() - 0.5) * jitter
+    }
+  }
+
   /** Sets the layout's forces from the settings and the size of the graph. */
   private applyForces(): void {
     // Obsidian's numbers, turned into multipliers of this layout's own defaults.
@@ -176,19 +223,25 @@ export class GraphView implements FileView {
     // Roughly how far out the linked notes reach; notes without links settle in a ring beyond that.
     const reach = 26 * Math.sqrt(linked + 1) * Math.sqrt(repel) * linkLength
     const ends = (link: GraphLink) => [(link.source as GraphNode).degree, (link.target as GraphNode).degree]
+    // Links inside a group are short and firm, links between groups long and slack: the groups
+    // draw together and drift apart, joined by the few threads that cross between them.
+    const gather = Math.min(1, Math.max(0, this.settings.clusterStrength ?? DEFAULTS.clusterStrength))
+    const inside = (link: GraphLink) => (link.source as GraphNode).cluster === (link.target as GraphNode).cluster
+    // The more links a hub has, the longer and the looser they are: its notes need
+    // room to spread around it, and would be packed into a ball by short, stiff links.
+    const distanceOf = (link: GraphLink) => Math.min(170, 30 + 4 * Math.sqrt(Math.max(...ends(link)))) * linkLength * (inside(link) ? 1 - 0.35 * gather : 1 + 2.4 * gather)
+    const strengthOf = (link: GraphLink) => Math.min(1, Math.min(0.7, Math.max(0.05, 0.9 / Math.sqrt(Math.max(...ends(link))))) * linkStrength * (inside(link) ? 1 + 0.6 * gather : 1 - 0.85 * gather))
     this.simulation
       // Big notes push harder, so hubs keep clear space around them instead of sinking into a pile.
       .force('charge', forceManyBody<GraphNode>().strength((n) => -(30 + this.radius(n) ** 2 * 1.6) * repel).distanceMax(big ? 800 : 1200).theta(big ? 1.4 : 1.1))
       .force(
         'link',
         forceLink<GraphNode, GraphLink>(this.links)
-          // The more links a hub has, the longer and the looser they are: its notes need
-          // room to spread around it, and would be packed into a ball by short, stiff links.
-          .distance((link) => Math.min(170, 30 + 4 * Math.sqrt(Math.max(...ends(link)))) * linkLength)
-          .strength((link) => Math.min(0.7, Math.max(0.05, 0.9 / Math.sqrt(Math.max(...ends(link))))) * linkStrength),
+          .distance(distanceOf)
+          .strength(strengthOf),
       )
-      .force('x', forceX<GraphNode>().strength((n) => (n.degree ? 0.035 * gravity : 0)))
-      .force('y', forceY<GraphNode>().strength((n) => (n.degree ? 0.035 * gravity : 0)))
+      .force('x', forceX<GraphNode>().strength((n) => (n.degree ? 0.035 * gravity * (1 - 0.45 * gather) : 0)))
+      .force('y', forceY<GraphNode>().strength((n) => (n.degree ? 0.035 * gravity * (1 - 0.45 * gather) : 0)))
       .force('ring', forceRadial<GraphNode>(reach + 120).strength((n) => (n.degree ? 0 : 0.06)))
       .force('collide', forceCollide<GraphNode>((n) => this.radius(n) + 4).strength(0.8))
       // A big vault settles in a couple of hundred steps instead of simmering for a minute.
@@ -221,14 +274,14 @@ export class GraphView implements FileView {
       links: (this.links as { source: GraphNode; target: GraphNode }[]).map((link) => ({
         source: index.get(link.source)!,
         target: index.get(link.target)!,
-        distance: Math.min(170, 30 + 4 * Math.sqrt(Math.max(...ends(link)))) * linkLength,
-        strength: Math.min(0.7, Math.max(0.05, 0.9 / Math.sqrt(Math.max(...ends(link))))) * linkStrength,
+        distance: distanceOf(link),
+        strength: strengthOf(link),
       })),
     }
     this.nodes.forEach((n, i) => {
       this.positions.set([n.x ?? 0, n.y ?? 0], i * 2)
       input.charge[i] = -(30 + this.radius(n) ** 2 * 1.6) * repel
-      input.gravity[i] = n.degree ? 0.035 * gravity : 0
+      input.gravity[i] = n.degree ? 0.035 * gravity * (1 - 0.45 * gather) : 0
       input.ring[i] = n.degree ? 0 : 0.06
       input.radius[i] = this.radius(n) + 2
       input.degree[i] = n.degree
@@ -438,6 +491,7 @@ export class GraphView implements FileView {
         this.neighbours.set(a, set.add(b))
       }
     }
+    this.findClusters()
     // The largest folders get colours of their own; the rest share the neutral one.
     const sizes = new Map<string, number>()
     for (const n of this.nodes) if (n.group) sizes.set(n.group, (sizes.get(n.group) ?? 0) + 1)

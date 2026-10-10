@@ -103,6 +103,7 @@ export abstract class Plugin {
       id,
       name,
       icon,
+      scope: 'insert',
       callback: () => {
         const editor = this.app.workspace.activeEditor
         if (!editor) return this.app.notice('Откройте заметку, чтобы вставить в неё блок')

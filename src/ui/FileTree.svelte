@@ -63,9 +63,15 @@
   /** Extension as written in the file name, dot included (`.md`, `.PNG`), or `''`. */
   const rawExt = (name: string) => name.slice(stripExt(name).length)
 
-  function click(entry: VaultEntry) {
-    if (entry.kind === 'file') workspace.openFile(entry.path)
-    else if (!expanded.delete(entry.path)) expanded.add(entry.path)
+  // Plugins may hide entries, give them classes and take the click on a folder's name.
+  const explorer = watch(app.explorer, ['change'], () => ({}))
+
+  function click(entry: VaultEntry, event: MouseEvent) {
+    if (entry.kind === 'file') return workspace.openFile(entry.path)
+    // The arrow always opens and closes the folder; its name may mean something to a plugin.
+    const onArrow = event.target instanceof Element && !!event.target.closest('.chevron')
+    if (!onArrow && app.explorer.folderClick(entry, event)) return
+    if (!expanded.delete(entry.path)) expanded.add(entry.path)
   }
 
   function openMenu(event: MouseEvent, entry: VaultEntry | null) {
@@ -275,7 +281,9 @@
     {@const entry = node.entry}
     {@const isFolder = entry.kind === 'folder'}
     {@const look = looks.current && app.icons.look(isFolder ? 'folder' : 'file', entry.path)}
-    {#if renaming === entry.path}
+    {#if explorer.current && app.explorer.hidden(entry)}
+      <!-- left out by a plugin -->
+    {:else if renaming === entry.path}
       <input
         class="rename"
         style:margin-left="{8 + depth * 14}px"
@@ -287,7 +295,7 @@
       />
     {:else}
       <button
-        class="row"
+        class="row {explorer.current && app.explorer.classes(entry)}"
         class:active={entry.path === activePath.current}
         class:drop-target={isFolder && dropTarget === entry.path}
         style:padding-left="{8 + depth * 14}px"
@@ -300,7 +308,7 @@
         ondragover={(event) => dragOver(event, entry)}
         ondrop={(event) => drop(event, entry)}
         aria-expanded={isFolder ? expanded.has(entry.path) : undefined}
-        onclick={() => click(entry)}
+        onclick={(event) => click(entry, event)}
         oncontextmenu={(event) => openMenu(event, entry)}
       >
         <span class="chevron" class:open={expanded.has(entry.path)}>{isFolder ? '›' : ''}</span>

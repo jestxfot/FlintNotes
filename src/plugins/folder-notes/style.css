@@ -1,0 +1,82 @@
+/* A folder that has a note of its own, in the list of files and in the path above a note. */
+.fn-underline .name,
+.crumb.fn-underline-path {
+  text-decoration: underline;
+  text-decoration-color: var(--text-faint);
+  text-underline-offset: 3px;
+}
+
+.fn-bold .name,
+.crumb.fn-bold-path {
+  font-weight: 600;
+}
+
+.fn-cursive .name,
+.crumb.fn-cursive-path {
+  font-style: italic;
+}
+
+.crumb.fn-has-note {
+  cursor: pointer;
+}
+
+.crumb.fn-has-note:hover {
+  color: var(--text);
+}
+
+/* ```folder-overview */
+.folder-overview {
+  font-family: var(--font-ui);
+}
+
+.folder-overview-title {
+  margin: 0 0 6px;
+  font-size: 1.15em;
+  font-weight: 600;
+}
+
+.folder-overview ul {
+  margin: 0;
+  padding-left: 1.3em;
+  list-style: none;
+}
+
+.folder-overview > ul {
+  padding-left: 0;
+}
+
+.folder-overview li {
+  padding: 1px 0;
+}
+
+.folder-overview .fo-folder {
+  color: var(--text-muted);
+  font-weight: 600;
+}
+
+.folder-overview .fo-folder.fo-link {
+  color: var(--link, var(--accent));
+  cursor: pointer;
+}
+
+.folder-overview .icon {
+  margin-right: 0.35em;
+  vertical-align: -0.12em;
+  color: var(--text-faint);
+}
+
+.folder-overview-grid {
+  display: grid;
+  grid-template-columns: repeat(auto-fill, minmax(180px, 1fr));
+  gap: 10px;
+}
+
+.folder-overview-grid > div {
+  padding: 10px 12px;
+  border: 1px solid var(--border);
+  border-radius: var(--radius-l);
+}
+
+.folder-overview-empty {
+  color: var(--text-faint);
+}
