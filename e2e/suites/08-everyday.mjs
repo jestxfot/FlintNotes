@@ -132,9 +132,9 @@ export async function run(t) {
   })
   await wait(2200)
   const note = read('Notes.md')
-  const pasted = /!\[(Вставка \d{14}\.png)\]\(([^)]+)\)/.exec(note)
-  ok('a pasted image is saved and linked', !!pasted && exists(`Вложения/${pasted[1]}`) && decodeURI(pasted[2]) === `Вложения/${pasted[1]}`, note.slice(-160))
-  ok('a dropped file is saved and linked', note.includes('[report.txt](%D0%92%D0%BB%D0%BE%D0%B6%D0%B5%D0%BD%D0%B8%D1%8F/report.txt)') && read('Вложения/report.txt') === 'hello', note.slice(-160))
+  const pasted = /!\[\[(Pasted image \d{14}\.png)\]\]/.exec(note)
+  ok('a pasted image goes into "attachments" beside the note and is linked as Obsidian links it', !!pasted && exists(`attachments/${pasted[1]}`), note.slice(-160))
+  ok('a dropped file is saved and linked', note.includes('[[report.txt]]') && !note.includes('![[report.txt]]') && read('attachments/report.txt') === 'hello', note.slice(-160))
 
   await t.row('Move').dragTo(t.row('Folder'))
   await wait(900)
