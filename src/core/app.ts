@@ -252,6 +252,7 @@ export class App {
   async init(): Promise<void> {
     // The file list and the settings do not depend on each other; plugin code is
     // requested as soon as the settings say which plugins are on.
+    await this.vault.identify()
     await Promise.all([this.vault.load(), this.state.load(), this.settings.load().then(() => this.plugins.preload())])
     this.panels.init()
     // Once only: the page may be set up again (a vault is switched), the list of settings is the same object.

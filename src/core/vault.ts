@@ -1,4 +1,4 @@
-import type { RemoteEvent, VaultEntry, VaultInfo } from '../../shared/protocol'
+import type { ExternalPluginInfo, RemoteEvent, VaultEntry, VaultInfo } from '../../shared/protocol'
 import { Events } from './events'
 import { join } from './path'
 
@@ -15,7 +15,22 @@ type VaultEvents = {
   rename: [entry: VaultEntry, oldPath: string]
 }
 
-const url = (route: string, path: string) => `/api/${route}?path=${encodeURIComponent(path)}`
+/**
+ * The vault this page shows, as the address names it: the first part of the path,
+ * `http://localhost:4600/<vault>/Folder/Note`. Empty until it is known (a bare address,
+ * or an address from before vaults had names in it): then the vault opened last is used.
+ */
+let vaultInAddress = ''
+try {
+  vaultInAddress = decodeURIComponent(location.pathname.split('/')[1] ?? '')
+} catch {
+  vaultInAddress = ''
+}
+const named = () => (vaultInAddress ? `&vault=${encodeURIComponent(vaultInAddress)}` : '')
+const url = (route: string, path: string) => `/api/${route}?path=${encodeURIComponent(path)}${named()}`
+
+/** The address of a vault's own page. */
+export const vaultAddress = (name: string) => `/${encodeURIComponent(name)}/`
 
 const json = (body: unknown): RequestInit => ({
   method: 'POST',
@@ -41,7 +56,9 @@ function setOnline(online: boolean): void {
 async function request(input: string, init?: RequestInit): Promise<Response> {
   let res: Response
   try {
-    res = await fetch(input, init)
+    // Every request says which vault it is about; a header may only carry plain letters, so the name is encoded.
+    const headers = vaultInAddress ? { ...(init?.headers as Record<string, string> | undefined), 'x-flint-vault': encodeURIComponent(vaultInAddress) } : init?.headers
+    res = await fetch(input, { ...init, headers })
   } catch {
     // The browser says only "Failed to fetch"; what happened is that nobody is listening.
     setOnline(false)
@@ -55,19 +72,37 @@ async function request(input: string, init?: RequestInit): Promise<Response> {
 /** The vault: every file and folder of the notes directory, kept in sync with the disk. */
 export class Vault extends Events<VaultEvents> {
   name = ''
+  /** The name the vault goes by in addresses. */
+  urlName = ''
   /** Absolute path of the vault's folder on disk. */
   path = ''
   /** Obsidian's settings folders found in the vault (`.obsidian`, ...), the most recently used first. */
   obsidianConfigs: string[] = []
   private entries = new Map<string, VaultEntry>()
 
-  async load(): Promise<void> {
-    const info = await (await request('/api/vault')).json()
+  /**
+   * Finds out which vault the page is for. This comes before everything else: the settings,
+   * the layout and the files are all asked of that vault by its name.
+   */
+  async identify(): Promise<void> {
+    const asked = vaultInAddress
+    // The first part of the address may not be a vault at all: a bare address, or one from before
+    // vaults were named in it (`/Folder/Note`). The server says which vault is meant; then the address is put right.
+    vaultInAddress = ''
+    const where: { known: boolean; name: string } = await (await request(`/api/where?name=${encodeURIComponent(asked)}`)).json()
+    vaultInAddress = where.name
+    const info: { name: string; path: string; obsidianConfigs?: string[] } = await (await request('/api/vault')).json()
+    vaultInAddress = info.name
+    this.urlName = info.name
+    if (!where.known) history.replaceState(null, '', `/${encodeURIComponent(info.name)}${asked ? location.pathname : '/'}${location.search}${location.hash}`)
     this.name = info.name
     this.path = info.path
     this.obsidianConfigs = info.obsidianConfigs ?? []
+  }
+
+  async load(): Promise<void> {
     await this.sync()
-    const source = new EventSource('/api/events')
+    const source = new EventSource(`/api/events?vault=${encodeURIComponent(this.urlName)}`)
     let connected = false
     source.onopen = () => {
       setOnline(true)
@@ -79,11 +114,14 @@ export class Vault extends Events<VaultEvents> {
     source.onerror = () => setOnline(false)
     source.onmessage = (message) => {
       const event: RemoteEvent = JSON.parse(message.data)
-      // Another vault was opened (here or in another tab): everything on screen is stale.
-      if (event.type === 'vault') return location.reload()
       if (event.type === 'upsert') this.upsert(event.entry)
       else this.remove(event.path)
     }
+  }
+
+  /** Plugins kept in the vault itself (`.flint/plugins`). */
+  async externalPlugins(): Promise<ExternalPluginInfo[]> {
+    return (await request('/api/plugins')).json()
   }
 
   /** The vaults the user has opened before. */
@@ -91,9 +129,9 @@ export class Vault extends Events<VaultEvents> {
     return (await request('/api/vaults')).json()
   }
 
-  /** Switches the app to another folder; the page reloads when the server has switched. */
-  async openVault(path: string, create = false): Promise<void> {
-    await request('/api/vaults/open', json({ path, create }))
+  /** Makes a folder known as a vault (creating it if asked) and tells its name, to go to its address. */
+  async openVault(path: string, create = false): Promise<VaultInfo> {
+    return (await request('/api/vaults/open', json({ path, create }))).json()
   }
 
   /** Removes a vault from the list without touching its folder. */

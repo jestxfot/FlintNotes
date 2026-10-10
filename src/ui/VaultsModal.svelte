@@ -1,7 +1,7 @@
 <script lang="ts">
   import { onMount } from 'svelte'
   import { errorMessage } from '../core/notice'
-  import type { VaultInfo } from '../core/vault'
+  import { vaultAddress, type VaultInfo } from '../core/vault'
   import { app } from '../instance'
 
   let { onclose }: { onclose: () => void } = $props()
@@ -22,8 +22,9 @@
     }
     try {
       await app.workspace.flushAll()
-      // The page reloads by itself once the server has switched.
-      await app.vault.openVault(path, create)
+      // A vault is a place of its own: the page goes to its address.
+      const vault = await app.vault.openVault(path, create)
+      location.href = vaultAddress(vault.name)
     } catch (err) {
       const message = errorMessage(err)
       // A folder that does not exist yet can become a new, empty vault.

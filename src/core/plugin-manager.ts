@@ -123,7 +123,7 @@ export class PluginManager extends Events<{ change: [] }> {
 
   private async findExternal(): Promise<ExternalPluginInfo[]> {
     try {
-      return await (await fetch('/api/plugins')).json()
+      return await this.app.vault.externalPlugins()
     } catch {
       return []
     }

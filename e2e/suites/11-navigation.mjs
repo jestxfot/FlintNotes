@@ -13,11 +13,14 @@ export const vault = {
 
 export async function run(t) {
   const { page, ok, wait } = t
-  const address = () => decodeURIComponent(new URL(page.url()).pathname)
+  const whole = () => decodeURIComponent(new URL(page.url()).pathname)
+  // Every address begins with the vault's name; what follows is the place in the vault.
+  const name = t.vault.split(/[\\/]/).pop()
+  const address = () => whole().replace(new RegExp(`^/${name}(?=/|$)`), '') || '/'
   const folder = (name) => page.locator('.row[aria-expanded]', { hasText: new RegExp(`${name}$`) })
 
   await page.waitForSelector('.tree .row')
-  ok('an empty app sits at the root address', address() === '/')
+  ok("an empty app sits at its vault's address", whole() === `/${name}/`, whole())
 
   await t.row('Home').click()
   await wait(300)
@@ -60,6 +63,11 @@ export async function run(t) {
   await page.waitForSelector(`${t.leaf} .cm-content`)
   await wait(500)
   ok('a note\'s address opens that note', (await t.activeTab()) === 'Plan' && (await t.text()).includes('Plan'))
+  ok('an address from before vaults were named in it is put right', whole() === `/${name}/Projects/Plan`, whole())
+  await page.goto(`${t.url}${name}/Projects/Plan`)
+  await page.waitForSelector(`${t.leaf} .cm-content`)
+  await wait(500)
+  ok('the full address, vault and note, opens the note', (await t.activeTab()) === 'Plan' && whole() === `/${name}/Projects/Plan`, whole())
   await page.reload()
   await page.waitForSelector(`${t.leaf} .cm-content`)
   ok('a reload stays on the same note', (await t.activeTab()) === 'Plan' && address() === '/Projects/Plan')
@@ -70,7 +78,7 @@ export async function run(t) {
   const reserved = address()
   await page.reload()
   await page.waitForSelector(`${t.leaf} .cm-content`)
-  ok('a folder named like a server address still works', reserved === '/-/api/Notes' && (await t.activeTab()) === 'Notes', reserved)
+  ok('a folder named like a server address still works', reserved === '/api/Notes' && (await t.activeTab()) === 'Notes', reserved)
 
   await page.keyboard.press('Control+g')
   await wait(1200)

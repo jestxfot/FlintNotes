@@ -3,6 +3,7 @@ import chokidar from 'chokidar'
 import { Hono, type Context } from 'hono'
 import { HTTPException } from 'hono/http-exception'
 import { stream, streamSSE } from 'hono/streaming'
+import { AsyncLocalStorage } from 'node:async_hooks'
 import { exec, execFile, spawn } from 'node:child_process'
 import { lookup } from 'node:dns/promises'
 import { existsSync, type Stats } from 'node:fs'
@@ -46,7 +47,14 @@ async function readConfig(): Promise<Config> {
 
 const config = await readConfig()
 // A vault named on the command line wins over the one used last time.
-let root = path.resolve(process.argv[2] ?? process.env.FLINT_VAULT ?? config.current ?? 'vault')
+let defaultRoot = path.resolve(process.argv[2] ?? process.env.FLINT_VAULT ?? config.current ?? 'vault')
+/**
+ * The server serves every known vault at once: each request says which vault it
+ * is about, and each page keeps to its own. Inside a request `root()` is that
+ * vault's folder; a request that names none means the vault opened last.
+ */
+const scope = new AsyncLocalStorage<string>()
+const root = () => scope.getStore() ?? defaultRoot
 
 const MIME: Record<string, string> = {
   md: 'text/markdown; charset=utf-8',
@@ -71,10 +79,10 @@ const MIME: Record<string, string> = {
   map: 'application/json',
 }
 
-const toRel = (abs: string) => path.relative(root, abs).split(path.sep).join('/')
+const toRel = (abs: string, base = root()) => path.relative(base, abs).split(path.sep).join('/')
 
-const toEntry = (abs: string, stat: Stats): VaultEntry => ({
-  path: toRel(abs),
+const toEntry = (abs: string, stat: Stats, base = root()): VaultEntry => ({
+  path: toRel(abs, base),
   kind: stat.isDirectory() ? 'folder' : 'file',
   size: stat.isDirectory() ? 0 : stat.size,
   mtime: stat.mtimeMs,
@@ -86,8 +94,8 @@ const toEntry = (abs: string, stat: Stats): VaultEntry => ({
 /** Resolves a vault-relative path, refusing anything that escapes the vault. */
 function resolveInVault(rel: string | undefined, allowRoot = false): string {
   if (rel === undefined) throw new HTTPException(400, { message: 'Missing path' })
-  const abs = path.resolve(root, rel)
-  const inside = abs.startsWith(root + path.sep) || (allowRoot && abs === root)
+  const abs = path.resolve(root(), rel)
+  const inside = abs.startsWith(root() + path.sep) || (allowRoot && abs === root())
   if (!inside) throw new HTTPException(400, { message: 'Path is outside the vault' })
   return abs
 }
@@ -121,12 +129,12 @@ async function ensureVault(dir: string): Promise<void> {
 async function remember(): Promise<void> {
   // Commands allowed by hand while the server runs must survive this rewrite.
   config.systemCommands = (await readConfig()).systemCommands
-  config.current = root
-  if (!config.vaults.includes(root)) config.vaults.push(root)
+  config.current = defaultRoot
+  if (!config.vaults.includes(defaultRoot)) config.vaults.push(defaultRoot)
   await fs.writeFile(CONFIG, JSON.stringify(config, null, 2)).catch((err) => console.error(`Не удалось записать ${CONFIG}`, err))
 }
 
-await ensureVault(root)
+await ensureVault(defaultRoot)
 await remember()
 
 const api = new Hono()
@@ -144,11 +152,36 @@ const isLocal = (url: string) => {
   }
 }
 
+/**
+ * The name a vault goes by in addresses: its folder's name. Two folders of one name are told
+ * apart by a number; a name the server needs for itself gets a tail.
+ */
+const RESERVED = new Set(['api', 'assets'])
+function vaultName(dir: string): string {
+  const base = path.basename(dir) || 'vault'
+  const same = config.vaults.filter((one) => path.basename(one) === base)
+  const at = same.indexOf(dir)
+  const name = at > 0 ? `${base}-${at + 1}` : base
+  return RESERVED.has(name.toLowerCase()) ? `${name}-vault` : name
+}
+const vaultByName = (name: string) => config.vaults.find((dir) => vaultName(dir) === name)
+
 api.use(async (c, next) => {
   if (!isLocal(`http://${c.req.header('host') ?? ''}`)) throw new HTTPException(403, { message: 'Forbidden host' })
   const origin = c.req.header('origin')
   if (origin && !isLocal(origin)) throw new HTTPException(403, { message: 'Forbidden origin' })
-  await next()
+  // Which vault the request is about: named in a header (requests of the app) or in the address
+  // (pictures, the stream of changes). None named: the vault opened last.
+  // A page that is only finding out which vault its address means names none yet.
+  if (c.req.path.endsWith('/where')) return next()
+  const header = c.req.header('x-flint-vault')
+  const named = header !== undefined ? decodeURIComponent(header) : c.req.query('vault')
+  if (!named) return next()
+  const dir = vaultByName(named)
+  if (!dir) throw new HTTPException(404, { message: `Нет хранилища «${named}»` })
+  if (!existsSync(dir)) throw new HTTPException(404, { message: `Папки хранилища «${named}» больше нет: ${dir}` })
+  watch(dir)
+  return scope.run(dir, next)
 })
 
 /**
@@ -157,24 +190,39 @@ api.use(async (c, next) => {
  * Obsidian does on the same notes. The most recently used folder comes first.
  */
 async function obsidianConfigs(): Promise<string[]> {
-  const dirs = (await fs.readdir(root, { withFileTypes: true })).filter((d) => d.isDirectory() && d.name.startsWith('.'))
+  const dirs = (await fs.readdir(root(), { withFileTypes: true })).filter((d) => d.isDirectory() && d.name.startsWith('.'))
   const found = await Promise.all(
     dirs.map(async (d) => {
-      const app = await fs.stat(path.join(root, d.name, 'app.json')).catch(() => null)
-      const used = await fs.stat(path.join(root, d.name, 'workspace.json')).catch(() => null)
+      const app = await fs.stat(path.join(root(), d.name, 'app.json')).catch(() => null)
+      const used = await fs.stat(path.join(root(), d.name, 'workspace.json')).catch(() => null)
       return app ? { name: d.name, used: (used ?? app).mtimeMs } : null
     }),
   )
   return found.filter((f) => f !== null).sort((a, b) => b.used - a.used).map((f) => f.name)
 }
 
-api.get('/vault', async (c) => c.json({ name: path.basename(root), path: root, obsidianConfigs: await obsidianConfigs() }))
+// Which vault an address means: the one its first part names, or, if that is not a vault's name
+// (a bare address, or one from before vaults were named in addresses), the vault opened last.
+api.get('/where', (c) => {
+  const dir = vaultByName(c.req.query('name') ?? '')
+  const known = !!dir && existsSync(dir)
+  return c.json({ known, name: vaultName(known ? dir : defaultRoot) })
+})
 
-const vaultInfo = (dir: string): VaultInfo => ({ path: dir, name: path.basename(dir), current: dir === root, exists: existsSync(dir) })
+api.get('/vault', async (c) => {
+  // A page asks this once, when it opens. The vault opened last is the one a bare address leads to.
+  if (root() !== defaultRoot) {
+    defaultRoot = root()
+    void remember()
+  }
+  return c.json({ name: vaultName(root()), path: root(), obsidianConfigs: await obsidianConfigs() })
+})
+
+const vaultInfo = (dir: string): VaultInfo => ({ path: dir, name: vaultName(dir), current: dir === root(), exists: existsSync(dir) })
 
 api.get('/vaults', (c) => c.json(config.vaults.map(vaultInfo)))
 
-// Switches the app to another folder. Open pages are told to reload.
+// Makes a folder known as a vault. Pages already open stay on their own vaults; the page that asked goes to the new one by its address.
 api.post('/vaults/open', async (c) => {
   const body = await c.req.json<{ path: string; create?: boolean }>()
   if (!body.path?.trim() || !path.isAbsolute(body.path.trim())) {
@@ -185,28 +233,31 @@ api.post('/vaults/open', async (c) => {
   if (stat && !stat.isDirectory()) throw new HTTPException(400, { message: 'Это файл, а нужна папка' })
   if (!stat && !body.create) throw new HTTPException(404, { message: 'Такой папки нет' })
   await ensureVault(dir)
-  root = dir
+  // The vault opened last is the one a bare address (and the next start) leads to.
+  defaultRoot = dir
   await remember()
-  watch()
-  broadcast({ type: 'vault' })
+  watch(dir)
   return c.json(vaultInfo(dir))
 })
 
 // Removes a vault from the list. Its folder and notes are not touched.
 api.post('/vaults/forget', async (c) => {
   const { path: dir } = await c.req.json<{ path: string }>()
-  if (dir === root) throw new HTTPException(400, { message: 'Это хранилище сейчас открыто' })
+  if (dir === root()) throw new HTTPException(400, { message: 'Это хранилище сейчас открыто' })
+  if (dir === defaultRoot) throw new HTTPException(400, { message: 'Это хранилище открывается при запуске; сначала откройте другое' })
   config.vaults = config.vaults.filter((v) => v !== dir)
+  void watchers.get(dir)?.close()
+  watchers.delete(dir)
   await remember()
   return c.json(config.vaults.map(vaultInfo))
 })
 
-api.get('/tree', async (c) => c.json(await walk(root)))
+api.get('/tree', async (c) => c.json(await walk(root())))
 
 // Every note's text in one response, one JSON object per line. The app reads
 // this once at start to build its index; a request per note would be far slower.
 api.get('/notes', async (c) => {
-  const notes = (await walk(root)).filter((entry) => entry.kind === 'file' && entry.path.toLowerCase().endsWith('.md'))
+  const notes = (await walk(root())).filter((entry) => entry.kind === 'file' && entry.path.toLowerCase().endsWith('.md'))
   c.header('content-type', 'application/x-ndjson; charset=utf-8')
   c.header('cache-control', 'no-store')
   return stream(c, async (out) => {
@@ -214,7 +265,7 @@ api.get('/notes', async (c) => {
       const lines = await Promise.all(
         notes.slice(i, i + 32).map(async ({ path: file }) => {
           // A note deleted since the listing is simply left out.
-          const text = await fs.readFile(path.join(root, file), 'utf8').catch(() => null)
+          const text = await fs.readFile(path.join(root(), file), 'utf8').catch(() => null)
           return text === null ? '' : `${JSON.stringify({ path: file, text })}\n`
         }),
       )
@@ -273,7 +324,7 @@ api.post('/rename', async (c) => {
 api.delete('/file', async (c) => {
   const abs = target(c)
   if (!existsSync(abs)) throw new HTTPException(404, { message: 'File not found' })
-  let dest = path.join(root, '.trash', toRel(abs))
+  let dest = path.join(root(), '.trash', toRel(abs))
   if (existsSync(dest)) {
     const ext = path.extname(dest)
     dest = `${dest.slice(0, dest.length - ext.length)} ${Date.now()}${ext}`
@@ -290,15 +341,15 @@ api.post('/reveal', async (c) => {
   // Explorer wants `/select,"path"` exactly so; Node's own quoting would break it.
   const explorer = (winPath: string, isRoot: boolean): [string, string[], object] => ['explorer.exe', isRoot ? [`"${winPath}"`] : [`/select,"${winPath}"`], { windowsVerbatimArguments: true }]
   let launch: [string, string[], object]
-  if (process.platform === 'win32') launch = explorer(abs, abs === root)
-  else if (process.platform === 'darwin') launch = ['open', abs === root ? [abs] : ['-R', abs], {}]
+  if (process.platform === 'win32') launch = explorer(abs, abs === root())
+  else if (process.platform === 'darwin') launch = ['open', abs === root() ? [abs] : ['-R', abs], {}]
   else if (process.env.WSL_DISTRO_NAME) {
     // Under WSL the file manager is Windows Explorer, which needs the path in its Windows form.
     const winPath = await new Promise<string>((resolve, reject) =>
       execFile('wslpath', ['-w', abs], (err, out) => (err ? reject(new HTTPException(500, { message: 'Не удалось получить путь Windows (wslpath)' })) : resolve(out.trim()))),
     )
-    launch = explorer(winPath, abs === root)
-  } else launch = ['xdg-open', [abs === root ? abs : path.dirname(abs)], {}]
+    launch = explorer(winPath, abs === root())
+  } else launch = ['xdg-open', [abs === root() ? abs : path.dirname(abs)], {}]
   const [command, args, options] = launch
   await new Promise<void>((resolve, reject) => {
     const child = spawn(command, args, { stdio: 'ignore', ...options })
@@ -333,20 +384,20 @@ api.get('/list', async (c) => {
 //
 // and a request can only name one of them. The template's arguments reach the
 // program as environment variables, as in Templater.
-api.get('/system-commands', async (c) => c.json({ file: CONFIG, vault: root, commands: Object.keys((await readConfig()).systemCommands?.[root]?.commands ?? {}) }))
+api.get('/system-commands', async (c) => c.json({ file: CONFIG, vault: root(), commands: Object.keys((await readConfig()).systemCommands?.[root()]?.commands ?? {}) }))
 
 api.post('/exec', async (c) => {
   const origin = c.req.header('origin')
   if (!origin || new URL(origin).host !== c.req.header('host')) throw new HTTPException(403, { message: 'Только со страницы самого приложения' })
   const { name, env } = (await c.req.json()) as { name: string; env?: Record<string, unknown> }
   // The file is read anew, so a command added by hand works without a restart.
-  const allowed = (await readConfig()).systemCommands?.[root]
+  const allowed = (await readConfig()).systemCommands?.[root()]
   const command = allowed && Object.hasOwn(allowed.commands ?? {}, name) ? allowed.commands[name] : undefined
   if (typeof command !== 'string' || !command.trim()) throw new HTTPException(403, { message: `Команда «${name}» не разрешена в ${CONFIG}` })
   const variables = Object.fromEntries(Object.entries(env ?? {}).map(([key, value]) => [key, typeof value === 'string' ? value : JSON.stringify(value)]))
   const timeout = Math.min(600, Math.max(1, Number(allowed?.timeout) || 5)) * 1000
   const output = await new Promise<string>((resolve, reject) => {
-    exec(command, { cwd: root, timeout, env: { ...process.env, ...variables }, windowsHide: true, maxBuffer: 4 * 1024 * 1024 }, (err, stdout, stderr) => {
+    exec(command, { cwd: root(), timeout, env: { ...process.env, ...variables }, windowsHide: true, maxBuffer: 4 * 1024 * 1024 }, (err, stdout, stderr) => {
       if (err) reject(new HTTPException(500, { message: (stderr || err.message).trim().slice(0, 500) }))
       else resolve(stdout)
     })
@@ -519,7 +570,7 @@ api.get('/unfurl', async (c) => {
 })
 
 api.get('/plugins', async (c) => {
-  const dir = path.join(root, '.flint', 'plugins')
+  const dir = path.join(root(), '.flint', 'plugins')
   const ids = await fs.readdir(dir).catch(() => [] as string[])
   const plugins: ExternalPluginInfo[] = []
   for (const id of ids) {
@@ -533,52 +584,54 @@ api.get('/plugins', async (c) => {
   return c.json(plugins)
 })
 
-const clients = new Set<(event: RemoteEvent) => void>()
+/** The pages that follow each vault. */
+const clients = new Map<string, Set<(event: RemoteEvent) => void>>()
 
-api.get('/events', (c) =>
-  streamSSE(c, async (stream) => {
+api.get('/events', (c) => {
+  const dir = root()
+  return streamSSE(c, async (stream) => {
     const send = (event: RemoteEvent) => void stream.writeSSE({ data: JSON.stringify(event) })
-    clients.add(send)
-    stream.onAbort(() => void clients.delete(send))
+    const listeners = clients.get(dir) ?? clients.set(dir, new Set()).get(dir)!
+    listeners.add(send)
+    stream.onAbort(() => void listeners.delete(send))
     while (!stream.aborted && !stream.closed) {
       await stream.sleep(30_000)
       await stream.writeSSE({ event: 'ping', data: '' })
     }
-    clients.delete(send)
-  }),
-)
+    listeners.delete(send)
+  })
+})
 
-const broadcast = (event: RemoteEvent) => clients.forEach((send) => send(event))
-
-const isHidden = (abs: string) =>
-  path
-    .relative(root, abs)
-    .split(path.sep)
-    .some((part) => part.startsWith('.'))
+const broadcast = (dir: string, event: RemoteEvent) => clients.get(dir)?.forEach((send) => send(event))
 
 // Windows drives mounted into WSL (/mnt/c, ...) deliver no file events, so poll there.
-const needsPolling = () => (process.env.FLINT_POLL ? process.env.FLINT_POLL !== '0' : /^\/mnt\/[a-z]\//.test(`${root}/`))
+const needsPolling = (dir = root()) => (process.env.FLINT_POLL ? process.env.FLINT_POLL !== '0' : /^\/mnt\/[a-z]\//.test(`${dir}/`))
 
-let watcher: ReturnType<typeof chokidar.watch> | undefined
+const watchers = new Map<string, ReturnType<typeof chokidar.watch>>()
 
-/** Follows changes in the current vault's folder; called again when the vault changes. */
-function watch(): void {
-  void watcher?.close()
-  const watched = root
-  watcher = chokidar
-    .watch(watched, { ignored: isHidden, ignoreInitial: true, usePolling: needsPolling(), interval: 1000, binaryInterval: 3000 })
-    .on('all', async (event, abs) => {
-      if (abs === watched || watched !== root) return
+/** Follows changes in a vault's folder, from the first time the vault is asked for. */
+function watch(dir: string): void {
+  if (watchers.has(dir)) return
+  const isHidden = (abs: string) =>
+    path
+      .relative(dir, abs)
+      .split(path.sep)
+      .some((part) => part.startsWith('.'))
+  watchers.set(
+    dir,
+    chokidar.watch(dir, { ignored: isHidden, ignoreInitial: true, usePolling: needsPolling(dir), interval: 1000, binaryInterval: 3000 }).on('all', async (event, abs) => {
+      if (abs === dir) return
       if (event === 'unlink' || event === 'unlinkDir') {
-        broadcast({ type: 'delete', path: toRel(abs) })
+        broadcast(dir, { type: 'delete', path: toRel(abs, dir) })
         return
       }
       const stat = await fs.stat(abs).catch(() => null)
-      if (stat) broadcast({ type: 'upsert', entry: toEntry(abs, stat) })
-    })
+      if (stat) broadcast(dir, { type: 'upsert', entry: toEntry(abs, stat, dir) })
+    }),
+  )
 }
 
-watch()
+watch(defaultRoot)
 
 const app = new Hono()
 
@@ -619,7 +672,7 @@ const openBrowser = (url: string) => {
 const server = serve({ fetch: app.fetch, port, hostname: '127.0.0.1' }, () => {
   const url = `http://localhost:${port}`
   console.log(`FlintNotes: ${url}`)
-  console.log(`Хранилище: ${root}${needsPolling() ? ' (опрос изменений)' : ''}`)
+  console.log(`Хранилище: ${defaultRoot}${needsPolling(defaultRoot) ? ' (опрос изменений)' : ''}`)
   if (!staticDir) console.log('Приложение не собрано: выполните `npm run build` или запустите `npm run dev`.')
   // The launchers set FLINT_OPEN so the app appears in the browser once it is ready.
   if (process.env.FLINT_OPEN) openBrowser(url)

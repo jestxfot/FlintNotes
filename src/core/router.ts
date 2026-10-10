@@ -2,17 +2,18 @@ import type { App } from './app'
 import { basename, extname, stripExt } from './path'
 
 const VIEW = 'view:'
-// A vault folder with one of these names would collide with the server's own addresses.
-const RESERVED = /^(api|assets)(\/|$)/
 
 /**
  * Keeps the browser's address in step with the open note, so that every note
  * has an address of its own and the browser's Back and Forward buttons move
  * between the notes that were visited.
  *
- *   /Projects/Plan          the note Projects/Plan.md (".md" is left out)
- *   /Files/scan.pdf         any other file, with its extension
- *   /~graph                 a tab that shows no file
+ *   /notes/Projects/Plan    the note Projects/Plan.md of the vault "notes" (".md" is left out)
+ *   /notes/Files/scan.pdf   any other file, with its extension
+ *   /notes/~graph           a tab that shows no file
+ *
+ * The vault comes first, so the address alone says what to show: any vault the
+ * server knows opens from its address, each in a tab of the browser of its own.
  */
 export class Router {
   /** Set while the address itself is driving the app, so that it is not written back. */
@@ -25,16 +26,22 @@ export class Router {
 
   /** The address of a note or view. */
   url(path: string): string {
-    if (path.startsWith(VIEW)) return `/~${encodeURIComponent(path.slice(VIEW.length))}`
+    if (path.startsWith(VIEW)) return `${this.base}/~${encodeURIComponent(path.slice(VIEW.length))}`
     const shown = extname(path) === 'md' ? path.slice(0, -3) : path
-    return `/${RESERVED.test(shown) ? '-/' : ''}${shown.split('/').map(encodeURIComponent).join('/')}`
+    return `${this.base}/${shown.split('/').map(encodeURIComponent).join('/')}`
+  }
+
+  /** The vault's part of every address: `/<vault>`. */
+  private get base(): string {
+    return `/${encodeURIComponent(this.app.vault.urlName)}`
   }
 
   /** The note or view an address stands for, if it exists. */
   private resolve(pathname: string): string | null {
     let path: string
     try {
-      path = decodeURIComponent(pathname).replace(/^\/(-\/)?/, '')
+      // The first part names the vault; what follows is the place in it.
+      path = decodeURIComponent(pathname).replace(/^\/[^/]*\/?/, '')
     } catch {
       return null
     }
@@ -83,7 +90,7 @@ export class Router {
     const active = this.app.workspace.active
     const moved = this.lastTab !== undefined && active?.id !== this.lastTab
     this.lastTab = active?.id
-    const url = active ? this.url(active.path) : '/'
+    const url = active ? this.url(active.path) : `${this.base}/`
     this.setTitle()
     if (url === location.pathname) return
     if (moved) history.pushState(null, '', url)

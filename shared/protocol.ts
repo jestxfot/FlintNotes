@@ -13,14 +13,14 @@ export interface VaultEntry {
 export type RemoteEvent =
   | { type: 'upsert'; entry: VaultEntry }
   | { type: 'delete'; path: string }
-  /** The server switched to another vault; pages must start over. */
-  | { type: 'vault' }
 
 /** A folder the user has opened as a vault. */
 export interface VaultInfo {
   /** Absolute path on disk. */
   path: string
+  /** The name the vault goes by in addresses: `http://localhost:4600/<name>/Note`. */
   name: string
+  /** Whether it is the vault of the page that asked. */
   current: boolean
   /** `false` if the folder has since been moved or deleted. */
   exists: boolean

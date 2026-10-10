@@ -1,6 +1,6 @@
 <script lang="ts">
   import { errorMessage } from '../core/notice'
-  import type { VaultInfo } from '../core/vault'
+  import { vaultAddress, type VaultInfo } from '../core/vault'
   import { app } from '../instance'
 
   let { onvaults, onhelp, onsettings }: { onvaults: () => void; onhelp: () => void; onsettings: () => void } = $props()
@@ -19,7 +19,7 @@
     try {
       // Unsaved text belongs to the vault that is being left.
       await app.workspace.flushAll()
-      await app.vault.openVault(vault.path)
+      location.href = vaultAddress(vault.name)
     } catch (err) {
       app.notice(`Не удалось открыть «${vault.name}»: ${errorMessage(err)}`)
     }
