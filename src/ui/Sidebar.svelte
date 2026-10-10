@@ -187,17 +187,17 @@
     border: 1px solid var(--border);
     border-radius: var(--radius-l);
     box-shadow: var(--shadow);
-    animation: slide-in 0.14s ease-out;
+    animation: slide-in 0.08s ease-out;
   }
 
   .floating.left {
     left: 8px;
-    --from: -24px;
+    --from: -12px;
   }
 
   .floating.right {
     right: 8px;
-    --from: 24px;
+    --from: 12px;
   }
 
   @keyframes slide-in {

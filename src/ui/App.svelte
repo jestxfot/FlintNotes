@@ -46,7 +46,7 @@
       // The pointer came back meanwhile: the sidebar stays.
       if (!on && over[side]) return
       peek[side] = on
-    }, on ? 120 : 350)
+    }, on ? 30 : 260)
   }
   // Whether the pointer is on a floating sidebar is worked out from where the pointer is, not from
   // enter and leave events: a sidebar that appears under a pointer standing still gets no "enter".
@@ -64,7 +64,8 @@
     if (!floating || settingsOpen || vaultsOpen || helpOpen) return
     for (const side of ['left', 'right'] as const) {
       const box = document.querySelector(`aside.${side}.floating`)?.getBoundingClientRect()
-      const atEdge = side === 'left' ? event.clientX <= 6 : event.clientX >= innerWidth - 6
+      // A generous strip: the pointer thrown at the edge of the window does not have to hit a hairline.
+      const atEdge = side === 'left' ? event.clientX <= 14 : event.clientX >= innerWidth - 14
       const inside = atEdge || (!!box && event.clientX >= box.left - 10 && event.clientX <= box.right + 10 && event.clientY >= box.top - 10 && event.clientY <= box.bottom + 10)
       if (inside === over[side]) continue
       over[side] = inside
@@ -572,7 +573,7 @@
     top: 0;
     bottom: 0;
     z-index: 30;
-    width: 6px;
+    width: 14px;
   }
 
   .edge.left {

@@ -17,6 +17,11 @@ export async function run(t) {
     return filled
   })
   ok('a long note gets a map with its lines drawn', (await map.isVisible()) && painted > 500, painted)
+  const clear = await page.evaluate(() => {
+    const leafEl = document.querySelector('.leaf:not([hidden])')
+    return leafEl.querySelector('.cm-scroller').getBoundingClientRect().right <= leafEl.querySelector('.note-map').getBoundingClientRect().left + 1
+  })
+  ok('the text ends where the map begins', clear)
   const top = () => page.evaluate(() => app.workspace.activeEditor.scrollDOM.scrollTop)
   const box = await map.boundingBox()
   await page.mouse.click(box.x + box.width / 2, box.y + box.height * 0.6)

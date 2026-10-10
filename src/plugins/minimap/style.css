@@ -39,7 +39,12 @@
   will-change: transform;
 }
 
-/* The text keeps clear of the map. */
+/* The text keeps clear of the map: the whole scrolling area ends where the map begins, so nothing
+   in it (a wide table, a block's own buttons) can reach under the map. */
 .cm-editor.has-note-map .cm-scroller {
-  padding-right: var(--map-width, 90px);
+  margin-right: var(--map-width, 90px);
+}
+
+.cm-editor.has-note-map .cm-panels {
+  margin-right: var(--map-width, 90px);
 }
