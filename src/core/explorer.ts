@@ -15,6 +15,7 @@ export class Explorer extends Events<{ change: [] }> {
   private hides: Hide[] = []
   private decorators: Decorate[] = []
   private clicks: FolderClick[] = []
+  private pins: Hide[] = []
 
   private add<T>(list: T[], item: T): Off {
     list.push(item)
@@ -28,6 +29,15 @@ export class Explorer extends Events<{ change: [] }> {
   /** Entries for which `test` is true are left out of the list of files. */
   hide(test: Hide): Off {
     return this.add(this.hides, test)
+  }
+
+  /** Entries for which `test` is true are listed first in their folder, before the rest. */
+  pin(test: Hide): Off {
+    return this.add(this.pins, test)
+  }
+
+  pinned(entry: VaultEntry): boolean {
+    return this.pins.some((test) => test(entry))
   }
 
   /** Gives entries CSS classes (space-separated), in the list of files and in the path above a note. */

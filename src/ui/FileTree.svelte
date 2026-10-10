@@ -20,7 +20,10 @@
 
   const entries = watch(vault, ['create', 'delete', 'rename'], () => vault.all())
   const activePath = watch(workspace, ['active-change', 'layout-change'], () => workspace.active?.path)
-  const tree = $derived(build(entries.current))
+  // Plugins may hide entries, pin them, give them classes and take the click on a folder's name.
+  const explorer = watch(app.explorer, ['change'], () => ({}))
+  // Built again when the files change, and when a plugin changes what is pinned.
+  const tree = $derived((explorer.current, build(entries.current)))
   // Icons and colours of files and folders come from plugins and may change at any time.
   const looks = watch(app.icons, ['change'], () => ({}))
   function drawIcon(node: HTMLElement, [icon, kind, id]: [string | undefined, 'file' | 'folder', string]) {
@@ -51,8 +54,10 @@
       ;(parent ? parent.children : roots).push(node)
     }
     const sort = (list: Node[]) => {
+      // What a plugin has pinned comes first; then folders, then files, each by name.
+      const pinned = new Map(list.map((node) => [node, app.explorer.pinned(node.entry)]))
       list.sort((a, b) =>
-        a.entry.kind === b.entry.kind ? collator.compare(a.name, b.name) : a.entry.kind === 'folder' ? -1 : 1,
+        pinned.get(a) !== pinned.get(b) ? (pinned.get(a) ? -1 : 1) : a.entry.kind === b.entry.kind ? collator.compare(a.name, b.name) : a.entry.kind === 'folder' ? -1 : 1,
       )
       list.forEach((node) => sort(node.children))
     }
@@ -63,8 +68,6 @@
   /** Extension as written in the file name, dot included (`.md`, `.PNG`), or `''`. */
   const rawExt = (name: string) => name.slice(stripExt(name).length)
 
-  // Plugins may hide entries, give them classes and take the click on a folder's name.
-  const explorer = watch(app.explorer, ['change'], () => ({}))
 
   function click(entry: VaultEntry, event: MouseEvent) {
     if (entry.kind === 'file') return workspace.openFile(entry.path)

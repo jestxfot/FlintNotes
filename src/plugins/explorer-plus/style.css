@@ -1,0 +1,64 @@
+/* A pinned entry of the file list: a small pin before its name. */
+.tree .row.xp-pinned .name::before {
+  content: '';
+  display: inline-block;
+  width: 0.85em;
+  height: 0.85em;
+  margin-right: 0.35em;
+  vertical-align: -0.08em;
+  background: var(--accent);
+  mask: url('data:image/svg+xml,<svg xmlns="http://www.w3.org/2000/svg" viewBox="0 0 24 24" fill="none" stroke="black" stroke-width="2.2" stroke-linecap="round" stroke-linejoin="round"><path d="M12 17v5"/><path d="M9 10.76a2 2 0 0 1-1.11 1.79l-1.78.9A2 2 0 0 0 5 15.240V16a1 1 0 0 0 1 1h12a1 1 0 0 0 1-1v-.760a2 2 0 0 0-1.110-1.790l-1.780-.900A2 2 0 0 1 15 10.760V7a1 1 0 0 1 1-1 2 2 0 0 0 0-4H8a2 2 0 0 0 0 4 1 1 0 0 1 1 1z"/></svg>') center / contain no-repeat;
+}
+
+.xp-filters {
+  display: flex;
+  flex-direction: column;
+  gap: 6px;
+  width: 100%;
+}
+
+.xp-filter {
+  display: flex;
+  align-items: center;
+  gap: 6px;
+}
+
+.xp-filter input[type='text'],
+.xp-filter select {
+  min-width: 0;
+  padding: 4px 8px;
+  border: 1px solid var(--border);
+  border-radius: var(--radius-m);
+  background: var(--bg-alt);
+  color: inherit;
+  font: inherit;
+  font-size: 13px;
+}
+
+.xp-filter input[type='text'] {
+  flex: 1;
+}
+
+.xp-filter button,
+.xp-add {
+  padding: 3px 9px;
+  border-radius: var(--radius-m);
+  color: var(--text-muted);
+  font-size: 13px;
+}
+
+.xp-filter button:hover,
+.xp-add:hover {
+  background: var(--bg-hover);
+  color: var(--text);
+}
+
+.xp-add {
+  align-self: flex-start;
+  border: 1px solid var(--border);
+}
+
+.xp-none {
+  color: var(--text-faint);
+  font-size: 13px;
+}
