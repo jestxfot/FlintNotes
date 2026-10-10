@@ -164,6 +164,94 @@ export default class DayPlanner extends Plugin {
       }
     }
 
+    /**
+     * The window of one block: what it is about, when it begins and ends, whether
+     * it is done. Saving rewrites the block's line; a task without a time gets one here.
+     */
+    const editBlock = (file: string, block: Block) => {
+      const el = <K extends keyof HTMLElementTagNameMap>(parent: HTMLElement, tag: K, className = '', text = '') => {
+        const node = parent.appendChild(document.createElement(tag))
+        if (className) node.className = className
+        if (text) node.textContent = text
+        return node
+      }
+      const marker = /\s*✅️?\s*\d{4}-\d{2}-\d{2}/u
+      const timed = LINE.test(block.raw)
+      const dialog = el(document.body, 'dialog', 'day-dialog')
+      const form = el(dialog, 'form')
+      el(form, 'h2', '', timed ? 'Блок плана дня' : 'Задача дня')
+      const field = (label: string, type: string, value: string, parent: HTMLElement = form) => {
+        const wrap = el(parent, 'label', 'day-dialog-field')
+        el(wrap, 'span', '', label)
+        const input = el(wrap, 'input')
+        input.type = type
+        input.value = value
+        return input
+      }
+      const what = field('Что', 'text', block.text.replace(marker, ''))
+      const times = el(form, 'div', 'day-dialog-times')
+      const from = field('Начало', 'time', timed ? clock(block.start) : '', times)
+      const to = field('Конец', 'time', timed ? clock(block.end) : '', times)
+      const quick = el(form, 'div', 'day-dialog-quick')
+      for (const minutes of [10, 15, 30, 45, 60, 90, 120]) {
+        const pick = el(quick, 'button', '', minutes < 60 ? `${minutes} мин` : `${minutes / 60} ч`)
+        pick.type = 'button'
+        pick.onclick = () => {
+          const [h, m] = (from.value || clock(Math.ceil((moment().hour() * 60 + moment().minute()) / 10) * 10)).split(':').map(Number)
+          from.value = clock(h * 60 + m)
+          to.value = clock(Math.min(24 * 60 - 1, h * 60 + m + minutes))
+        }
+      }
+      let done: HTMLInputElement | null = null
+      if (block.status !== null) {
+        const wrap = el(form, 'label', 'day-dialog-check')
+        done = el(wrap, 'input')
+        done.type = 'checkbox'
+        done.checked = isDone(block)
+        el(wrap, 'span', '', 'Выполнено')
+      }
+      el(form, 'p', 'day-dialog-note', `${paths.basename(file).replace(/\.md$/, '')}, строка ${block.line + 1}`)
+      const buttons = el(form, 'div', 'day-dialog-buttons')
+      const action = (text: string, className: string, run?: () => void) => {
+        const button = el(buttons, 'button', className, text)
+        button.type = 'button'
+        button.onclick = () => (run ? (dialog.close(), run()) : save())
+      }
+      action('Удалить', 'danger', () => void rewrite(file, block, () => null))
+      action('Открыть в заметке', '', () => app.workspace.openFile(file, { line: block.line }))
+      el(buttons, 'span', 'day-dialog-grow')
+      action('Отмена', '', () => {})
+      action('Сохранить', 'primary')
+      const save = () => {
+        const minutes = (value: string) => (/^\d{1,2}:\d{2}$/.test(value) ? Number(value.split(':')[0]) * 60 + Number(value.split(':')[1]) : null)
+        const start = minutes(from.value)
+        const ending = minutes(to.value)
+        dialog.close()
+        void rewrite(file, block, (raw) => {
+          const m = LINE.exec(raw)
+          const loose = m ? null : LOOSE.exec(raw)
+          const prefix = m ? m[1] : loose ? loose[1] : /^(\s*(?:[-*+]|\d+[.)])\s+)/.exec(raw)?.[1]
+          if (prefix === undefined) return raw
+          const status = m ? m[2] : loose?.[2]
+          const before = (m ? m[8] : (loose?.[3] ?? '')).trim()
+          // The day it was done stays as written unless the tick is changed below.
+          const text = `${what.value.trim()}${marker.exec(before)?.[0] ?? ''}`
+          const end = start === null ? null : ending !== null && ending > start ? ending : start + Math.max(5, get<number>('defaultDurationMinutes') ?? 30)
+          const time = start === null ? '' : `${clock(start)}${m?.[5] ?? ' - '}${clock(end!)} `
+          const line = `${prefix}${status !== undefined ? `[${status}] ` : ''}${time}${text}`
+          return done && done.checked !== (status !== undefined && status !== ' ') ? toggle(line) : line
+        })
+      }
+      // Enter in a field saves, as the button does.
+      form.onsubmit = (event) => (event.preventDefault(), save())
+      form.onkeydown = (event) => event.key === 'Enter' && (event.target as Element).tagName === 'INPUT' && (event.preventDefault(), save())
+      dialog.onclick = (event) => event.target === dialog && dialog.close()
+      dialog.onclose = () => dialog.remove()
+      dialog.showModal()
+      what.focus()
+      what.select()
+    }
+
     // ---- the timeline: a widget of a sidebar, and (like every widget) a tab when asked
     this.addPanel({
       id: PANEL,
@@ -300,7 +388,7 @@ export default class DayPlanner extends Plugin {
                 el(row, 'span', 'day-block-time', clock(block.start))
                 text(row, block, one.note)
                 row.title = `${clock(block.start)}–${clock(block.end)} ${block.text}`
-                row.onclick = (event) => !(event.target as Element).closest('a') && one.note && app.workspace.openFile(one.note, { line: block.line })
+                row.onclick = (event) => !(event.target as Element).closest('a') && one.note && editBlock(one.note, block)
               }
               cell.ondblclick = (event) => !(event.target as Element).closest('.day-line, button') && void addBlock(one.date, (get<number>('startHour') ?? 6) * 60 + 180)
             }
@@ -315,7 +403,7 @@ export default class DayPlanner extends Plugin {
               const row = el(list, 'div', isDone(block) ? 'day-block done' : 'day-block')
               box(row, block, file)
               text(row, block, file)
-              row.onclick = (event) => !(event.target as Element).closest('a, input') && file && app.workspace.openFile(file, { line: block.line })
+              row.onclick = (event) => !(event.target as Element).closest('a, input') && file && editBlock(file, block)
             }
           }
           // Several days stand side by side, each under its name; the name opens that day alone.
@@ -341,7 +429,7 @@ export default class DayPlanner extends Plugin {
           for (let hour = Math.ceil(top / 60); hour < 24; hour++) {
             const mark = el(grid, 'div', 'day-hour')
             mark.style.top = `${(hour * 60 - top) * perMinute}px`
-            el(mark, 'span', '', String(hour))
+            el(mark, 'span', '', `${hour}:00`)
           }
           if (!firsts.length) el(grid, 'div', 'day-plan-empty', kind !== 'day' ? 'В эти дни нет строк со временем. Двойной щелчок по шкале добавит блок' : file ? 'В заметке дня нет строк со временем. Двойной щелчок по шкале добавит блок' : 'Заметки этого дня ещё нет. Двойной щелчок по шкале создаст её и добавит блок')
 
@@ -378,7 +466,7 @@ export default class DayPlanner extends Plugin {
               const node = el(col, 'div', `day-block${isDone(block) ? ' done' : ''}${isToday && nowMinutes >= block.start && nowMinutes < block.end ? ' now' : ''}`)
               const put = (start: number, end: number) => {
                 node.style.top = `${(start - top) * perMinute}px`
-                node.style.height = `${Math.max(18, (end - start) * perMinute - 1)}px`
+                node.style.height = `${Math.max(22, (end - start) * perMinute - 1)}px`
                 time.textContent = days.length > 3 ? clock(start) : `${clock(start)}–${clock(end)}`
               }
               node.style.left = `${(column / of) * 100}%`
@@ -415,7 +503,7 @@ export default class DayPlanner extends Plugin {
                   node.removeEventListener('pointermove', move)
                   node.classList.remove('moving')
                   busy = false
-                  if (!moved) return void (note && app.workspace.openFile(note, { line: block.line }))
+                  if (!moved) return void (note && editBlock(note, block))
                   if (note && (start !== block.start || end !== block.end)) void rewrite(note, block, (raw) => retime(raw, start, end))
                   else draw()
                 }

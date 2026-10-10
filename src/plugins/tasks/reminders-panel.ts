@@ -82,18 +82,23 @@ export function mountReminders(app: App, store: TaskStore, reminders: Reminders,
     }
     if (!groups.size) el(root, 'p', 'reminders-none', show === 'all' ? 'Напоминаний нет. Допишите к задаче ⏰ 14:00 или (@2026-10-10 14:00), либо начните строку плана дня со времени: «- [ ] 17:00 - 17:10 …».' : 'Здесь пусто')
 
+    // Each group is a part of its own: a list in a sidebar, a card where the page is wide.
+    const board = el(root, 'div', 'reminders-groups')
     for (const [name, { late, items }] of groups) {
-      const title = el(root, 'h4', late ? 'overdue' : '')
+      const part = el(board, 'section', late ? 'reminders-group overdue' : 'reminders-group')
+      const title = el(part, 'h4', late ? 'overdue' : '')
       title.append(name)
       el(title, 'span', 'reminders-badge', String(items.length))
       for (const due of items) {
         const { task, at } = due
-        const row = el(root, 'div', `reminder-row${due.closed ? ' closed' : ''}`)
+        const row = el(part, 'div', `reminder-row${due.closed ? ' closed' : ''}`)
         row.title = task.path
         const until = reminders.snoozedUntil(due)
         el(row, 'span', 'reminder-time', late ? at.toLocaleString('ru', { day: 'numeric', month: 'short', hour: '2-digit', minute: '2-digit' }) : clock(at))
         const text = el(row, 'span', 'reminder-text')
-        text.append(renderInline(app, task.description, task.path))
+        // A line of the day plan says its hours itself; the time before it is enough.
+        text.append(renderInline(app, task.description.replace(/^\d{1,2}:\d{2}(?:\s*[-–—]\s*\d{1,2}:\d{2})?\s+(?=\S)/, ''), task.path))
+        el(text, 'span', 'reminder-source', task.path.replace(/^.*\//, '').replace(/\.md$/, ''))
         if (until) el(row, 'span', 'reminder-snoozed', `отложено до ${clock(new Date(until))}`)
         const tools = el(row, 'span', 'reminder-tools')
         const tool = (icon: string, label: string, action: (event: MouseEvent) => void) => {
@@ -106,6 +111,7 @@ export function mountReminders(app: App, store: TaskStore, reminders: Reminders,
             action(event)
           }
         }
+        tool('file-text', 'Открыть в заметке', () => app.workspace.openFile(task.path, { line: task.line }))
         if (!task.plain) tool('check', 'Выполнено', () => (reminders.dismiss(due), void store.toggle(task)))
         tool('alarm-clock', 'Отложить', (event) =>
           app.menus.show(
@@ -118,7 +124,10 @@ export function mountReminders(app: App, store: TaskStore, reminders: Reminders,
         if (due.closed) tool('rotate-ccw', 'Вернуть', () => (reminders.restore(due), draw()))
         else tool('x', 'Закрыть: больше не напоминать', () => (reminders.dismiss(due), draw()))
         row.onclick = (event) => {
-          if (!(event.target as Element).closest('a, button')) app.workspace.openFile(task.path, { line: task.line })
+          if ((event.target as Element).closest('a, button')) return
+          // A task opens in its window; a plain line that only reminds has nothing to edit but its note.
+          if (task.plain) app.workspace.openFile(task.path, { line: task.line })
+          else onEdit(task)
         }
         row.oncontextmenu = (event) => app.menus.show(event, 'task', task, task.plain ? [] : [{ icon: 'pencil', title: 'Изменить задачу…', onClick: () => onEdit(task) }])
       }

@@ -89,6 +89,16 @@ export async function run(t) {
   await t.tab('Напоминания').click()
   await page.waitForSelector(`${t.leaf} .reminders-panel`)
 
+  // ---- with the page to itself the groups are cards, and a click on a reminder opens the window of its task
+  const wide = await page.evaluate(() => [document.querySelector('.leaf:not([hidden]) .reminders-panel').getBoundingClientRect().width, document.querySelector('.leaf:not([hidden])').getBoundingClientRect().width])
+  ok('the page of reminders has the whole width of its tab, its groups as cards', wide[0] > wide[1] - 60 && (await list.locator('section.reminders-group').count()) >= 2 && (await list.locator('.reminder-source').first().isVisible()), JSON.stringify(wide))
+  const shownTab = await t.activeTab()
+  await list.locator('.reminder-row', { hasText: 'Call bank' }).locator('.reminder-time').click()
+  await page.waitForSelector('dialog[open] textarea')
+  ok('a click on a reminder opens the window of its task, not the note', (await page.locator('dialog[open] textarea').inputValue()).includes('Call bank') && (await t.activeTab()) === shownTab)
+  await page.keyboard.press('Escape')
+  await wait(300)
+
   // ---- a widget can be put away from the sidebar and stays available as a tab
   await page.evaluate(() => app.panels.setHidden('reminders', true))
   await wait(300)

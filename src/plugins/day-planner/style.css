@@ -73,13 +73,13 @@
 
 .day-plan-grid {
   position: relative;
-  margin-left: 42px;
+  margin-left: 48px;
 }
 
 .day-hour {
   position: absolute;
   right: 0;
-  left: -42px;
+  left: -48px;
   border-top: 1px solid var(--border);
   color: var(--text-faint);
   font-size: 11px;
@@ -95,10 +95,11 @@
 .day-block {
   position: absolute;
   display: flex;
-  align-items: flex-start;
+  align-items: baseline;
   gap: 6px;
   box-sizing: border-box;
-  padding: 2px 6px;
+  padding: 1px 7px;
+  line-height: 18px;
   overflow: hidden;
   border: 1px solid color-mix(in srgb, var(--accent) 45%, var(--border));
   border-left: 3px solid var(--accent);
@@ -134,7 +135,30 @@
 
 .day-block input {
   flex: none;
-  margin-top: 2px;
+  align-self: flex-start;
+  margin-top: 3px;
+}
+
+/* With the page to itself the plan is larger and its head stands out. */
+.panel-tab .day-plan {
+  font-size: 14px;
+}
+
+.panel-tab .day-plan-head {
+  padding: 2px 4px 8px;
+}
+
+.panel-tab .day-plan-date {
+  font-size: 17px;
+}
+
+.panel-tab .day-plan-modes button {
+  padding: 4px 18px;
+  font-size: 13px;
+}
+
+.panel-tab .day-plan-progress {
+  margin: 0 4px 6px;
 }
 
 .day-block-time {
@@ -230,7 +254,7 @@
 }
 
 .day-plan-days.scaled {
-  margin-left: 42px;
+  margin-left: 48px;
 }
 
 .day-plan-days button {
@@ -340,4 +364,116 @@
 
 .day-line.done .day-block-text {
   text-decoration: line-through;
+}
+
+/* The window of one block. */
+.day-dialog {
+  width: min(460px, calc(100vw - 32px));
+  padding: 0;
+  border: 1px solid var(--border);
+  border-radius: var(--radius-l, 10px);
+  background: var(--bg);
+  color: var(--text);
+  font: 14px/1.4 var(--font-ui);
+  box-shadow: 0 16px 48px rgb(0 0 0 / 0.35);
+}
+
+.day-dialog::backdrop {
+  background: rgb(0 0 0 / 0.4);
+}
+
+.day-dialog form {
+  display: flex;
+  flex-direction: column;
+  gap: 10px;
+  padding: 16px 18px;
+}
+
+.day-dialog h2 {
+  margin: 0;
+  font-size: 16px;
+}
+
+.day-dialog-field {
+  display: flex;
+  flex: 1;
+  flex-direction: column;
+  gap: 3px;
+  color: var(--text-muted);
+  font-size: 12px;
+}
+
+.day-dialog-field input {
+  padding: 6px 8px;
+  border: 1px solid var(--border);
+  border-radius: var(--radius-m, 6px);
+  background: var(--bg-alt);
+  color: var(--text);
+  font: inherit;
+  font-size: 14px;
+}
+
+.day-dialog-field input:focus {
+  border-color: var(--accent);
+  outline: none;
+}
+
+.day-dialog-times,
+.day-dialog-quick,
+.day-dialog-buttons {
+  display: flex;
+  gap: 8px;
+}
+
+.day-dialog-quick {
+  flex-wrap: wrap;
+  gap: 4px;
+}
+
+.day-dialog-quick button {
+  padding: 2px 9px;
+  border-radius: 2em;
+  background: var(--bg-alt);
+  color: var(--text-muted);
+  font-size: 12px;
+}
+
+.day-dialog-quick button:hover {
+  background: var(--bg-hover);
+  color: var(--text);
+}
+
+.day-dialog-check {
+  display: flex;
+  align-items: center;
+  gap: 8px;
+}
+
+.day-dialog-note {
+  margin: 0;
+  color: var(--text-faint);
+  font-size: 12px;
+}
+
+.day-dialog-grow {
+  flex: 1;
+}
+
+.day-dialog-buttons button {
+  padding: 5px 12px;
+  border-radius: var(--radius-m, 6px);
+  background: var(--bg-alt);
+}
+
+.day-dialog-buttons button:hover {
+  background: var(--bg-hover);
+}
+
+.day-dialog-buttons .primary {
+  background: var(--accent);
+  color: var(--accent-text, #fff);
+}
+
+.day-dialog-buttons .danger {
+  color: var(--color-red);
 }

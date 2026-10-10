@@ -173,6 +173,8 @@ export default class Tasks extends Plugin {
           return next ? [formatTaskLine(next, prefix), done] : [done]
         })
       })
+    // Other plugins (the calendar) list the vault's tasks and open their window through this.
+    this.provide('tasks', { all: () => store.all(), toggle: (task: Task) => store.toggle(task), edit: editTask, on: (name: 'change', fn: () => void) => store.on(name, fn) })
 
     // ---- the task manager: a tab of its own over every task of the vault
     this.registerView(

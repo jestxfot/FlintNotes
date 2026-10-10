@@ -314,6 +314,176 @@
   color: var(--text-muted);
 }
 
+/* ---- many reminders at once: one panel, a line for each, the days apart */
+.task-alert.many .alert-body {
+  display: grid;
+  grid-template: 'bell title clock' auto 'bar bar bar' auto 'list list list' minmax(0, 1fr) / auto 1fr auto;
+  align-items: center;
+  gap: 0 14px;
+  width: min(880px, calc(100% - 32px));
+  max-height: calc(100% - 48px);
+  padding: 18px 20px 8px;
+  overflow: hidden;
+  border: 1px solid var(--border);
+  border-radius: var(--radius-xl);
+  background: color-mix(in srgb, var(--bg-alt) 94%, transparent);
+  box-shadow: 0 24px 70px rgb(0 0 0 / 0.4);
+}
+
+.task-alert.many .alert-bell {
+  grid-area: bell;
+  scale: 0.62;
+  margin: -14px -12px;
+}
+
+.task-alert.many h1 {
+  grid-area: title;
+  margin: 0;
+  color: var(--text);
+  font-size: 18px;
+  letter-spacing: 0;
+  text-transform: none;
+}
+
+.task-alert.many .alert-clock {
+  grid-area: clock;
+  margin: 0;
+  color: var(--text-muted);
+  font-size: 26px;
+}
+
+.task-alert.many .alert-footer {
+  grid-area: bar;
+  flex-direction: column;
+  align-items: stretch;
+  margin: 12px 0 0;
+  padding-bottom: 12px;
+  border-bottom: 1px solid var(--border);
+}
+
+.alert-bar,
+.alert-choices {
+  display: flex;
+  flex-wrap: wrap;
+  align-items: center;
+  gap: 6px;
+}
+
+.task-alert.many .alert-bar button.primary {
+  padding: 7px 16px;
+  font-size: 13.5px;
+}
+
+.task-alert.many .alert-list {
+  grid-area: list;
+  gap: 0;
+  align-self: stretch;
+  margin-right: -12px;
+  padding: 2px 12px 10px 0;
+  overflow-y: auto;
+}
+
+.task-alert.many .alert-list h2 {
+  position: sticky;
+  top: 0;
+  z-index: 1;
+  display: flex;
+  align-items: center;
+  gap: 8px;
+  margin: 0;
+  padding: 12px 4px 5px;
+  background: color-mix(in srgb, var(--bg-alt) 96%, var(--bg));
+  color: var(--text-muted);
+  font-size: 11.5px;
+  font-weight: 600;
+  letter-spacing: 0.05em;
+  text-transform: uppercase;
+}
+
+.task-alert.many .alert-list h2 span {
+  min-width: 18px;
+  padding: 0 6px;
+  border-radius: 2em;
+  background: var(--bg-hover);
+  font-size: 11px;
+  line-height: 17px;
+  text-align: center;
+}
+
+.task-alert.many .alert-task {
+  display: flex;
+  align-items: center;
+  gap: 12px;
+  padding: 7px 6px 7px 8px;
+  border: 0;
+  border-radius: var(--radius-m);
+  background: none;
+  box-shadow: none;
+}
+
+.task-alert.many .alert-task:hover {
+  background: var(--bg-hover);
+}
+
+.task-alert.many .alert-time {
+  flex: none;
+  min-width: 44px;
+  color: var(--accent);
+  font-size: 14px;
+  font-weight: 600;
+  font-variant-numeric: tabular-nums;
+}
+
+.task-alert.many .alert-text {
+  flex: 1;
+  min-width: 0;
+  font-size: 15px;
+  font-weight: 500;
+}
+
+.task-alert.many .alert-actions {
+  flex: none;
+  flex-wrap: nowrap;
+  gap: 2px;
+}
+
+.task-alert.many .alert-actions button {
+  display: flex;
+  padding: 6px;
+  border-color: transparent;
+  background: none;
+  color: var(--text-muted);
+  font-size: 16px;
+}
+
+.task-alert.many .alert-actions button:hover {
+  background: var(--bg);
+  color: var(--text);
+}
+
+.task-alert.many .alert-actions button.primary {
+  background: color-mix(in srgb, var(--accent) 22%, transparent);
+  color: var(--accent);
+}
+
+.task-alert.many .alert-actions button.primary:hover {
+  background: var(--accent);
+  color: var(--accent-text);
+}
+
+.task-alert.many .alert-choices {
+  padding: 2px 8px 8px 64px;
+}
+
+.task-alert.many .alert-footer .alert-choices {
+  padding: 8px 0 0;
+}
+
+.task-alert.many .alert-choices button {
+  padding: 4px 11px;
+  font-size: 12.5px;
+}
+
 /* A task's fields in the editor */
 .cm-editor .lp-task-field {
   padding: 0 5px;
@@ -762,17 +932,87 @@
   color: var(--text);
 }
 
-/* As a tab of its own the list has room: larger text, wider rows. */
+.reminder-source {
+  display: none;
+}
+
+/* As a tab of its own the page is wide: the groups are cards side by side. */
 .panel-tab .reminders-panel {
-  font-size: 14.5px;
+  padding: 4px 4px 20px;
+  font-size: 14px;
+}
+
+.panel-tab .reminders-head {
+  position: sticky;
+  top: 0;
+  z-index: 2;
+  padding: 6px 2px 10px;
+  background: var(--bg);
+}
+
+.panel-tab .reminders-chip {
+  padding: 5px 13px;
+  font-size: 13.5px;
+}
+
+.panel-tab .reminders-groups {
+  columns: 380px;
+  column-gap: 14px;
+}
+
+.panel-tab .reminders-group {
+  margin-bottom: 14px;
+  padding: 4px 8px 8px;
+  break-inside: avoid;
+  border: 1px solid var(--border);
+  border-radius: var(--radius-l, 10px);
+  background: var(--bg-alt);
+}
+
+.panel-tab .reminders-group.overdue {
+  border-color: color-mix(in srgb, var(--color-red) 45%, var(--border));
+}
+
+.panel-tab .reminders-group h4 {
+  margin: 6px 4px 6px;
+  border-bottom: 0;
+  font-size: 12px;
 }
 
 .panel-tab .reminder-row {
-  padding: 6px 8px;
+  align-items: flex-start;
+  gap: 10px;
+  padding: 6px 6px;
+}
+
+.panel-tab .reminder-time {
+  min-width: 44px;
+  color: var(--text);
+  font-weight: 600;
+}
+
+.panel-tab .reminders-group.overdue .reminder-time {
+  min-width: 96px;
+  color: var(--color-red);
+  font-weight: 500;
+}
+
+.panel-tab .reminder-source {
+  display: block;
+  overflow: hidden;
+  color: var(--text-faint);
+  font-size: 11.5px;
+  text-overflow: ellipsis;
+  white-space: nowrap;
 }
 
 .panel-tab .reminder-tools {
   display: flex;
+  opacity: 0.35;
+}
+
+.panel-tab .reminder-row:hover .reminder-tools {
+  opacity: 1;
 }
 
 /* A reminder as a card in the corner instead of over the whole screen. */

@@ -1,5 +1,6 @@
 import { mount, unmount } from 'svelte'
 import { moment, Plugin, type SettingDef } from '../../api'
+import CalendarBoard from './CalendarBoard.svelte'
 import CalendarPanel from './CalendarPanel.svelte'
 import { PeriodicNotes, PERIODS, type Period } from './periodic'
 
@@ -49,6 +50,12 @@ export default class Calendar extends Plugin {
         type: 'toggle',
         default: false,
       },
+      { key: 'boardField', section: 'Календарь во вкладке', name: 'На какой день ставить задачу', type: 'select', default: 'happens', options: [{ value: 'happens', label: 'Срок, иначе план, иначе начало' }, { value: 'due', label: 'Срок 📅' }, { value: 'scheduled', label: 'Запланировано ⏳' }, { value: 'start', label: 'Начало 🛫' }] },
+      { key: 'boardTasks', section: 'Календарь во вкладке', name: 'Показывать задачи с датой из всех заметок', desc: 'Нужен плагин «Задачи»', type: 'toggle', default: true },
+      { key: 'boardNote', section: 'Календарь во вкладке', name: 'Показывать задачи из заметки дня', type: 'toggle', default: true },
+      { key: 'boardPlan', section: 'Календарь во вкладке', name: 'Показывать строки плана дня (со временем)', type: 'toggle', default: true },
+      { key: 'boardDone', section: 'Календарь во вкладке', name: 'Показывать выполненное', type: 'toggle', default: true },
+      { key: 'boardLines', section: 'Календарь во вкладке', name: 'Строк в клетке месяца', type: 'number', default: 5, min: 1, max: 20 },
       ...periodSettings,
     ])
     await this.importFromObsidian(false)
@@ -63,7 +70,8 @@ export default class Calendar extends Plugin {
       icon: 'M2.5 4h11v9.5h-11zM2.5 7h11M5.5 2.5v3M10.5 2.5v3',
       compact: true,
       mount: (target) => {
-        const panel = mount(CalendarPanel, { target, props: { app, plugin: this, notes } })
+        // In a sidebar: the small month. With the page to itself: the large calendar with the day's tasks.
+        const panel = mount(target.classList.contains('panel-tab') ? CalendarBoard : CalendarPanel, { target, props: { app, plugin: this, notes } })
         return () => void unmount(panel)
       },
     })

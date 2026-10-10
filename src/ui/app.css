@@ -644,8 +644,6 @@ input[type='checkbox']:disabled {
 .leaf-view.panel-tab {
   display: flex;
   flex-direction: column;
-  max-width: 980px;
-  margin: 0 auto;
   padding: 12px 20px 0;
 }
 

@@ -99,6 +99,14 @@ export async function run(t) {
   ok('in reading a note cannot be typed in or renamed', t.exists('Test.md') && read('Test.md') === beforeReading && (await page.locator('.view-header .reading-toggle.on').count()) === 1)
   ok('comments between %% are not shown where a note is read', !(await t.text()).includes('hidden inline') && !(await t.text()).includes('comment block') && /Seen\s+text\./.test(await t.text()) && (await t.text()).includes('After the block.'), (await t.text()).slice(-160))
   ok('and everything stays drawn, wherever the click falls', !(await t.text()).includes('**bold**') && (await count('.lp-block')) > 0)
+  const copied = await page.evaluate(() => {
+    const view = app.workspace.activeEditor
+    view.dispatch({ selection: { anchor: 0, head: view.state.doc.length } })
+    const data = new DataTransfer()
+    view.contentDOM.dispatchEvent(new ClipboardEvent('copy', { clipboardData: data, bubbles: true, cancelable: true }))
+    return data.getData('text/plain')
+  })
+  ok('what is copied where a note is read is its text, without the marks it is written with', copied.includes('Text with bold, italic, strike and code and *escaped*.') && copied.includes('A link and https://example.com here.') && /^item one$/m.test(copied) && /^todo$/m.test(copied) && /^Heading One$/m.test(copied) && !copied.includes('hidden inline') && copied.includes('const a = 1') && !copied.includes('```'), copied.slice(0, 400))
   await page.keyboard.press('Control+Shift+E')
   await wait(400)
   await t.cursorToEnd()

@@ -1,4 +1,5 @@
 import { autocompletion, completionKeymap } from '@codemirror/autocomplete'
+import { plainText } from './plain-text'
 import { defaultKeymap, history, historyKeymap, indentWithTab } from '@codemirror/commands'
 import { indentOnInput } from '@codemirror/language'
 import { Compartment, EditorState } from '@codemirror/state'
@@ -117,8 +118,8 @@ export class MarkdownView implements FileView {
       EditorView.editable.of(false),
       staticPreview.of(true),
       EditorView.editorAttributes.of({ class: 'reading' }),
-      // What is copied from a note being read is its text as it reads: the marks that only make a line
-      // a list item ("- ", "1. ", "- [ ] ") are how the list is written, not part of what it says.
+      // What is copied from a note being read is its text as it reads, not as it is written:
+      // a link is its visible words, a list item has no dash, bold has no asterisks.
       EditorView.domEventHandlers({
         copy: (event, view) => {
           const text = view.state.selection.ranges
@@ -126,7 +127,7 @@ export class MarkdownView implements FileView {
             .map((range) => view.state.sliceDoc(range.from, range.to))
             .join(view.state.lineBreak)
           if (!text || !event.clipboardData) return false
-          event.clipboardData.setData('text/plain', text.replace(/^([ \t]*)(?:[-*+]|\d+[.)])[ \t]+(?:\[.\][ \t]+)?/gm, '$1'))
+          event.clipboardData.setData('text/plain', plainText(text))
           event.preventDefault()
           return true
         },

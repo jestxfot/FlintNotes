@@ -390,42 +390,116 @@ export class Reminders {
       return el
     }
 
-    for (const one of due) {
-      const { key, task, at } = one
-      const item = list.appendChild(document.createElement('div'))
-      item.className = 'alert-task'
-      const text = item.appendChild(document.createElement('div'))
-      text.className = 'alert-text'
-      text.append(renderInline(app, task.description, task.path))
-      const when = item.appendChild(document.createElement('div'))
-      when.className = 'alert-when'
-      const time = at.toLocaleString('ru', { day: 'numeric', month: 'long', hour: '2-digit', minute: '2-digit' })
-      when.textContent = `${time} · ${paths.stripExt(paths.basename(task.path))}${task.heading ? ` › ${task.heading}` : ''}`
-      const actions = item.appendChild(document.createElement('div'))
-      actions.className = 'alert-actions'
-      actions.append(
-        // An ordinary line has no box to tick: its reminder is simply over.
-        button(task.plain ? '✓ Готово' : '✓ Выполнено', 'primary', () => {
-          this.acknowledge([key])
-          if (!task.plain) void this.store.toggle(task)
-        }),
-        // "Remind me later": the choices come from the settings.
-        ...this.laterOptions().map((option) => button(`Через ${option.label}`.replace(/^Через (через|завтра|послезавтра|in |tomorrow|next )/i, '$1').replace(/^./, (c) => c.toUpperCase()), 'later', () => this.later(one, option.at))),
-        button('Открыть заметку', '', () => {
-          this.acknowledge([key])
-          app.workspace.openFile(task.path, { line: task.line })
-        }),
-        button('Закрыть', '', () => this.acknowledge([key])),
-      )
-    }
-
+    const laterLabel = (label: string) => `Через ${label}`.replace(/^Через (через|завтра|послезавтра|in |tomorrow|next )/i, '$1').replace(/^./, (c) => c.toUpperCase())
     const keys = due.map((d) => d.key)
-    const footer = dialog.querySelector('.alert-footer')!
-    footer.replaceChildren(
-      button('Отложить все на 10 минут', '', () => this.snooze(keys, Date.now() + 10 * MINUTE)),
-      button('Закрыть все', '', () => this.acknowledge(keys)),
-    )
-    ;(footer as HTMLElement).hidden = due.length < 2
+    const footer = dialog.querySelector('.alert-footer') as HTMLElement
+    // Many at once are a list to go through, not a pile of cards: one line each, the days apart, and actions for all on top.
+    const many = due.length > 3 && !dialog.classList.contains('banner')
+    dialog.classList.toggle('many', many)
+    if (many) {
+      const icon = (name: string, label: string, className: string, action: () => void) => {
+        const el = button('', className, action)
+        el.title = label
+        el.setAttribute('aria-label', label)
+        el.append(app.icons.draw(name))
+        return el
+      }
+      /** The choices of "later" open as a row of their own under what they are for. */
+      const choices = (after: HTMLElement, pick: (at: Date) => void) => {
+        const open = after.nextElementSibling
+        list.querySelectorAll('.alert-choices').forEach((el) => el.remove())
+        footer.querySelectorAll('.alert-choices').forEach((el) => el.remove())
+        if (open?.classList.contains('alert-choices')) return
+        const row = document.createElement('div')
+        row.className = 'alert-choices'
+        row.append(...this.laterOptions().map((option) => button(laterLabel(option.label), 'later', () => pick(option.at))))
+        after.after(row)
+      }
+      const dayOf = (date: Date) => new Date(date.getFullYear(), date.getMonth(), date.getDate()).getTime()
+      const today = dayOf(new Date())
+      let group = NaN
+      for (const one of due) {
+        const { key, task, at } = one
+        if (dayOf(at) !== group) {
+          group = dayOf(at)
+          const days = Math.round((today - group) / 86_400_000)
+          const title = list.appendChild(document.createElement('h2'))
+          title.textContent = days === 0 ? 'Сегодня' : days === 1 ? 'Вчера' : at.toLocaleDateString('ru', { day: 'numeric', month: 'long', weekday: 'short' })
+          const count = title.appendChild(document.createElement('span'))
+          count.textContent = String(due.filter((other) => dayOf(other.at) === group).length)
+        }
+        const item = list.appendChild(document.createElement('div'))
+        item.className = 'alert-task'
+        const time = item.appendChild(document.createElement('span'))
+        time.className = 'alert-time'
+        time.textContent = at.toLocaleTimeString('ru', { hour: '2-digit', minute: '2-digit' })
+        const text = item.appendChild(document.createElement('div'))
+        text.className = 'alert-text'
+        // A line of the day plan says its hours itself; the time before it is enough.
+        text.append(renderInline(app, task.description.replace(/^\d{1,2}:\d{2}(?:\s*[-–—]\s*\d{1,2}:\d{2})?\s+(?=\S)/, ''), task.path))
+        const actions = item.appendChild(document.createElement('div'))
+        actions.className = 'alert-actions'
+        actions.append(
+          icon('check', task.plain ? 'Готово' : 'Выполнено', 'primary', () => {
+            this.acknowledge([key])
+            if (!task.plain) void this.store.toggle(task)
+          }),
+          icon('alarm-clock', 'Напомнить позже', '', () => choices(item, (when) => this.later(one, when))),
+          icon('file-text', 'Открыть заметку', '', () => {
+            this.acknowledge([key])
+            app.workspace.openFile(task.path, { line: task.line })
+          }),
+          icon('x', 'Закрыть', '', () => this.acknowledge([key])),
+        )
+      }
+      const bar = document.createElement('div')
+      bar.className = 'alert-bar'
+      bar.append(
+        button('✓ Выполнить все', 'primary', async () => {
+          this.acknowledge(keys)
+          // One after another: several of them may be lines of the same note.
+          for (const { task } of due) if (!task.plain) await this.store.toggle(task)
+        }),
+        button('Отложить все…', '', () => choices(bar, (when) => this.snooze(keys, when.getTime()))),
+        button('Закрыть все', '', () => this.acknowledge(keys)),
+      )
+      footer.replaceChildren(bar)
+      footer.hidden = false
+    } else {
+      for (const one of due) {
+        const { key, task, at } = one
+        const item = list.appendChild(document.createElement('div'))
+        item.className = 'alert-task'
+        const text = item.appendChild(document.createElement('div'))
+        text.className = 'alert-text'
+        text.append(renderInline(app, task.description, task.path))
+        const when = item.appendChild(document.createElement('div'))
+        when.className = 'alert-when'
+        const time = at.toLocaleString('ru', { day: 'numeric', month: 'long', hour: '2-digit', minute: '2-digit' })
+        when.textContent = `${time} · ${paths.stripExt(paths.basename(task.path))}${task.heading ? ` › ${task.heading}` : ''}`
+        const actions = item.appendChild(document.createElement('div'))
+        actions.className = 'alert-actions'
+        actions.append(
+          // An ordinary line has no box to tick: its reminder is simply over.
+          button(task.plain ? '✓ Готово' : '✓ Выполнено', 'primary', () => {
+            this.acknowledge([key])
+            if (!task.plain) void this.store.toggle(task)
+          }),
+          // "Remind me later": the choices come from the settings.
+          ...this.laterOptions().map((option) => button(laterLabel(option.label), 'later', () => this.later(one, option.at))),
+          button('Открыть заметку', '', () => {
+            this.acknowledge([key])
+            app.workspace.openFile(task.path, { line: task.line })
+          }),
+          button('Закрыть', '', () => this.acknowledge([key])),
+        )
+      }
+      footer.replaceChildren(
+        button('Отложить все на 10 минут', '', () => this.snooze(keys, Date.now() + 10 * MINUTE)),
+        button('Закрыть все', '', () => this.acknowledge(keys)),
+      )
+      footer.hidden = due.length < 2
+    }
     dialog.querySelector('h1')!.textContent = due.length > 1 ? `Напоминания: ${due.length}` : 'Напоминание'
     dialog.querySelector('.alert-clock')!.textContent = new Date().toLocaleTimeString('ru', { hour: '2-digit', minute: '2-digit' })
 
