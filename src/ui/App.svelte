@@ -620,9 +620,9 @@
     position: relative;
     display: flex;
     align-items: center;
-    flex: 0 1 200px;
+    flex: 0 1 220px;
     align-self: stretch;
-    min-width: 90px;
+    min-width: 72px;
     border-radius: var(--radius-l) var(--radius-l) 0 0;
     color: var(--text-muted);
   }
@@ -773,14 +773,25 @@
     font-size: 11px;
   }
 
+  /* The name has the whole tab: the close button lies over its end and only where it is shown.
+     A name too long for the tab fades out at the edge instead of losing three letters to dots. */
   .tab-title {
     flex: 1;
     min-width: 0;
-    padding: 0 4px 0 12px;
+    padding: 0 8px 0 10px;
     overflow: hidden;
     text-align: left;
-    text-overflow: ellipsis;
     white-space: nowrap;
+    mask-image: linear-gradient(to right, #000 calc(100% - 18px), transparent calc(100% - 4px));
+  }
+
+  .tab.active .tab-title,
+  .tab:hover .tab-title {
+    mask-image: linear-gradient(to right, #000 calc(100% - 42px), transparent calc(100% - 24px));
+  }
+
+  .tab.compact .tab-title {
+    mask-image: none;
   }
 
   .tab-icon {
@@ -791,7 +802,10 @@
   }
 
   .tab-close {
-    margin-right: 6px;
+    position: absolute;
+    top: 50%;
+    right: 5px;
+    translate: 0 -50%;
     padding: 0 5px;
     border-radius: var(--radius-s);
     color: var(--text-faint);
