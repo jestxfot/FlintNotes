@@ -1,4 +1,5 @@
 // Bases: notes as records, with filters, formulas, four view types and editing that writes back.
+import { day } from '../helpers.mjs'
 const LIBRARY = `# Library
 
 \`\`\`base
@@ -54,6 +55,11 @@ export const viewport = { width: 1400, height: 1000 }
 export const vault = {
   plugins: ['bases', 'links'],
   files: {
+    // Notes of the TaskNotes plugin and its view types, as it writes them.
+    'TaskNotes/Tasks/Write intro.md': `---\ntitle: Write intro\nstatus: open\npriority: high\ndue: ${day()}\ntags:\n  - task\n---\n`,
+    'TaskNotes/Tasks/Fix login.md': `---\ntitle: Fix login\nstatus: in-progress\npriority: normal\ndue: ${day(1)}\ntags:\n  - task\n---\n`,
+    'TaskNotes/Tasks/Ship it.md': `---\ntitle: Ship it\nstatus: done\npriority: low\ndue: ${day(-1)}\ntags:\n  - task\n---\n`,
+    'TaskNotes/Views/tasks.base': 'filters:\n  and:\n    - file.hasTag("task")\nviews:\n  - type: tasknotesTaskList\n    name: "All Tasks"\n    order:\n      - status\n      - due\n    sort:\n      - column: tasknotes_manual_order\n        direction: DESC\n  - type: tasknotesKanban\n    name: "Board"\n    groupBy:\n      property: status\n      direction: ASC\n  - type: tasknotesCalendar\n    name: "Calendar"\n    options:\n      calendarView: "timeGridWeek"\n  - type: tasknotesMiniCalendar\n    name: "Due"\n',
     'Books/Dune.md': '---\nstatus: reading\nprice: 12.5\nrating: 5\ndue: 2026-12-01\nowned: true\nauthor: "[[Herbert]]"\ntags: [book, scifi]\n---\n# Dune\n',
     'Books/Emma.md': '---\nstatus: done\nprice: 8\nrating: 4\nowned: false\ntags: [book]\n---\n# Emma\n',
     'Books/Ulysses.md': '---\nstatus: todo\nprice: 20\ntags: [book]\n---\n# Ulysses\n',
@@ -309,4 +315,23 @@ export async function run(t) {
   await wait(900)
   const widths = await page.evaluate(() => [document.querySelector('.leaf:not([hidden]) .base-file').getBoundingClientRect().width, document.querySelector('.leaf:not([hidden])').getBoundingClientRect().width])
   ok('a base opened in a tab takes the whole page', widths[0] > widths[1] - 40, widths.join(' of '))
+
+  // ---- the view types of the TaskNotes plugin open with the layouts there are here
+  const tasksBase = 'TaskNotes/Views/tasks.base'
+  const tasksBefore = read(tasksBase)
+  await page.evaluate((file) => app.workspace.openFile(file), tasksBase)
+  await wait(1200)
+  const tasks = page.locator(`${t.leaf} .base-file`)
+  const pick = async (name) => {
+    await tasks.locator('.base-view-switch').click()
+    await tasks.locator('[role=tab]', { hasText: name }).first().click()
+    await wait(700)
+  }
+  ok('a TaskNotes task list shows its task notes as a list', (await tasks.locator('.base-error').count()) === 0 && /Write intro/.test(await t.flat(tasks)) && /Fix login/.test(await t.flat(tasks)) && /Ship it/.test(await t.flat(tasks)), await t.flat(tasks))
+  await pick('Board')
+  ok('a TaskNotes kanban is a board with a column for each status', (await tasks.locator('.base-error').count()) === 0 && (await tasks.locator('.base-board-column, .base-column').count()) >= 3, await t.flat(tasks))
+  await pick('Calendar')
+  ok('a TaskNotes calendar puts the tasks on their due days', (await tasks.locator('.base-error').count()) === 0 && (await tasks.locator('.base-calendar-grid').count()) === 1 && /Write intro/.test(await t.flat(tasks)), await t.flat(tasks))
+  ok('the file keeps the types of TaskNotes, for Obsidian', read(tasksBase).includes('type: tasknotesKanban') && read(tasksBase).split('type: tasknotes').length === tasksBefore.split('type: tasknotes').length)
+
 }

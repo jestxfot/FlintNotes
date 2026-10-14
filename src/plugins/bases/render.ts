@@ -75,6 +75,23 @@ function formatCondition({ subject, op, value }: Condition): string {
   return `${subject} ${bare} ${/^-?\d+(?:\.\d+)?$|^(true|false)$/.test(value.trim()) ? value.trim() : quoted}`
 }
 
+/**
+ * Views of the TaskNotes plugin for Obsidian, drawn with the layouts there are
+ * here. The file keeps its own types, so Obsidian still shows them its way.
+ */
+const TASKNOTES: Record<string, { type: string; date?: string }> = {
+  tasknotesTaskList: { type: 'list' },
+  tasknotesKanban: { type: 'board' },
+  tasknotesCalendar: { type: 'calendar', date: 'due' },
+  tasknotesMiniCalendar: { type: 'calendar', date: 'due' },
+}
+
+function drawnAs(view: ViewConfig): ViewConfig {
+  const as = TASKNOTES[view.type]
+  if (!as) return view
+  return { ...view, type: as.type, date: typeof view.date === 'string' && view.date ? view.date : as.date }
+}
+
 const VIEW_ICONS: Record<string, string> = { table: 'table', cards: 'layout-grid', list: 'list', board: 'kanban', calendar: 'calendar-days' }
 
 export interface BaseHost {
@@ -186,7 +203,7 @@ export function mountBase(el: HTMLElement, host: BaseHost, initial: string): Mou
     }
     const views = viewsOf(config)
     active = Math.min(active, views.length - 1)
-    const view = views[active]
+    const view = drawnAs(views[active])
     // Working the records out is the heavy part. It is done again only when the base's text, the view
     // or some note has changed, not for every opening of a panel, search or next part of the list.
     const stamp = `${app.metadata.generation}\n${active}\n${source}`
@@ -302,7 +319,7 @@ export function mountBase(el: HTMLElement, host: BaseHost, initial: string): Mou
       'div',
       { class: 'base-body' },
       !render
-        ? h('div', { class: 'base-error' }, `Неизвестный тип представления «${view.type}». Доступны: table, cards, list, board, calendar.`)
+        ? h('div', { class: 'base-error' }, `Неизвестный тип представления «${view.type}». Доступны: table, cards, list, board, calendar, а также виды TaskNotes.`)
         : shown.rows.length
           ? render(ctx)
           : h('div', { class: 'base-empty' }, needle ? 'Ничего не найдено.' : 'Под условия базы не подходит ни одна заметка.'),
@@ -388,7 +405,7 @@ export function mountBase(el: HTMLElement, host: BaseHost, initial: string): Mou
                 draw()
               },
             },
-            app.icons.draw(VIEW_ICONS[v.type] ?? 'table'),
+            app.icons.draw(VIEW_ICONS[drawnAs(v).type] ?? 'table'),
             v.name ?? viewLabel(v.type),
           ),
           h('a', { class: 'base-view-edit', title: 'Настроить представление', onclick: () => ((active = i), (open = 'view'), draw()) }, '›'),
