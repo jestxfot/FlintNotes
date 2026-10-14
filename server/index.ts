@@ -12,6 +12,7 @@ import os from 'node:os'
 import path from 'node:path'
 import { fileURLToPath } from 'node:url'
 import type { ExternalPluginInfo, RemoteEvent, VaultEntry, VaultInfo } from '../shared/protocol'
+import { TreeCache } from './tree-cache'
 
 const port = Number(process.env.FLINT_PORT ?? 4600)
 
@@ -101,6 +102,9 @@ function resolveInVault(rel: string | undefined, allowRoot = false): string {
 }
 
 const target = (c: Context) => resolveInVault(c.req.query('path'))
+
+/** The lists of the vaults' files, kept current by their watchers. */
+const trees = new TreeCache((dir) => walk(dir))
 
 async function walk(dir: string): Promise<VaultEntry[]> {
   const dirents = (await fs.readdir(dir, { withFileTypes: true })).filter(
@@ -248,16 +252,17 @@ api.post('/vaults/forget', async (c) => {
   config.vaults = config.vaults.filter((v) => v !== dir)
   void watchers.get(dir)?.close()
   watchers.delete(dir)
+  trees.forget(dir)
   await remember()
   return c.json(config.vaults.map(vaultInfo))
 })
 
-api.get('/tree', async (c) => c.json(await walk(root())))
+api.get('/tree', async (c) => c.json(await trees.list(root())))
 
 // Every note's text in one response, one JSON object per line. The app reads
 // this once at start to build its index; a request per note would be far slower.
 api.get('/notes', async (c) => {
-  const notes = (await walk(root())).filter((entry) => entry.kind === 'file' && entry.path.toLowerCase().endsWith('.md'))
+  const notes = (await trees.list(root())).filter((entry) => entry.kind === 'file' && entry.path.toLowerCase().endsWith('.md'))
   c.header('content-type', 'application/x-ndjson; charset=utf-8')
   c.header('cache-control', 'no-store')
   return stream(c, async (out) => {
@@ -622,12 +627,17 @@ function watch(dir: string): void {
     chokidar.watch(dir, { ignored: isHidden, ignoreInitial: true, usePolling: needsPolling(dir), interval: 1000, binaryInterval: 3000 }).on('all', async (event, abs) => {
       if (abs === dir) return
       if (event === 'unlink' || event === 'unlinkDir') {
+        trees.remove(dir, toRel(abs, dir))
         broadcast(dir, { type: 'delete', path: toRel(abs, dir) })
         return
       }
       const stat = await fs.stat(abs).catch(() => null)
-      if (stat) broadcast(dir, { type: 'upsert', entry: toEntry(abs, stat, dir) })
-    }),
+      if (!stat) return
+      const entry = toEntry(abs, stat, dir)
+      trees.upsert(dir, entry)
+      broadcast(dir, { type: 'upsert', entry })
+    })
+      .on('ready', () => trees.ready(dir)),
   )
 }
 
