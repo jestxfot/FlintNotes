@@ -5,7 +5,7 @@ const today = day()
 export const viewport = { width: 1600, height: 1000 }
 export const vault = {
   plugins: ['calendar', 'tasks'],
-  settings: { tasks: { remindDue: false, planner: false, sound: false }, calendar: { confirm: false } },
+  settings: { tasks: { remindDue: false, planner: false, sound: false }, calendar: { confirm: false, boardLines: 8 } },
   files: {
     '.obsidian/app.json': '{}',
     [`${today}.md`]: `# Day planner\n- [x] 08:00 - 08:30 Coffee ✅ ${today}\n- [ ] 09:00 - 11:00 Deep work\n- 13:00 Lunch\n- [ ] Buy milk\n\n\`\`\`\n- [ ] 05:00 not a line\n\`\`\`\n`,
