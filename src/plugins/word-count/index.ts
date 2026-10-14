@@ -33,9 +33,14 @@ export default class WordCount extends Plugin {
     this.addSettings([
       { key: 'characters', name: 'Показывать число символов', type: 'toggle', default: false },
     ])
+    // Counting a long note takes a while; while typing goes on it is counted once, when the typing pauses.
+    let later: ReturnType<typeof setTimeout> | undefined
+    this.register(() => clearTimeout(later))
     this.registerEditorExtension(
       cm.view.EditorView.updateListener.of((update) => {
-        if (update.docChanged && update.view === this.app.workspace.activeEditor) render()
+        if (!update.docChanged || update.view !== this.app.workspace.activeEditor) return
+        clearTimeout(later)
+        later = setTimeout(render, update.state.doc.length > 20_000 ? 400 : 120)
       }),
     )
     this.register(this.app.workspace.on('active-change', render))
