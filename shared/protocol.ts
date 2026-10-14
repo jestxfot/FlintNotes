@@ -13,6 +13,8 @@ export interface VaultEntry {
 export type RemoteEvent =
   | { type: 'upsert'; entry: VaultEntry }
   | { type: 'delete'; path: string }
+  /** First on every connection: the build of the server, so a page from an older one knows to reload. */
+  | { type: 'hello'; build: string }
 
 /** A folder the user has opened as a vault. */
 export interface VaultInfo {

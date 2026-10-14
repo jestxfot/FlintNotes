@@ -6,15 +6,15 @@ import { stream, streamSSE } from 'hono/streaming'
 import { AsyncLocalStorage } from 'node:async_hooks'
 import { exec, execFile, spawn } from 'node:child_process'
 import { lookup } from 'node:dns/promises'
-import { existsSync, type Stats } from 'node:fs'
+import { existsSync, readFileSync, watch as fsWatch, type Stats } from 'node:fs'
 import fs from 'node:fs/promises'
+import type { Server } from 'node:http'
+import net from 'node:net'
 import os from 'node:os'
 import path from 'node:path'
 import { fileURLToPath } from 'node:url'
 import type { ExternalPluginInfo, RemoteEvent, VaultEntry, VaultInfo } from '../shared/protocol'
 import { TreeCache } from './tree-cache'
-
-const port = Number(process.env.FLINT_PORT ?? 4600)
 
 // The vaults the user has opened are remembered between runs, outside any vault.
 const CONFIG = process.env.FLINT_CONFIG ?? path.join(os.homedir(), '.flintnotes.json')
@@ -22,6 +22,8 @@ const CONFIG = process.env.FLINT_CONFIG ?? path.join(os.homedir(), '.flintnotes.
 interface Config {
   vaults: string[]
   current?: string
+  /** The port the server listens on; chosen in the settings. */
+  port?: number
   /** Programs that templates of a vault may run, by vault folder; see `/system-commands`. */
   systemCommands?: Record<string, SystemCommands>
 }
@@ -39,6 +41,7 @@ async function readConfig(): Promise<Config> {
     return {
       vaults: Array.isArray(data.vaults) ? data.vaults.filter((v: unknown) => typeof v === 'string') : [],
       current: data.current,
+      port: validPort(data.port) ? data.port : undefined,
       systemCommands: data.systemCommands && typeof data.systemCommands === 'object' ? data.systemCommands : undefined,
     }
   } catch {
@@ -46,7 +49,13 @@ async function readConfig(): Promise<Config> {
   }
 }
 
+const DEFAULT_PORT = 4600
+const validPort = (value: unknown): value is number => Number.isInteger(value) && (value as number) >= 1024 && (value as number) <= 65535
+
 const config = await readConfig()
+// FLINT_PORT (tests, development) wins over the port chosen in the settings; then that port can not be changed from the app.
+const fixedPort = process.env.FLINT_PORT ? Number(process.env.FLINT_PORT) : undefined
+let port = fixedPort ?? config.port ?? DEFAULT_PORT
 // A vault named on the command line wins over the one used last time.
 let defaultRoot = path.resolve(process.argv[2] ?? process.env.FLINT_VAULT ?? config.current ?? 'vault')
 /**
@@ -106,15 +115,24 @@ const target = (c: Context) => resolveInVault(c.req.query('path'))
 /** The lists of the vaults' files, kept current by their watchers. */
 const trees = new TreeCache((dir) => walk(dir))
 
-async function walk(dir: string): Promise<VaultEntry[]> {
-  const dirents = (await fs.readdir(dir, { withFileTypes: true })).filter(
-    (d) => !d.name.startsWith('.') && (d.isDirectory() || d.isFile()),
-  )
+/**
+ * Every file and folder under `dir`, with paths relative to the vault `base`. What the system will
+ * not let us read (a protected folder, a file held open by another program, a cloud placeholder on
+ * Windows) is left out instead of failing the whole vault; only the vault's own folder must be readable.
+ */
+async function walk(dir: string, base = dir): Promise<VaultEntry[]> {
+  const listed = await fs.readdir(dir, { withFileTypes: true }).catch((err) => {
+    if (dir === base) throw err
+    return []
+  })
+  const dirents = listed.filter((d) => !d.name.startsWith('.') && (d.isDirectory() || d.isFile()))
   const nested = await Promise.all(
     dirents.map(async (d) => {
       const abs = path.join(dir, d.name)
-      const self = toEntry(abs, await fs.stat(abs))
-      return d.isDirectory() ? [self, ...(await walk(abs))] : [self]
+      const stat = await fs.stat(abs).catch(() => null)
+      if (!stat) return []
+      const self = toEntry(abs, stat, base)
+      return d.isDirectory() ? [self, ...(await walk(abs, base))] : [self]
     }),
   )
   return nested.flat()
@@ -415,8 +433,10 @@ const AUTOSTART_DIR = process.env.FLINT_AUTOSTART_DIR
 function autostart(): { file: string; text: string; encoding: BufferEncoding } | { reason: string } {
   const script = process.argv[1] ? path.resolve(process.argv[1]) : ''
   if (!script) return { reason: 'Не удалось определить, откуда запущен сервер' }
-  // The same Node and the same server file as now; the vault is the one opened last, so no folder is named.
-  const command = [process.execPath, ...process.execArgv, script]
+  // The same Node and the same program as now; the vault is the one opened last, so no folder is named.
+  // Started by the launcher, the launcher itself: it keeps the server up and puts new builds in place.
+  const launcher = process.env.FLINT_LAUNCHER
+  const command = launcher ? [process.execPath, launcher] : [process.execPath, ...process.execArgv, script]
   if (process.platform === 'win32') {
     const dir = AUTOSTART_DIR ?? path.join(process.env.APPDATA ?? path.join(os.homedir(), 'AppData', 'Roaming'), 'Microsoft', 'Windows', 'Start Menu', 'Programs', 'Startup')
     // A script for Windows Script Host: it starts the server with no window. Doubled quotes are how VBScript writes a quote.
@@ -432,7 +452,7 @@ function autostart(): { file: string; text: string; encoding: BufferEncoding } |
       encoding: 'utf8',
     }
   }
-  if (!AUTOSTART_DIR && /microsoft/i.test(os.release())) return { reason: 'Сервер запущен внутри WSL: автозапуск настраивается в самой Windows (запустите FlintNotes.bat и включите настройку там)' }
+  if (!AUTOSTART_DIR && /microsoft/i.test(os.release())) return { reason: 'Сервер запущен внутри WSL: автозапуск настраивается в самой Windows (запустите FlintNotes.vbs и включите настройку там)' }
   const dir = AUTOSTART_DIR ?? path.join(process.env.XDG_CONFIG_HOME ?? path.join(os.homedir(), '.config'), 'autostart')
   const quoted = command.map((part) => `"${part.replace(/(["\\$`])/g, '\\$1')}"`).join(' ')
   return { file: path.join(dir, 'flintnotes.desktop'), text: `[Desktop Entry]\nType=Application\nName=FlintNotes\nComment=Сервер заметок FlintNotes\nExec=${quoted}\nTerminal=false\nX-GNOME-Autostart-enabled=true\n`, encoding: 'utf8' }
@@ -455,6 +475,30 @@ api.post('/autostart', async (c) => {
     await fs.writeFile(entry.file, entry.encoding === 'utf16le' ? Buffer.concat([Buffer.from([0xff, 0xfe]), Buffer.from(entry.text, 'utf16le')]) : entry.text)
   } else await fs.rm(entry.file, { force: true })
   return c.json({ supported: true, enabled, file: entry.file })
+})
+
+// ---- the port: chosen in the settings, kept in the config with the vaults
+api.get('/port', (c) => c.json({ port, fixed: fixedPort !== undefined }))
+
+const isFree = (wanted: number) =>
+  new Promise<boolean>((resolve) => {
+    const probe = net.createServer()
+    probe.once('error', () => resolve(false))
+    probe.listen(wanted, '127.0.0.1', () => probe.close(() => resolve(true)))
+  })
+
+api.post('/port', async (c) => {
+  const origin = c.req.header('origin')
+  if (!origin || new URL(origin).host !== c.req.header('host')) throw new HTTPException(403, { message: 'Только со страницы самого приложения' })
+  const wanted = Number(((await c.req.json()) as { port?: unknown }).port)
+  if (fixedPort !== undefined) throw new HTTPException(400, { message: `Порт задан при запуске (FLINT_PORT=${fixedPort}) и отсюда не меняется` })
+  if (!validPort(wanted)) throw new HTTPException(400, { message: 'Порт — целое число от 1024 до 65535' })
+  if (wanted !== port && !(await isFree(wanted))) throw new HTTPException(409, { message: `Порт ${wanted} занят другой программой` })
+  config.port = wanted
+  await remember()
+  // The answer leaves first; then the server moves, and the page follows it to the new address.
+  if (wanted !== port) setTimeout(() => listenOn(wanted), 200)
+  return c.json({ port: wanted })
 })
 
 // ---- what a web page says about itself, for link cards
@@ -599,6 +643,8 @@ api.get('/events', (c) => {
     const listeners = clients.get(dir) ?? clients.set(dir, new Set()).get(dir)!
     listeners.add(send)
     stream.onAbort(() => void listeners.delete(send))
+    // Which build answers: a page made by an older one reloads itself (see the launcher).
+    send({ type: 'hello', build: BUILD })
     while (!stream.aborted && !stream.closed) {
       await stream.sleep(30_000)
       await stream.writeSSE({ event: 'ping', data: '' })
@@ -612,42 +658,105 @@ const broadcast = (dir: string, event: RemoteEvent) => clients.get(dir)?.forEach
 // Windows drives mounted into WSL (/mnt/c, ...) deliver no file events, so poll there.
 const needsPolling = (dir = root()) => (process.env.FLINT_POLL ? process.env.FLINT_POLL !== '0' : /^\/mnt\/[a-z]\//.test(`${dir}/`))
 
-const watchers = new Map<string, ReturnType<typeof chokidar.watch>>()
+const watchers = new Map<string, { close(): unknown }>()
+
+const isHiddenIn = (dir: string, abs: string) =>
+  path
+    .relative(dir, abs)
+    .split(path.sep)
+    .some((part) => part.startsWith('.'))
 
 /** Follows changes in a vault's folder, from the first time the vault is asked for. */
 function watch(dir: string): void {
   if (watchers.has(dir)) return
-  const isHidden = (abs: string) =>
-    path
-      .relative(dir, abs)
-      .split(path.sep)
-      .some((part) => part.startsWith('.'))
-  watchers.set(
-    dir,
-    chokidar.watch(dir, { ignored: isHidden, ignoreInitial: true, usePolling: needsPolling(dir), interval: 1000, binaryInterval: 3000 }).on('all', async (event, abs) => {
+  // FLINT_WATCH=native tries the Windows way elsewhere too (tests on Linux).
+  const native = process.env.FLINT_WATCH === 'native' || ((process.platform === 'win32' || process.platform === 'darwin') && !needsPolling(dir))
+  watchers.set(dir, native ? watchNatively(dir) : watchWithChokidar(dir))
+}
+
+const upsert = (dir: string, entry: VaultEntry) => {
+  trees.upsert(dir, entry)
+  broadcast(dir, { type: 'upsert', entry })
+}
+const remove = (dir: string, rel: string) => {
+  trees.remove(dir, rel)
+  broadcast(dir, { type: 'delete', path: rel })
+}
+
+// A folder that cannot be watched (no access; on Windows also a watched folder being deleted)
+// only loses its live updates. Unhandled, this error would stop the whole server.
+const watchFailed = (dir: string) => (err: unknown) => {
+  const code = (err as NodeJS.ErrnoException).code
+  if (code === 'EPERM' || code === 'EACCES' || code === 'EBUSY' || code === 'ENOENT') return
+  console.error(`Слежение за папкой ${dir}:`, err)
+}
+
+/**
+ * Windows and macOS watch a whole tree by themselves: one handle, ready at once. Chokidar would
+ * first look at every file and set a watcher on each, which in a vault of tens of thousands of
+ * files keeps the server busy for minutes, and the page waits all that time.
+ */
+function watchNatively(dir: string): { close(): unknown } {
+  // The system reports a write several times over; each path is looked at once things settle.
+  const pending = new Map<string, NodeJS.Timeout>()
+  const look = async (abs: string) => {
+    pending.delete(abs)
+    const rel = toRel(abs, dir)
+    const stat = await fs.stat(abs).catch(() => null)
+    if (!stat) return remove(dir, rel)
+    upsert(dir, toEntry(abs, stat, dir))
+    // A folder moved in from elsewhere comes as one event, without its contents.
+    if (stat.isDirectory()) for (const entry of await walk(abs, dir)) upsert(dir, entry)
+  }
+  const watcher = fsWatch(dir, { recursive: true }, (_event, name) => {
+    if (!name) return
+    const abs = path.join(dir, name.toString())
+    if (isHiddenIn(dir, abs)) return
+    clearTimeout(pending.get(abs))
+    pending.set(abs, setTimeout(() => void look(abs).catch(watchFailed(dir)), 100))
+  })
+  watcher.on('error', watchFailed(dir))
+  // There is no first look to wait for: the list of files is walked once, when first asked for.
+  trees.ready(dir)
+  return watcher
+}
+
+/** Elsewhere (Linux, and Windows drives under WSL, which have to be polled) chokidar does the watching. */
+function watchWithChokidar(dir: string): { close(): unknown } {
+  return chokidar
+    .watch(dir, { ignored: (abs: string) => isHiddenIn(dir, abs), ignoreInitial: true, usePolling: needsPolling(dir), interval: 1000, binaryInterval: 3000 })
+    .on('all', async (event, abs) => {
       if (abs === dir) return
-      if (event === 'unlink' || event === 'unlinkDir') {
-        trees.remove(dir, toRel(abs, dir))
-        broadcast(dir, { type: 'delete', path: toRel(abs, dir) })
-        return
-      }
+      if (event === 'unlink' || event === 'unlinkDir') return remove(dir, toRel(abs, dir))
       const stat = await fs.stat(abs).catch(() => null)
-      if (!stat) return
-      const entry = toEntry(abs, stat, dir)
-      trees.upsert(dir, entry)
-      broadcast(dir, { type: 'upsert', entry })
+      if (stat) upsert(dir, toEntry(abs, stat, dir))
     })
-      .on('ready', () => trees.ready(dir)),
-  )
+    .on('ready', () => trees.ready(dir))
+    .on('error', watchFailed(dir))
 }
 
 watch(defaultRoot)
 
 const app = new Hono()
 
+/** Requests that change something, still being answered: a server stepping aside lets them finish. */
+let writes = 0
+app.use(async (c, next) => {
+  if (c.req.method === 'GET' || c.req.method === 'HEAD') return next()
+  writes++
+  try {
+    await next()
+  } finally {
+    writes--
+  }
+})
+
 app.onError((err, c) => {
   if (err instanceof HTTPException) return c.text(err.message, err.status)
   if ((err as NodeJS.ErrnoException).code === 'ENOENT') return c.text('File not found', 404)
+  // The page went away while sending (a tab closed or reloaded mid-save; on Windows the browser
+  // drops the connection outright). Nobody is left to answer, and the server is fine.
+  if (c.req.raw.signal.aborted || (err as NodeJS.ErrnoException).code === 'ECONNRESET') return c.body(null, 499 as 400)
   console.error(err)
   return c.text(err.message, 500)
 })
@@ -656,6 +765,14 @@ app.route('/api', api)
 
 // The built app: next to this file in a release, in `dist` when run from the sources.
 const here = path.dirname(fileURLToPath(import.meta.url))
+/** The build this server belongs to: `npm run release` writes it next to the server last. From the sources, `dev`. */
+const BUILD: string = (() => {
+  try {
+    return JSON.parse(readFileSync(path.join(here, 'build.json'), 'utf8')).id
+  } catch {
+    return 'dev'
+  }
+})()
 // FLINT_STATIC points at another build, e.g. an unminified one for profiling.
 const staticDir = [process.env.FLINT_STATIC ?? '', path.join(here, 'public'), path.resolve('dist')].find((dir) => dir && existsSync(path.join(dir, 'index.html')))
 
@@ -674,37 +791,44 @@ app.get('*', async (c) => {
   })
 })
 
-const openBrowser = (url: string) => {
-  const [command, args] = process.platform === 'win32' ? ['cmd', ['/c', 'start', '', url]] : process.platform === 'darwin' ? ['open', [url]] : ['xdg-open', [url]]
-  spawn(command, args, { stdio: 'ignore', detached: true }).on('error', () => {})
-}
-
 const server = serve({ fetch: app.fetch, port, hostname: '127.0.0.1' }, () => {
-  const url = `http://localhost:${port}`
-  console.log(`FlintNotes: ${url}`)
+  console.log(`FlintNotes: http://localhost:${port}`)
   console.log(`Хранилище: ${defaultRoot}${needsPolling(defaultRoot) ? ' (опрос изменений)' : ''}`)
   if (!staticDir) console.log('Приложение не собрано: выполните `npm run build` или запустите `npm run dev`.')
-  // The launchers set FLINT_OPEN so the app appears in the browser once it is ready.
-  if (process.env.FLINT_OPEN) openBrowser(url)
-})
+}) as Server
 
-// The port is taken: most likely FlintNotes is running already (started with the computer).
-// Then the launcher only has to show it, not to fail.
+/** Moves the server to another port: the pages open now lose their connection and go to the new address themselves. */
+function listenOn(next: number): void {
+  port = next
+  server.close(() => server.listen(port, '127.0.0.1', () => console.log(`FlintNotes теперь на http://localhost:${port}`)))
+  server.closeAllConnections()
+}
+
+// The port is taken: most likely FlintNotes is running already (started with the computer or a second
+// double-click). Then there is nothing to do; the one that runs serves the notes.
 server.on('error', (err: NodeJS.ErrnoException) => {
   if (err.code !== 'EADDRINUSE') throw err
   const url = `http://localhost:${port}`
   void fetch(`${url}/api/autostart`, { signal: AbortSignal.timeout(3000) })
     .then((res) => res.json())
-    .then(
-      (answer: { supported?: unknown }) => {
-        if (typeof answer?.supported !== 'boolean') throw new Error('not FlintNotes')
-        console.log(`FlintNotes уже запущен: ${url}`)
-        if (process.env.FLINT_OPEN) openBrowser(url)
-        setTimeout(() => process.exit(0), 300)
-      },
-    )
+    .then((answer: { supported?: unknown }) => {
+      if (typeof answer?.supported !== 'boolean') throw new Error('not FlintNotes')
+      console.log(`FlintNotes уже запущен: ${url}`)
+      setTimeout(() => process.exit(0), 300)
+    })
     .catch(() => {
-      console.error(`Порт ${port} занят другой программой. Задайте другой: FLINT_PORT=4601`)
+      console.error(`Порт ${port} занят другой программой. Укажите другой в ${CONFIG}: "port": 4601`)
       process.exit(1)
     })
 })
+
+// ---- stepping aside: the launcher (release/launcher.mjs) asks for it when a new build is ready
+async function stop(): Promise<void> {
+  server.close()
+  // Saves that have begun are let finish: a note cut off mid-write would be lost.
+  for (const until = Date.now() + 5000; writes > 0 && Date.now() < until; ) await new Promise((resume) => setTimeout(resume, 50))
+  process.exit(0)
+}
+process.on('message', (message) => message === 'stop' && void stop())
+// The launcher is gone (stopped, or the user signed out): the server goes with it instead of holding the port.
+process.on('disconnect', () => void stop())

@@ -46,7 +46,7 @@ export class ServerDown extends Error {
 }
 
 /** Whether the server answers, for everyone who would otherwise each report the same failure. */
-export const connection = Object.assign(new Events<{ change: [online: boolean] }>(), { online: true })
+export const connection = Object.assign(new Events<{ change: [online: boolean]; build: [build: string] }>(), { online: true })
 function setOnline(online: boolean): void {
   if (connection.online === online) return
   connection.online = online
@@ -114,7 +114,8 @@ export class Vault extends Events<VaultEvents> {
     source.onerror = () => setOnline(false)
     source.onmessage = (message) => {
       const event: RemoteEvent = JSON.parse(message.data)
-      if (event.type === 'upsert') this.upsert(event.entry)
+      if (event.type === 'hello') connection.trigger('build', event.build)
+      else if (event.type === 'upsert') this.upsert(event.entry)
       else this.remove(event.path)
     }
   }
@@ -187,6 +188,16 @@ export class Vault extends Events<VaultEvents> {
 
   async setAutostart(enabled: boolean): Promise<{ supported: boolean; enabled: boolean; file?: string }> {
     return this.answer(await request('/api/autostart', { method: 'POST', headers: { 'content-type': 'application/json' }, body: JSON.stringify({ enabled }) }))
+  }
+
+  /** The port the server listens on, and whether it was fixed at start (FLINT_PORT) and cannot be changed from here. */
+  async port(): Promise<{ port: number; fixed: boolean }> {
+    return this.answer(await request('/api/port'))
+  }
+
+  /** Moves the server to another port; it is remembered for the next starts too. */
+  async setPort(port: number): Promise<{ port: number }> {
+    return this.answer(await request('/api/port', json({ port })))
   }
 
   /** The server's answer; a server started before an update does not know newer requests and sends the page instead. */

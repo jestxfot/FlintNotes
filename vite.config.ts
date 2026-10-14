@@ -14,4 +14,6 @@ export default defineConfig({
     watch: onWindowsDrive ? { usePolling: true, interval: 500 } : undefined,
   },
   build: { target: 'es2022' },
+  // Which build the page belongs to; `npm run release` names it, otherwise `dev` (see scripts/release.mjs).
+  define: { __FLINT_BUILD__: JSON.stringify(process.env.FLINT_BUILD ?? 'dev') },
 })

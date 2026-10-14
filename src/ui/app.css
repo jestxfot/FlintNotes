@@ -445,14 +445,20 @@ input[type='checkbox']:disabled {
   vertical-align: -0.12em;
 }
 
-/* The switch of "start with the computer" in the settings, drawn by the core itself. */
-.autostart {
+/* The switch of "start with the computer" and the port in the settings, drawn by the core itself. */
+.autostart,
+.port-setting {
   display: flex;
   align-items: center;
   gap: 12px;
 }
 
-.autostart small {
+.port-setting input {
+  width: 8em;
+}
+
+.autostart small,
+.port-setting small {
   color: var(--text-muted);
   overflow-wrap: anywhere;
 }

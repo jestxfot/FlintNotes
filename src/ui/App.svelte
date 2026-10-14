@@ -2,6 +2,7 @@
   import { mount, onMount, unmount } from 'svelte'
   import { formatHotkey, type Command } from '../core/commands'
   import { errorMessage } from '../core/notice'
+  import { connection } from '../core/vault'
   import { basename, dirname, extname, stripExt } from '../core/path'
   import { app } from '../instance'
   import FileTree from './FileTree.svelte'
@@ -376,13 +377,30 @@
     }
     // A slip of the hand (Ctrl+W, which the browser keeps for itself) must not close the app
     // with its tabs: the browser asks first. It only does so after the page has been used.
+    let updating = false
     const onLeave = (event: BeforeUnloadEvent) => {
-      if (!settings.get<boolean>('core', 'confirmLeave') || !workspace.leaves.length) return
+      if (updating || !settings.get<boolean>('core', 'confirmLeave') || !workspace.leaves.length) return
       event.preventDefault()
       event.returnValue = ''
     }
     window.addEventListener('beforeunload', onLeave)
     offs.push(() => window.removeEventListener('beforeunload', onLeave))
+    // The server was replaced by a newer build (the launcher does it after `npm run release`): this page
+    // is from the old one and may ask for files that are gone. It saves what it has and loads the new one.
+    offs.push(
+      connection.on('build', (build) => {
+        if (build === __FLINT_BUILD__ || build === 'dev' || __FLINT_BUILD__ === 'dev' || updating) return
+        // Once per build: should the page still come out older (its files were not replaced), it stays as it is.
+        try {
+          if (sessionStorage.getItem('flint-reloaded-for') === build) return
+          sessionStorage.setItem('flint-reloaded-for', build)
+        } catch {
+          return
+        }
+        updating = true
+        void Promise.all([workspace.flushAll(), app.state.flush()]).finally(() => location.reload())
+      }),
+    )
     const onHide = () => {
       if (document.visibilityState !== 'hidden') return
       void workspace.flushAll(true)

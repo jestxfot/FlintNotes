@@ -215,6 +215,66 @@ const vaultsSetting = (app: App): SettingsSection['defs'][number] => ({
   },
 })
 
+/** The port is the program's, not a vault's: the server keeps it with the list of vaults. */
+const portSetting = (app: App): SettingsSection['defs'][number] => ({
+  key: 'port',
+  group: 'Программа',
+  section: 'Запуск',
+  name: 'Порт',
+  desc: 'Адрес FlintNotes в браузере — http://localhost:порт. Сменить его стоит, если порт нужен другой программе. Сервер сразу переходит на новый порт, эта страница — за ним; закладки на старый адрес работать перестанут',
+  type: 'custom',
+  render: (el) => {
+    const row = el.appendChild(document.createElement('div'))
+    row.className = 'port-setting'
+    const input = row.appendChild(document.createElement('input'))
+    input.type = 'number'
+    input.min = '1024'
+    input.max = '65535'
+    input.disabled = true
+    const apply = row.appendChild(document.createElement('button'))
+    apply.textContent = 'Применить'
+    apply.disabled = true
+    const note = row.appendChild(document.createElement('small'))
+    let current = 0
+    const fail = (err: unknown) => {
+      note.textContent = err instanceof Error ? err.message : String(err)
+      apply.disabled = false
+    }
+    void app.vault.port().then(({ port, fixed }) => {
+      current = port
+      input.value = String(port)
+      input.disabled = fixed
+      note.textContent = fixed ? 'Задан при запуске переменной FLINT_PORT' : ''
+    }, fail)
+    input.oninput = () => (apply.disabled = Number(input.value) === current)
+    apply.onclick = () => {
+      apply.disabled = true
+      note.textContent = 'Перехожу на новый порт…'
+      // What is not saved yet goes to the server while it still listens here.
+      void Promise.all([app.workspace.flushAll(), app.state.flush()])
+        .then(() => app.vault.setPort(Number(input.value)))
+        .then(async ({ port }) => {
+        const next = new URL(location.href)
+        next.port = String(port)
+        // In development the page comes from Vite, which keeps its own port: only the server moves.
+        if (location.port !== String(current)) return void (note.textContent = `Сервер перешёл на порт ${port}`)
+        await waitFor(next.origin)
+        location.href = next.href
+      }, fail)
+    }
+    return () => row.remove()
+  },
+})
+
+/** Waits until the server answers at its new address (it moves a moment after saying yes). */
+async function waitFor(origin: string): Promise<void> {
+  for (let tries = 0; tries < 50; tries++) {
+    // Another port is another site to the browser: an opaque answer is enough to know someone is there.
+    if (await fetch(`${origin}/api/port`, { mode: 'no-cors', cache: 'no-store' }).then(() => true, () => false)) return
+    await new Promise((resume) => setTimeout(resume, 100))
+  }
+}
+
 const autostartSetting = (app: App): SettingsSection['defs'][number] => ({
   key: 'autostart',
   group: 'Программа',
@@ -294,7 +354,7 @@ export class App {
     this.panels.init()
     // Once only: the page may be set up again (a vault is switched), the list of settings is the same object.
     if (!coreSettings.defs.some((def) => def.key === 'panels')) coreSettings.defs.splice(coreSettings.defs.findIndex((def) => def.key === 'zoom'), 0, panelsSetting(this))
-    if (!coreSettings.defs.some((def) => def.key === 'autostart')) coreSettings.defs.push(autostartSetting(this), vaultsSetting(this))
+    if (!coreSettings.defs.some((def) => def.key === 'autostart')) coreSettings.defs.push(autostartSetting(this), portSetting(this), vaultsSetting(this))
     this.settings.addSection(coreSettings)
     // One plain sign that the server is not answering, instead of an error from every part that asks it something.
     const down = this.statusBar.addItem()
