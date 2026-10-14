@@ -439,6 +439,19 @@ export class App {
             (err) => notice(err instanceof Error ? err.message : String(err)),
           ),
     })
+    this.commands.add({
+      id: 'core:quit',
+      name: 'Остановить FlintNotes',
+      icon: 'power-off',
+      // What is not saved yet goes to the server first, while it still listens.
+      callback: () =>
+        void Promise.all([this.workspace.flushAll(), this.state.flush()])
+          .then(() => this.vault.quit())
+          .then(
+            () => notice('FlintNotes остановлен. Запустить снова — FlintNotes.vbs', 10_000),
+            (err) => notice(err instanceof Error ? err.message : String(err)),
+          ),
+    })
     this.metadata.init()
     this.livePreview.init()
     this.embeds.on('change', () => this.livePreview.refresh())

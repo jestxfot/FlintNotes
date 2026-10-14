@@ -195,6 +195,11 @@ export class Vault extends Events<VaultEvents> {
     return this.answer(await request('/api/port'))
   }
 
+  /** Stops the server, and with it the launcher that would start it again. */
+  async quit(): Promise<void> {
+    await this.answer(await request('/api/quit', { method: 'POST' }))
+  }
+
   /** Moves the server to another port; it is remembered for the next starts too. */
   async setPort(port: number): Promise<{ port: number }> {
     return this.answer(await request('/api/port', json({ port })))

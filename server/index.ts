@@ -477,6 +477,16 @@ api.post('/autostart', async (c) => {
   return c.json({ supported: true, enabled, file: entry.file })
 })
 
+// ---- stopping from the app: with no window of its own, this is how FlintNotes is turned off
+api.post('/quit', (c) => {
+  const origin = c.req.header('origin')
+  if (!origin || new URL(origin).host !== c.req.header('host')) throw new HTTPException(403, { message: 'Только со страницы самого приложения' })
+  console.log('Остановлен из приложения')
+  // The answer leaves first. Exiting with 0 tells the launcher not to start the server again.
+  setTimeout(() => void stop(), 200)
+  return c.json({ stopping: true })
+})
+
 // ---- the port: chosen in the settings, kept in the config with the vaults
 api.get('/port', (c) => c.json({ port, fixed: fixedPort !== undefined }))
 
