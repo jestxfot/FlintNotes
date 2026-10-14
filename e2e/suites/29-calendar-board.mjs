@@ -69,6 +69,22 @@ export async function run(t) {
   await wait(900)
   ok('the chosen view comes back', (await mode('Список').getAttribute('aria-selected')) === 'true')
 
+  // ---- carrying a line to another day
+  await mode('Месяц').click()
+  await wait(500)
+  const next = await page.evaluate((today) => {
+    const d = new Date(`${today}T12:00:00`)
+    d.setDate(d.getDate() + 1)
+    return `${d.getFullYear()}-${String(d.getMonth() + 1).padStart(2, '0')}-${String(d.getDate()).padStart(2, '0')}`
+  }, today)
+  const nextCell = board.locator(`.cell[data-date="${next}"]`)
+  await board.locator(`.cell[data-date="${today}"] .item`, { hasText: 'Send report' }).dragTo(nextCell)
+  await wait(1500)
+  ok('a task of another note dragged to another day gets that date', read('Projects.md').includes(`- [ ] Send report 📅 ${next}`), read('Projects.md'))
+  await board.locator(`.cell[data-date="${today}"] .item`, { hasText: 'Buy milk' }).dragTo(nextCell)
+  await wait(1800)
+  ok('a line of the daily note moves to the other day\'s note', !read(`${today}.md`).includes('Buy milk') && t.exists(`${next}.md`) && read(`${next}.md`).includes('- [ ] Buy milk') && (await t.flat(nextCell)).includes('Buy milk'), t.exists(`${next}.md`) ? read(`${next}.md`) : 'no note')
+
   // ---- what is shown
   await mode('Месяц').click()
   await wait(400)

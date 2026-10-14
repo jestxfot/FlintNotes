@@ -55,7 +55,7 @@ export default class Calendar extends Plugin {
       { key: 'boardNote', section: 'Календарь во вкладке', name: 'Показывать задачи из заметки дня', type: 'toggle', default: true },
       { key: 'boardPlan', section: 'Календарь во вкладке', name: 'Показывать строки плана дня (со временем)', type: 'toggle', default: true },
       { key: 'boardDone', section: 'Календарь во вкладке', name: 'Показывать выполненное', type: 'toggle', default: true },
-      { key: 'boardLines', section: 'Календарь во вкладке', name: 'Строк в клетке месяца', type: 'number', default: 5, min: 1, max: 20 },
+      { key: 'boardLines', section: 'Календарь во вкладке', name: 'Строк в клетке месяца', type: 'number', default: 4, min: 1, max: 20 },
       ...periodSettings,
     ])
     await this.importFromObsidian(false)

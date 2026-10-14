@@ -257,3 +257,20 @@
 .cm-editor .lp-comment {
   color: var(--text-faint);
 }
+
+/* Keys written as <kbd>Ctrl</kbd> in a line of text. */
+.cm-editor kbd {
+  padding: 0 5px;
+  border: 1px solid var(--border);
+  border-bottom-width: 2px;
+  border-radius: 4px;
+  background: var(--bg-alt);
+  font-family: var(--font-mono, monospace);
+  font-size: 0.88em;
+}
+
+.cm-editor mark {
+  border-radius: 2px;
+  background: color-mix(in srgb, var(--color-yellow, #e5c07b) 45%, transparent);
+  color: inherit;
+}

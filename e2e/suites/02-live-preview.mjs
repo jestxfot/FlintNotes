@@ -113,4 +113,26 @@ export async function run(t) {
   await page.keyboard.type('!')
   await wait(900)
   ok('back in editing it can be typed in again', read('Test.md').endsWith('!') || read('Test.md').includes('!'), read('Test.md').slice(-30))
+
+  // ---- HTML inside a line of text
+  await t.cursorToEnd()
+  await page.keyboard.press('Enter')
+  await page.keyboard.press('Enter')
+  await page.keyboard.type('Inline <mark>marked</mark>, <span style="color: rgb(255, 0, 0)">red</span>, <kbd>Ctrl</kbd>, <u>under</u>, <font color="blue">old</font>, <weird>kept</weird>')
+  await page.keyboard.press('Enter')
+  await page.keyboard.type('after')
+  await wait(700)
+  const drawn = await page.evaluate(() => {
+    const content = document.querySelector('.leaf:not([hidden]) .cm-content')
+    const red = [...content.querySelectorAll('span[style]')].find((el) => el.textContent === 'red')
+    return { mark: content.querySelector('mark')?.textContent, red: red ? getComputedStyle(red).color : null, kbd: content.querySelector('kbd')?.textContent, u: content.querySelector('u')?.textContent, font: [...content.querySelectorAll('span[style]')].some((el) => el.textContent === 'old' && /blue/.test(el.getAttribute('style'))), text: content.innerText }
+  })
+  ok('HTML inside a line is drawn as it reads, its tags hidden; an unknown tag stays as written', drawn.mark === 'marked' && drawn.red === 'rgb(255, 0, 0)' && drawn.kbd === 'Ctrl' && drawn.u === 'under' && drawn.font && !drawn.text.includes('<mark>') && drawn.text.includes('<weird>kept</weird>'), JSON.stringify(drawn).slice(0, 400))
+  await page.evaluate(() => {
+    const view = app.workspace.activeEditor
+    view.dispatch({ selection: { anchor: view.state.doc.toString().indexOf('marked</mark>') + 2 } })
+  })
+  await wait(400)
+  ok('the cursor inside the element brings its tags back', (await t.text()).includes('<mark>marked</mark>'))
+
 }

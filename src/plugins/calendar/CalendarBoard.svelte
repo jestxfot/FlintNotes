@@ -38,6 +38,8 @@
     time: string
     kind: 'plan' | 'note' | 'task'
     task?: VaultTask
+    /** For a task from another note: the field of its date, the one a move to another day changes. */
+    field?: 'due' | 'scheduled' | 'start'
   }
 
   type Mode = 'month' | 'week' | 'year' | 'list'
@@ -135,10 +137,15 @@
         })
       })
     }
+    const fieldOf = (task: VaultTask) => {
+      const wanted = settings.current.field
+      if (wanted === 'due' || wanted === 'scheduled' || wanted === 'start') return wanted
+      return task.due ? 'due' : task.scheduled ? 'scheduled' : 'start'
+    }
     for (const task of dated.get(key) ?? []) {
       const id = `${task.path}:${task.line}`
       if (seen.has(id) || task.plain) continue
-      items.push({ id, path: task.path, line: task.line, raw: task.raw, text: clean(task.description), status: task.status, done: task.status !== ' ', time: '', kind: 'task', task })
+      items.push({ id, path: task.path, line: task.line, raw: task.raw, text: clean(task.description), status: task.status, done: task.status !== ' ', time: '', kind: 'task', task, field: fieldOf(task) })
     }
     return items
       .filter((item) => showDone || !item.done)
@@ -273,6 +280,64 @@
     }
   }
 
+  /** The item being dragged to another day, and the cell it is over. */
+  let dragged: Item | null = null
+  let over = $state('')
+
+  /**
+   * Moves an item to another day. A task of another note gets the new date in
+   * the field it stands on; a line of a daily note goes to the end of the other
+   * day's note (made if need be), and only then leaves its own.
+   */
+  async function moveTo(item: Item, date: Moment): Promise<void> {
+    const key = date.format(KEY)
+    try {
+      if (item.kind === 'task' && item.field) {
+        const sign = { due: '📅', scheduled: '⏳', start: '🛫' }[item.field]
+        const pattern = new RegExp(`(${sign}\\uFE0F?\\s*)\\d{4}-\\d{2}-\\d{2}`, 'u')
+        return await rewrite(item, (raw) => raw.replace(pattern, `$1${key}`))
+      }
+      const note = await notes.ensure('daily', date)
+      if (!note || note === item.path) return
+      await app.workspace.flushAll()
+      const before = await app.vault.read(note)
+      const eol = before.includes('\r\n') ? '\r\n' : '\n'
+      await app.vault.write(note, `${before.replace(/(\r?\n)*$/, '')}${before.trim() ? eol : ''}${item.raw.trimStart()}${eol}`)
+      await removeLine(item)
+    } catch (err) {
+      app.notice(`Календарь: ${errorMessage(err)}`)
+    }
+  }
+
+  async function removeLine(item: Item): Promise<void> {
+    await app.workspace.flushAll()
+    const text = await app.vault.read(item.path)
+    const lines = text.split(/\r?\n/)
+    const at = lines[item.line] === item.raw ? item.line : lines.indexOf(item.raw)
+    if (at < 0) return
+    lines.splice(at, 1)
+    await app.vault.write(item.path, lines.join(text.includes('\r\n') ? '\r\n' : '\n'))
+  }
+
+  /** What a day's cell does with an item dropped on it. */
+  const dropOn = (day: { key: string; date: Moment }) => ({
+    ondragover: (event: DragEvent) => {
+      if (!dragged) return
+      event.preventDefault()
+      over = day.key
+    },
+    ondragleave: () => over === day.key && (over = ''),
+    ondrop: (event: DragEvent) => {
+      event.preventDefault()
+      over = ''
+      const item = dragged
+      dragged = null
+      if (item && day.key !== itemDay(item)) void moveTo(item, day.date.clone())
+    },
+  })
+  /** The day an item stands on now: the date of its field, or the day of its note. */
+  const itemDay = (item: Item) => (item.task && item.field ? item.task[item.field] : notes.dateOf('daily', item.path)?.format(KEY))
+
   const inline = (node: HTMLElement, item: Item) => {
     const draw = (one: Item) => node.replaceChildren(renderInline(app, one.text, one.path))
     draw(item)
@@ -308,7 +373,18 @@
 
 {#snippet line(item: Item, full: boolean)}
   <!-- svelte-ignore a11y_click_events_have_key_events, a11y_no_static_element_interactions -->
-  <div class="item {item.kind}" class:done={item.done} title={full ? item.path : `${item.time} ${item.text}`.trim()} onclick={(event) => (event.stopPropagation(), openItem(event, item))}>
+  <div
+    class="item {item.kind}"
+    class:done={item.done}
+    title={full ? item.path : `${item.time} ${item.text}`.trim()}
+    draggable="true"
+    ondragstart={(event) => {
+      dragged = item
+      event.dataTransfer?.setData('text/plain', item.text)
+    }}
+    ondragend={() => ((dragged = null), (over = ''))}
+    onclick={(event) => (event.stopPropagation(), openItem(event, item))}
+  >
     {#if item.status !== null}
       <input type="checkbox" checked={item.done} aria-label="Выполнено" onclick={(event) => event.stopPropagation()} onchange={() => toggle(item)} />
     {/if}
@@ -365,7 +441,9 @@
                 class:outside={day.outside}
                 class:today={day.key === todayKey}
                 class:chosen={day.key === chosenKey}
+                class:drop={over === day.key}
                 data-date={day.key}
+                {...dropOn(day)}
                 onclick={() => (chosen = day.date.clone())}
                 ondblclick={(event) => !(event.target as Element).closest('.item') && void notes.open('daily', day.date)}
               >
@@ -638,6 +716,11 @@
   }
 
   .cell.chosen {
+    box-shadow: inset 0 0 0 2px var(--accent);
+  }
+
+  .cell.drop {
+    background: color-mix(in srgb, var(--accent) 14%, transparent);
     box-shadow: inset 0 0 0 2px var(--accent);
   }
 

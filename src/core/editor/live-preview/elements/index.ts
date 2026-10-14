@@ -3,6 +3,7 @@ import type { App } from '../../../app'
 import { code } from './code'
 import { frontmatter } from './frontmatter'
 import { headings } from './headings'
+import { inlineHtml } from './inline-html'
 import { images } from './images'
 import { inline } from './inline'
 import { links } from './links'
@@ -15,6 +16,7 @@ export const builtinRenderers = (app: App): PreviewRenderer[] => [
   frontmatter,
   headings,
   inline,
+  inlineHtml,
   links(app),
   images(app),
   quotes,

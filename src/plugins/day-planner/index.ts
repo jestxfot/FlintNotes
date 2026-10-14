@@ -2,6 +2,8 @@ import { errorMessage, moment, path as paths, Plugin, renderInline, type Moment 
 import './style.css'
 
 const PANEL = 'day-planner'
+/** What a line of the month carries while it is dragged to another day. */
+const DRAG = 'application/x-flint-plan-line'
 // `- [ ] 17:00 - 17:10 text`, `- 9:30 text`; the box and the end are optional.
 const LINE = /^(\s*(?:[-*+]|\d+[.)])\s+)(?:\[(.)\]\s+)?(\d{1,2}):(\d{2})(?:(\s*[-–—]\s*)(\d{1,2}):(\d{2}))?(\s+.*|)$/
 const LOOSE = /^(\s*(?:[-*+]|\d+[.)])\s+)\[(.)\]\s+(.*)$/
@@ -128,28 +130,39 @@ export default class DayPlanner extends Plugin {
       return `${done[1]}${open ? 'x' : ' '}${done[3]}${body}${open ? ` ✅ ${moment().format('YYYY-MM-DD')}` : ''}`
     }
     /** Adds a block to the day's note under the plan's heading, making the note and the heading if need be. */
+    /** Puts a line under the plan's heading of a note, making the heading if need be; returns where it went. */
+    const insertLine = async (file: string, line: string): Promise<number> => {
+      await app.workspace.flushAll()
+      const text = await app.vault.read(file)
+      const eol = text.includes('\r\n') ? '\r\n' : '\n'
+      const lines = text.split(/\r?\n/)
+      const title = (get<string>('plannerHeading') ?? 'Day planner').trim()
+      let at = lines.findIndex((one) => new RegExp(`^#{1,6}\\s+${title.replace(/[.*+?^${}()|[\]\\]/g, '\\$&')}\\s*$`, 'i').test(one))
+      if (at < 0) {
+        // No plan in this note yet: its heading goes at the end.
+        if (lines[lines.length - 1] === '') lines.pop()
+        lines.push('', `${'#'.repeat(Math.max(1, get<number>('plannerHeadingLevel') ?? 1))} ${title}`)
+        at = lines.length - 1
+      }
+      // After the last line of the plan: the list under the heading, up to the first empty line or heading.
+      let end = at + 1
+      while (end < lines.length && lines[end].trim() && !/^#{1,6}\s/.test(lines[end])) end++
+      lines.splice(end, 0, line)
+      await app.vault.write(file, lines.join(eol))
+      return end
+    }
+    const dayNote = async (day: Moment): Promise<string | null> => {
+      const file = noteOf(day) ?? (await periodic()?.ensure('daily', day)) ?? null
+      if (!file) app.notice('Нет заметки этого дня. Включите плагин «Календарь» или создайте заметку с датой в названии')
+      return file
+    }
+    /** Adds a block to the day's note under the plan's heading, making the note and the heading if need be. */
     const addBlock = async (day: Moment, start: number, textOf = '') => {
       try {
-        const file = noteOf(day) ?? (await periodic()?.ensure('daily', day)) ?? null
-        if (!file) return app.notice('Нет заметки этого дня. Включите плагин «Календарь» или создайте заметку с датой в названии')
-        await app.workspace.flushAll()
-        const text = await app.vault.read(file)
-        const eol = text.includes('\r\n') ? '\r\n' : '\n'
-        const lines = text.split(/\r?\n/)
-        const title = (get<string>('plannerHeading') ?? 'Day planner').trim()
+        const file = await dayNote(day)
+        if (!file) return
         const line = `- ${get<boolean>('taskStatusOnCreation') === false ? '' : '[ ] '}${clock(start)} - ${clock(start + Math.max(5, get<number>('defaultDurationMinutes') ?? 30))} ${textOf}`
-        let at = lines.findIndex((one) => new RegExp(`^#{1,6}\\s+${title.replace(/[.*+?^${}()|[\]\\]/g, '\\$&')}\\s*$`, 'i').test(one))
-        if (at < 0) {
-          // No plan in this note yet: its heading goes at the end.
-          if (lines[lines.length - 1] === '') lines.pop()
-          lines.push('', `${'#'.repeat(Math.max(1, get<number>('plannerHeadingLevel') ?? 1))} ${title}`)
-          at = lines.length - 1
-        }
-        // After the last line of the plan: the list under the heading, up to the first empty line or heading.
-        let end = at + 1
-        while (end < lines.length && lines[end].trim() && !/^#{1,6}\s/.test(lines[end])) end++
-        lines.splice(end, 0, line)
-        await app.vault.write(file, lines.join(eol))
+        const end = await insertLine(file, line)
         app.workspace.openFile(file, { line: end })
         // The cursor goes to the end of the new line, ready for what the block is about.
         setTimeout(() => {
@@ -159,6 +172,21 @@ export default class DayPlanner extends Plugin {
           editor.dispatch({ selection: { anchor: made.to } })
           editor.focus()
         }, 400)
+      } catch (err) {
+        app.notice(`План дня: ${errorMessage(err)}`)
+      }
+    }
+    /**
+     * Moves a block to another day: its line goes into that day's note (made if
+     * need be) at its new time, and only then leaves the note it was in, so a
+     * failure leaves it twice rather than nowhere.
+     */
+    const moveBlock = async (from: string, block: Block, day: Moment, start: number, end: number) => {
+      try {
+        const file = await dayNote(day)
+        if (!file || file === from) return
+        await insertLine(file, retime(block.raw, start, end).trimStart())
+        await rewrite(from, block, () => null)
       } catch (err) {
         app.notice(`План дня: ${errorMessage(err)}`)
       }
@@ -383,8 +411,22 @@ export default class DayPlanner extends Plugin {
               const number = el(cell, 'button', 'day-cell-date', one.date.format('D'))
               number.title = one.date.format('D MMMM, dddd')
               number.onclick = () => show('day', one.date)
+              // A line can be carried to another day of the month.
+              cell.ondragover = (event) => event.dataTransfer?.types.includes(DRAG) && (event.preventDefault(), cell.classList.add('drop'))
+              cell.ondragleave = () => cell.classList.remove('drop')
+              cell.ondrop = (event) => {
+                cell.classList.remove('drop')
+                const [from, index] = (event.dataTransfer?.getData(DRAG) ?? '').split('\n')
+                const source = days.find((other) => other.note === from)
+                const block = source?.blocks[Number(index)]
+                if (!block || !from || source === one) return
+                event.preventDefault()
+                void moveBlock(from, block, one.date, block.start, block.end)
+              }
               for (const block of one.blocks) {
                 const row = el(cell, 'div', isDone(block) ? 'day-line done' : 'day-line')
+                row.draggable = !!one.note
+                row.ondragstart = (event) => event.dataTransfer?.setData(DRAG, `${one.note}\n${one.blocks.indexOf(block)}`)
                 el(row, 'span', 'day-block-time', clock(block.start))
                 text(row, block, one.note)
                 row.title = `${clock(block.start)}–${clock(block.end)} ${block.text}`
@@ -482,20 +524,30 @@ export default class DayPlanner extends Plugin {
               node.onpointerdown = (event) => {
                 if (event.button !== 0 || (event.target as Element).closest('a, input')) return
                 const resizing = event.target === handle
+                const startX = event.clientX
                 const startY = event.clientY
                 let start = block.start
                 let end = block.end
                 let moved = false
+                // Where several days stand side by side, a block can be carried sideways to another day.
+                const columns = [...cols.children].map((one) => one.getBoundingClientRect())
+                const own = days.indexOf(one)
+                let target = own
                 node.setPointerCapture(event.pointerId)
                 const move = (e: PointerEvent) => {
                   const by = Math.round((e.clientY - startY) / perMinute / snap) * snap
-                  if (!moved && Math.abs(e.clientY - startY) < 4) return
+                  if (!moved && Math.abs(e.clientY - startY) < 4 && Math.abs(e.clientX - startX) < 4) return
                   moved = busy = true
                   node.classList.add('moving')
                   if (resizing) end = Math.min(24 * 60, Math.max(block.start + least, block.end + by))
                   else {
                     start = Math.min(24 * 60 - (block.end - block.start), Math.max(0, block.start + by))
                     end = start + (block.end - block.start)
+                    if (columns.length > 1) {
+                      const over = columns.findIndex((rect) => e.clientX >= rect.left && e.clientX < rect.right)
+                      target = over < 0 ? target : over
+                      node.style.transform = `translateX(${columns[target].left - columns[own].left}px)`
+                    }
                   }
                   put(start, end)
                 }
@@ -504,7 +556,8 @@ export default class DayPlanner extends Plugin {
                   node.classList.remove('moving')
                   busy = false
                   if (!moved) return void (note && editBlock(note, block))
-                  if (note && (start !== block.start || end !== block.end)) void rewrite(note, block, (raw) => retime(raw, start, end))
+                  if (note && target !== own) void moveBlock(note, block, days[target].date, start, end)
+                  else if (note && (start !== block.start || end !== block.end)) void rewrite(note, block, (raw) => retime(raw, start, end))
                   else draw()
                 }
                 node.addEventListener('pointermove', move)

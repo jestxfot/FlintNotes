@@ -121,7 +121,7 @@ export class RenderContext {
     this.ranges.push(Decoration.widget({ widget, side }).range(pos))
   }
 
-  mark(from: number, to: number, spec: { class?: string; attributes?: Record<string, string> }): void {
+  mark(from: number, to: number, spec: { class?: string; attributes?: Record<string, string>; tagName?: string }): void {
     if (from < to) this.ranges.push(Decoration.mark(spec).range(from, to))
   }
 

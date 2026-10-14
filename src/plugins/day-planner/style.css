@@ -477,3 +477,7 @@
 .day-dialog-buttons .danger {
   color: var(--color-red);
 }
+
+.day-cell.drop {
+  box-shadow: inset 0 0 0 2px var(--accent);
+}

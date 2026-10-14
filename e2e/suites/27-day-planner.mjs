@@ -5,7 +5,7 @@ const today = day()
 const data = { plannerHeading: 'Day planner', plannerHeadingLevel: 1, startHour: 2, zoomLevel: 1, snapStepMinutes: 10, defaultDurationMinutes: 30, showCompletedTasks: true, eventFormatOnCreation: 'task' }
 export const viewport = { width: 1500, height: 1000 }
 export const vault = {
-  plugins: ['day-planner'],
+  plugins: ['day-planner', 'calendar'],
   files: {
     '.obsidian/app.json': '{}',
     '.obsidian/plugins/obsidian-day-planner/data.json': JSON.stringify(data),
@@ -88,6 +88,28 @@ export async function run(t) {
   await plan.locator('.day-cell.today .day-cell-date').click()
   await wait(500)
   ok('a date of the month opens that day', (await tab('День').getAttribute('aria-selected')) === 'true' && (await cols.count()) === 1 && (await t.flat(plan)).includes('Coffee'))
+  // ---- a block carried sideways goes to another day
+  await tab('3 дня').click()
+  await wait(600)
+  const run = plan.locator('.day-plan-col').nth(1).locator('.day-block', { hasText: 'Tomorrow run' })
+  let from = await run.boundingBox()
+  const toCol = await plan.locator('.day-plan-col').nth(2).boundingBox()
+  await page.mouse.move(from.x + 30, from.y + 6)
+  await page.mouse.down()
+  await page.mouse.move(toCol.x + 30, from.y + 6 + 60 * perMinute, { steps: 8 })
+  await page.mouse.up()
+  await wait(1800)
+  ok('a block dragged to the next column moves to that day, at its new time', !read(`${day(1)}.md`).includes('Tomorrow run') && t.exists(`${day(2)}.md`) && read(`${day(2)}.md`).includes('- [ ] 08:00 - 08:30 Tomorrow run'), read(`${day(2)}.md`))
+  await tab('Месяц').click()
+  await wait(600)
+  const moving = plan.locator(`.day-cell .day-line`, { hasText: 'Tomorrow run' })
+  const target = (await moving.evaluate((el) => [...el.closest('.day-plan-month').children].indexOf(el.closest('.day-cell')))) + 1
+  await moving.dragTo(plan.locator('.day-cell').nth(target))
+  await wait(1800)
+  ok('a line of the month dragged to another day moves there', !read(`${day(2)}.md`).includes('Tomorrow run') && t.exists(`${day(3)}.md`) && read(`${day(3)}.md`).includes('- [ ] 08:00 - 08:30 Tomorrow run'), t.exists(`${day(3)}.md`) ? read(`${day(3)}.md`) : 'no note')
+  await tab('День').click()
+  await wait(500)
+
   // ---- a click on a block opens its window, not the note
   const tabBefore = await t.activeTab()
   await plan.locator('.day-plan-grid .day-block', { hasText: 'Lunch' }).click({ position: { x: 200, y: 8 } })
