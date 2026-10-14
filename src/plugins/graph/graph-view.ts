@@ -1,23 +1,20 @@
-import {
-  forceCollide,
-  forceLink,
-  forceManyBody,
-  forceRadial,
-  forceSimulation,
-  forceX,
-  forceY,
-  type Simulation,
-  type SimulationLinkDatum,
-  type SimulationNodeDatum,
-} from 'd3-force'
 import { path as paths, type App, type FileView, type Off } from '../../api'
+import { findGroups } from './clusters'
 import { GlRenderer, LINK_SIZE, NODE_SIZE, rgba, type Frame } from './gl'
-import { GpuLayout, type LayoutInput } from './gpu-layout'
+import { GpuLayout } from './gpu-layout'
 import type { FromWorker, ToWorker } from './layout-worker'
+import { ForceLayout, type LayoutInput } from './physics'
 import { buildPanel } from './panel'
 import { compileQuery, cssColor, DEFAULTS, type GraphSettings } from './settings'
 
-export interface GraphNode extends SimulationNodeDatum {
+export interface GraphNode {
+  x?: number
+  y?: number
+  /** Where the dot is held while it is dragged. */
+  fx?: number | null
+  fy?: number | null
+  /** Left where it was dropped with Shift: the layout does not move it. */
+  kept?: boolean
   /** Vault path, or `?name` for a note that is linked to but does not exist. */
   id: string
   label: string
@@ -27,11 +24,14 @@ export interface GraphNode extends SimulationNodeDatum {
   group: string
   /** The colour of the first colour group the note matches. */
   color?: string
-  /** The group of notes it belongs to by its links: notes of one group link mostly to one another. */
+  /** The group of notes it belongs to by its links (by modularity), or -1. */
   cluster?: number
 }
 
-type GraphLink = SimulationLinkDatum<GraphNode>
+interface GraphLink {
+  source: GraphNode
+  target: GraphNode
+}
 
 // A hub grows with its links, but only up to a point: a note with a thousand links must not cover its neighbours.
 const baseRadius = (node: GraphNode) => 3 + Math.min(20, Math.sqrt(node.degree) * 1.3)
@@ -60,6 +60,8 @@ export class GraphView implements FileView {
   private engine: 'page' | 'gpu' | 'worker' = 'page'
   private worker: Worker | null = null
   private loaded: { input: LayoutInput; decay: number } | null = null
+  /** The layout of a small graph, worked out on the page itself. */
+  private layout: ForceLayout | null = null
   private generation = 0
   /** Places the dots glide between while the layout thread works on the next ones. */
   private from: Float32Array = new Float32Array(0)
@@ -85,7 +87,6 @@ export class GraphView implements FileView {
   /** Widths of names at the base text size, measured once. */
   private byDegree: GraphNode[] = []
   private widths = new Map<string, number>()
-  private simulation: Simulation<GraphNode, GraphLink>
   // Pan and zoom: screen = graph * k + (x, y), measured from the canvas centre.
   private view = { x: 0, y: 0, k: 1 }
   private hovered: GraphNode | null = null
@@ -115,15 +116,6 @@ export class GraphView implements FileView {
 
     this.legend.className = 'graph-legend'
     this.el.append(this.legend)
-    // The forces themselves depend on the notes and the settings; `rebuild` sets them.
-    this.simulation = forceSimulation<GraphNode, GraphLink>()
-      .velocityDecay(0.5)
-      .on('tick', () => {
-        if (this.autoFit) this.fit()
-        this.moved()
-      })
-      .on('end', () => this.settled())
-
     const resized = new ResizeObserver(() => this.resize())
     resized.observe(this.el)
     this.cleanups.push(
@@ -167,133 +159,125 @@ export class GraphView implements FileView {
   }
 
   /**
-   * Finds the groups of the graph: sets of notes that link mostly to one another.
-   * Every note repeatedly takes the group most of its neighbours are in (a neighbour
-   * with many links counts for less, so one hub does not pull the whole vault into
-   * a single group). A note that has no place yet starts near its group, and the
-   * groups start apart, so the layout does not have to pull them out of one pile.
+   * Finds the groups of the graph by modularity (see clusters.ts). A note that
+   * has no place yet starts near its group, and the groups start apart on a
+   * spiral, the largest in the middle, so the layout does not have to pull them
+   * out of one pile.
    */
   private findClusters(): void {
-    const { nodes, neighbours } = this
-    nodes.forEach((n, i) => (n.cluster = i))
-    // Notes with the most links speak first: the groups form around them.
-    const order = [...nodes].sort((a, b) => b.degree - a.degree)
-    for (let round = 0; round < 8; round++) {
-      let changed = 0
-      for (const n of order) {
-        const around = neighbours.get(n)
-        if (!around?.size) continue
-        const votes = new Map<number, number>()
-        for (const other of around) votes.set(other.cluster!, (votes.get(other.cluster!) ?? 0) + 1 / Math.sqrt(other.degree || 1))
-        let best = n.cluster!
-        let most = 0
-        for (const [cluster, weight] of votes) if (weight > most || (weight === most && cluster < best)) [best, most] = [cluster, weight]
-        if (best !== n.cluster) {
-          n.cluster = best
-          changed++
-        }
-      }
-      if (changed < nodes.length / 200) break
-    }
+    const { nodes } = this
+    const index = new Map(nodes.map((n, i) => [n, i]))
+    const flat = new Uint32Array(this.links.length * 2)
+    this.links.forEach((link, k) => {
+      flat[k * 2] = index.get(link.source)!
+      flat[k * 2 + 1] = index.get(link.target)!
+    })
+    const groups = findGroups(nodes.length, flat)
+    nodes.forEach((n, i) => (n.cluster = groups[i]))
     const sizes = new Map<number, number>()
     for (const n of nodes) sizes.set(n.cluster!, (sizes.get(n.cluster!) ?? 0) + 1)
-    // The groups start on a spiral, the largest in the middle; only notes that have no place yet are put there.
-    const rank = new Map([...sizes].filter(([, size]) => size > 1).sort((a, b) => b[1] - a[1]).map(([cluster], i) => [cluster, i]))
-    const spread = 90 * Math.sqrt(Math.max(1, nodes.length / Math.max(1, rank.size)))
+    const count = [...sizes.keys()].filter((c) => c >= 0).length
+    const spread = 90 * Math.sqrt(Math.max(1, nodes.length / Math.max(1, count)))
     for (const n of nodes) {
-      const at = rank.get(n.cluster!)
-      if (at === undefined || n.x !== undefined) continue
+      if (n.x !== undefined) continue
+      const at = n.cluster!
+      if (at < 0) {
+        // Notes without links wait in a ring; a lone linked one starts near the middle.
+        const angle = Math.random() * Math.PI * 2
+        const radius = n.degree ? 40 : spread * (1 + Math.sqrt(count))
+        n.x = Math.cos(angle) * radius
+        n.y = Math.sin(angle) * radius
+        continue
+      }
       const angle = at * 2.39996
       const radius = spread * Math.sqrt(at)
-      const jitter = 12 * Math.sqrt(sizes.get(n.cluster!)!)
+      const jitter = 12 * Math.sqrt(sizes.get(at)!)
       n.x = Math.cos(angle) * radius + (Math.random() - 0.5) * jitter
       n.y = Math.sin(angle) * radius + (Math.random() - 0.5) * jitter
     }
   }
 
-  /** Sets the layout's forces from the settings and the size of the graph. */
+  /** Sets the layout's forces from the settings and the size of the graph, and hands the graph to whoever works it out. */
   private applyForces(): void {
     // Obsidian's numbers, turned into multipliers of this layout's own defaults.
     const gravity = this.settings.centerStrength / DEFAULTS.centerStrength
     const repel = Math.max(0.05, this.settings.repelStrength / DEFAULTS.repelStrength)
     const linkLength = this.settings.linkDistance / DEFAULTS.linkDistance
-    const { linkStrength } = this.settings
-    const big = this.nodes.length > 1500
-    const linked = this.nodes.filter((n) => n.degree > 0).length
-    // Roughly how far out the linked notes reach; notes without links settle in a ring beyond that.
-    const reach = 26 * Math.sqrt(linked + 1) * Math.sqrt(repel) * linkLength
-    const ends = (link: GraphLink) => [(link.source as GraphNode).degree, (link.target as GraphNode).degree]
-    // Links inside a group are short and firm, links between groups long and slack: the groups
-    // draw together and drift apart, joined by the few threads that cross between them.
     const gather = Math.min(1, Math.max(0, this.settings.clusterStrength ?? DEFAULTS.clusterStrength))
-    const inside = (link: GraphLink) => (link.source as GraphNode).cluster === (link.target as GraphNode).cluster
-    // The more links a hub has, the longer and the looser they are: its notes need
-    // room to spread around it, and would be packed into a ball by short, stiff links.
-    const distanceOf = (link: GraphLink) => Math.min(170, 30 + 4 * Math.sqrt(Math.max(...ends(link)))) * linkLength * (inside(link) ? 1 - 0.35 * gather : 1 + 2.4 * gather)
-    const strengthOf = (link: GraphLink) => Math.min(1, Math.min(0.7, Math.max(0.05, 0.9 / Math.sqrt(Math.max(...ends(link))))) * linkStrength * (inside(link) ? 1 + 0.6 * gather : 1 - 0.85 * gather))
-    this.simulation
-      // Big notes push harder, so hubs keep clear space around them instead of sinking into a pile.
-      .force('charge', forceManyBody<GraphNode>().strength((n) => -(30 + this.radius(n) ** 2 * 1.6) * repel).distanceMax(big ? 800 : 1200).theta(big ? 1.4 : 1.1))
-      .force(
-        'link',
-        forceLink<GraphNode, GraphLink>(this.links)
-          .distance(distanceOf)
-          .strength(strengthOf),
-      )
-      .force('x', forceX<GraphNode>().strength((n) => (n.degree ? 0.035 * gravity * (1 - 0.45 * gather) : 0)))
-      .force('y', forceY<GraphNode>().strength((n) => (n.degree ? 0.035 * gravity * (1 - 0.45 * gather) : 0)))
-      .force('ring', forceRadial<GraphNode>(reach + 120).strength((n) => (n.degree ? 0 : 0.06)))
-      .force('collide', forceCollide<GraphNode>((n) => this.radius(n) + 4).strength(0.8))
-      // A big vault settles in a couple of hundred steps instead of simmering for a minute.
-      .alphaDecay(big ? 0.05 : this.nodes.length > 600 ? 0.035 : 0.0228)
-
-    // ---- who works the layout out. A small graph stays with the simulation above, on
-    // the page's own thread. A big one goes to the graphics card; where that has shown
-    // itself to be slow (no real card behind the browser), to a thread of its own.
-    const mode = this.settings.gpuLayout
-    const bigEnough = this.nodes.length > OFF_THREAD_FROM
-    const card = !!this.gl && mode !== 'off' && (mode === 'on' || (this.nodes.length > GPU_FROM && !this.slowCard))
-    if (card) this.gpu ??= GpuLayout.create(this.gl!.gl)
-    const engine: typeof this.engine = card && this.gpu ? 'gpu' : bigEnough ? 'worker' : 'page'
-    if (engine !== 'worker') this.worker?.postMessage({ type: 'stop' } satisfies ToWorker)
-    this.engine = engine
-    if (engine === 'page') return
-    this.simulation.stop()
     const count = this.nodes.length
+    const big = count > 1500
+    // Groups of three notes or more act as groups; they are numbered by size, so they come first.
+    const sizes = new Map<number, number>()
+    for (const n of this.nodes) sizes.set(n.cluster ?? -1, (sizes.get(n.cluster ?? -1) ?? 0) + 1)
+    const clusters = [...sizes].filter(([c, size]) => c >= 0 && size >= 3).length
     const index = new Map(this.nodes.map((n, i) => [n, i]))
     this.positions = new Float32Array(count * 2)
     const input: LayoutInput = {
       positions: this.positions,
-      charge: new Float32Array(count),
-      gravity: new Float32Array(count),
-      ring: new Float32Array(count),
       radius: new Float32Array(count),
       degree: new Float32Array(count),
-      ringRadius: reach + 120,
-      distanceMax: 1200,
-      links: (this.links as { source: GraphNode; target: GraphNode }[]).map((link) => ({
-        source: index.get(link.source)!,
-        target: index.get(link.target)!,
-        distance: distanceOf(link),
-        strength: strengthOf(link),
-      })),
+      cluster: new Int32Array(count),
+      clusters,
+      links: new Uint32Array(this.links.length * 2),
+      linkLength: new Float32Array(this.links.length).fill(40 * linkLength),
+      linkStrength: new Float32Array(this.links.length).fill(this.settings.linkStrength),
+      // The ring of unlinked notes follows the linked ones outwards; this is only its least radius.
+      forces: { repel, attract: 1, gravity: 0.05 * gravity, gather, ringRadius: 120 },
     }
+    this.links.forEach((link, k) => {
+      input.links[k * 2] = index.get(link.source)!
+      input.links[k * 2 + 1] = index.get(link.target)!
+    })
     this.nodes.forEach((n, i) => {
       this.positions.set([n.x ?? 0, n.y ?? 0], i * 2)
-      input.charge[i] = -(30 + this.radius(n) ** 2 * 1.6) * repel
-      input.gravity[i] = n.degree ? 0.035 * gravity * (1 - 0.45 * gather) : 0
-      input.ring[i] = n.degree ? 0 : 0.06
-      input.radius[i] = this.radius(n) + 2
+      input.radius[i] = this.radius(n)
       input.degree[i] = n.degree
+      input.cluster[i] = (n.cluster ?? -1) < clusters ? (n.cluster ?? -1) : -1
     })
+    const decay = big ? 0.035 : count > 600 ? 0.03 : 0.0228
+
+    // ---- who works the layout out. A small graph is worked out on the page's own
+    // thread. A big one goes to the graphics card; where that has shown itself to
+    // be slow (no real card behind the browser), to a thread of its own.
+    const mode = this.settings.gpuLayout
+    const bigEnough = count > OFF_THREAD_FROM
+    const card = !!this.gl && mode !== 'off' && (mode === 'on' || (count > GPU_FROM && !this.slowCard))
+    if (card) this.gpu ??= GpuLayout.create(this.gl!.gl)
+    const engine: typeof this.engine = card && this.gpu ? 'gpu' : bigEnough ? 'worker' : 'page'
+    if (engine !== 'worker') this.worker?.postMessage({ type: 'stop' } satisfies ToWorker)
+    this.engine = engine
+    this.layout = null
     this.from = this.positions.slice()
     this.to = this.positions.slice()
-    if (engine === 'gpu') {
+    const kept = this.nodes.flatMap((n, i) => (n.kept ? [i] : []))
+    if (engine === 'page') {
+      this.layout = new ForceLayout(input)
+      this.layout.decay = decay
+      this.layout.alpha = this.alpha
+      for (const i of kept) this.layout.hold(i, true)
+    } else if (engine === 'gpu') {
       this.gpu!.load(input)
+      for (const i of kept) this.gpu!.keep(i, true, this.positions[i * 2], this.positions[i * 2 + 1])
       this.timed = []
     } else {
-      this.loaded = { input, decay: big ? 0.05 : 0.035 }
+      this.loaded = { input, decay }
+      this.keptOnLoad = kept
     }
+  }
+
+  /** Dots that are to stay where they are once the layout thread has the graph. */
+  private keptOnLoad: number[] = []
+
+  /** Leaves a dot where it was dropped (with Shift), or lets it go again. */
+  private keep(node: GraphNode, on: boolean): void {
+    node.kept = on
+    const i = this.nodes.indexOf(node)
+    if (i < 0) return
+    const x = node.x ?? 0
+    const y = node.y ?? 0
+    if (this.engine === 'page') this.layout?.hold(i, on, [x, y])
+    else if (this.engine === 'gpu') this.gpu?.keep(i, on, x, y)
+    else this.worker?.postMessage({ type: 'keep', index: i, on, x, y } satisfies ToWorker)
   }
 
   /** The thread that works the layout out for big graphs when the graphics card does not. */
@@ -317,13 +301,14 @@ export class GraphView implements FileView {
 
   /** Sets the layout moving again; `alpha` is how much (1 is a fresh start). */
   private heat(alpha: number): void {
-    if (this.engine === 'page') return void this.simulation.alpha(alpha).restart()
     this.alpha = Math.max(this.alpha, alpha)
+    if (this.layout) this.layout.alpha = Math.max(this.layout.alpha, alpha)
     if (this.engine === 'worker') {
       const worker = this.thread()
       if (this.loaded) {
         this.generation++
         worker.postMessage({ type: 'load', ...this.loaded, alpha } satisfies ToWorker)
+        for (const i of this.keptOnLoad) worker.postMessage({ type: 'keep', index: i, on: true, x: this.positions[i * 2], y: this.positions[i * 2 + 1] } satisfies ToWorker)
         this.loaded = null
       } else worker.postMessage({ type: 'heat', alpha } satisfies ToWorker)
     }
@@ -332,30 +317,39 @@ export class GraphView implements FileView {
 
   /** Keeps the layout moving while something is dragged (`target` above zero), and lets it rest after. */
   private hold(target: number): void {
-    if (this.engine === 'page') {
-      this.simulation.alphaTarget(target)
-      if (target) this.simulation.restart()
-      return
-    }
     this.alphaTarget = target
+    if (this.layout) {
+      this.layout.alphaTarget = target
+      if (!target) this.layout.pinned = -1
+    }
     if (this.engine === 'worker') this.worker?.postMessage({ type: 'hold', target } satisfies ToWorker)
     this.run()
   }
 
   /**
-   * The loop of a layout that is not worked out on the page's thread: each frame
-   * the dots take their new places (a step of the graphics card, or a glide
-   * towards what the layout thread sent last) and the picture is drawn.
+   * The loop of the layout: each frame the dots take their new places (a step
+   * on the page, a step of the graphics card, or a glide towards what the layout
+   * thread sent last) and the picture is drawn.
    */
   private run(): void {
     if (this.frame) return
     const step = () => {
       this.frame = 0
       const pinned = this.nodes.findIndex((n) => n.fx !== null && n.fx !== undefined)
-      if (this.engine === 'gpu' && this.gpu) {
+      if (this.engine === 'page' && this.layout) {
+        const layout = this.layout
+        layout.pinned = pinned
+        layout.pinX = this.nodes[pinned]?.fx ?? 0
+        layout.pinY = this.nodes[pinned]?.fy ?? 0
+        const began = performance.now()
+        layout.step()
+        this.stepTime = performance.now() - began
+        this.alpha = layout.alpha
+        this.place(layout.positions(this.positions))
+      } else if (this.engine === 'gpu' && this.gpu) {
         this.alpha += (this.alphaTarget - this.alpha) * 0.03
         const began = performance.now()
-        this.gpu.step(this.alpha, 0.5, this.positions, pinned, this.nodes[pinned]?.fx ?? 0, this.nodes[pinned]?.fy ?? 0)
+        this.gpu.step(this.alpha, this.positions, pinned, this.nodes[pinned]?.fx ?? 0, this.nodes[pinned]?.fy ?? 0)
         this.stepTime = performance.now() - began
         // The first steps are timed. A card that needs most of a frame for one step is
         // no card at all, and the layout goes to a thread of the processor instead.
@@ -407,7 +401,7 @@ export class GraphView implements FileView {
   /** What the panel shows about the work being done. */
   stats(): string {
     const who = this.engine === 'gpu' ? 'видеокарта' : this.engine === 'worker' ? 'отдельный поток' : 'страница'
-    const moving = this.engine === 'page' ? this.simulation.alpha() > this.simulation.alphaMin() : this.alpha > 0.002
+    const moving = this.alpha > 0.002
     return `${this.nodes.length} точек, ${this.links.length} связей · раскладка: ${who}${moving ? `, шаг ${this.stepTime.toFixed(0)} мс` : ', готова'} · кадр ${this.drawTime.toFixed(1)} мс${this.gl ? '' : ' (без WebGL)'}`
   }
 
@@ -506,7 +500,6 @@ export class GraphView implements FileView {
       }),
     )
 
-    this.simulation.nodes(this.nodes)
     this.applyForces()
     // A gentle nudge when the graph merely changed, a full layout the first time.
     // A graph whose dots were mostly placed last time only needs a touch-up, not a layout from scratch.
@@ -516,7 +509,6 @@ export class GraphView implements FileView {
   }
 
   destroy(): void {
-    this.simulation.stop()
     cancelAnimationFrame(this.frame)
     clearTimeout(this.remember)
     this.worker?.terminate()
@@ -795,9 +787,15 @@ export class GraphView implements FileView {
         }
       }
     }
-    canvas.onpointerup = () => {
+    canvas.onpointerup = (event) => {
       if (dragged) {
         if (moved <= DRAG_THRESHOLD && dragged.exists) this.app.workspace.openFile(dragged.id)
+        else if (moved > DRAG_THRESHOLD) {
+          // Dropped with Shift, a note stays where it was put; dragged without it, it rejoins the layout.
+          dragged.x = dragged.fx ?? dragged.x
+          dragged.y = dragged.fy ?? dragged.y
+          if (event.shiftKey || dragged.kept) this.keep(dragged, event.shiftKey)
+        }
         dragged.fx = dragged.fy = null
         this.hold(0)
       }

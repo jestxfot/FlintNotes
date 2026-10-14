@@ -4,6 +4,8 @@ import { loadSettings, saveSettings } from './settings'
 import './style.css'
 
 const LAYOUT = '.flint/graph-layout.json'
+/** The physics the remembered places were worked out with: places from another one are not kept. */
+const PHYSICS = 2
 const VIEW = 'graph'
 
 export default class Graph extends Plugin {
@@ -16,11 +18,13 @@ export default class Graph extends Plugin {
         // Where the dots came to rest last time: the graph opens laid out instead of exploding from the centre.
         let places: Record<string, [number, number]> = {}
         try {
-          places = JSON.parse((await app.vault.readOptional(LAYOUT)) ?? '{}')
+          const saved = JSON.parse((await app.vault.readOptional(LAYOUT)) ?? '{}')
+          if (saved?.physics === PHYSICS && saved.places && typeof saved.places === 'object') places = saved.places
         } catch {
           // A broken file only costs one layout from scratch.
         }
-        const view = new GraphView(app, containerEl, settings, () => saveSettings(app, settings), places, (settled) => void app.vault.write(LAYOUT, JSON.stringify(settled)).catch(() => {}))
+        const remember = (settled: Record<string, [number, number]>) => void app.vault.write(LAYOUT, JSON.stringify({ physics: PHYSICS, places: settled })).catch(() => {})
+        const view = new GraphView(app, containerEl, settings, () => saveSettings(app, settings), places, remember)
         views.add(view)
         const destroy = view.destroy.bind(view)
         view.destroy = () => {

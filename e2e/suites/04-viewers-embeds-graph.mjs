@@ -175,14 +175,18 @@ export async function run(t) {
   const onCard = await graph(() => ({ gpu: app.workspace.active.view.engine === 'gpu', spots: app.workspace.active.view.nodes.map((n) => [n.x, n.y]) }))
   const apart = onCard.spots.every(([x, y], i) => Number.isFinite(x) && Number.isFinite(y) && onCard.spots.every(([x2, y2], j) => i === j || Math.hypot(x - x2, y - y2) > 8))
   ok('the graphics card lays the graph out: every note has a place of its own', onCard.gpu && apart, JSON.stringify(onCard))
+  // Once the movement has died down, the dots stay where they are.
+  await page.waitForFunction(() => app.workspace.active.view.alpha < 0.003, null, { timeout: 15000 }).catch(() => {})
   const settled = await spots()
   await wait(1500)
   ok('and the layout comes to rest', JSON.stringify(await spots()) === JSON.stringify(settled), JSON.stringify(settled))
   await panel.locator('.graph-row', { hasText: 'Расчёт раскладки' }).locator('select').selectOption('auto')
   ok('the panel says who lays the graph out and how long it takes', /точек, \d+ связей · раскладка: .* · кадр [\d.]+ мс/.test(await panel.locator('.graph-stats').innerText()), await panel.locator('.graph-stats').innerText())
   await wait(2500)
-  const kept = JSON.parse(read('.flint/graph-layout.json'))
-  ok('the places of the notes are remembered for the next time', Array.isArray(kept['A.md']) && kept['A.md'].length === 2, JSON.stringify(kept))
+  // The places are written once the layout has come to rest.
+  for (let i = 0; i < 20 && !t.exists('.flint/graph-layout.json'); i++) await wait(500)
+  const layoutFile = t.exists('.flint/graph-layout.json') ? JSON.parse(read('.flint/graph-layout.json')) : {}
+  ok('the places of the notes are remembered for the next time, with the physics they come from', layoutFile.physics === 2 && Array.isArray(layoutFile.places?.['A.md']) && layoutFile.places['A.md'].length === 2, JSON.stringify(layoutFile))
   await panel.locator('.graph-tool[title="Закрыть"]').click()
   ok('the panel closes to a button', (await panel.isHidden()) && (await page.locator('.graph-open').isVisible()))
 }
