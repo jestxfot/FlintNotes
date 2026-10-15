@@ -122,10 +122,10 @@
   border: none;
   background:
     radial-gradient(1200px 700px at 50% 38%, color-mix(in srgb, var(--accent) 34%, transparent), transparent 70%),
-    color-mix(in srgb, var(--bg) 78%, transparent);
+    color-mix(in srgb, var(--bg) 94%, transparent);
   color: var(--text);
-  backdrop-filter: blur(18px) saturate(1.2);
-  animation: task-alert-in 0.28s ease-out;
+  /* No blur of the page behind: on a busy computer it is what makes the alert stutter. */
+  animation: task-alert-in 0.2s ease-out;
 }
 
 .task-alert::backdrop {
@@ -176,11 +176,11 @@
   stroke-linecap: round;
   stroke-linejoin: round;
   transform-origin: 50% 12%;
-  animation: alert-swing 2.4s ease-in-out infinite;
+  animation: alert-swing 2.4s ease-in-out 3;
 }
 
 .alert-ring {
-  animation: alert-ring 2.4s ease-in-out infinite;
+  animation: alert-ring 2.4s ease-in-out 3;
 }
 
 @keyframes alert-swing {

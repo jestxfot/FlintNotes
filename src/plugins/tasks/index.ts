@@ -1,4 +1,5 @@
 import { mount, unmount } from 'svelte'
+import { SOUNDS } from './sound'
 import { cm, errorMessage, path as paths, Plugin, renderInline, type CodeBlockContext, type PreviewRenderer } from '../../api'
 import { today } from './dates'
 import { Reminders, stamp } from './reminders'
@@ -108,18 +109,24 @@ export default class Tasks extends Plugin {
       {
         key: 'soundKind',
         name: 'Звук',
-        desc: 'Послушать: команда «Проиграть звук напоминания»',
+        desc: 'Выбранный звук сразу проигрывается; ещё раз — командой «Проиграть звук напоминания»',
         type: 'select',
-        default: 'chime',
+        default: 'glass',
+        options: SOUNDS.map(({ id, name }) => ({ value: id, label: name })),
+      },
+      { key: 'volume', name: 'Громкость, %', type: 'number', default: 40, min: 0, max: 100, step: 5 },
+      {
+        key: 'soundRepeat',
+        name: 'Повторять сигнал',
+        type: 'select',
+        default: 'few',
         options: [
-          { value: 'chime', label: 'Перезвон' },
-          { value: 'bell', label: 'Колокольчик' },
-          { value: 'soft', label: 'Тихий, две ноты' },
-          { value: 'classic', label: 'Три гудка (прежний)' },
+          { value: 'once', label: 'Один раз' },
+          { value: 'few', label: 'Ещё три раза, всё реже' },
+          { value: 'until', label: 'Пока не отвечу' },
         ],
       },
-      { key: 'volume', name: 'Громкость, %', type: 'number', default: 60, min: 0, max: 100, step: 5 },
-      { key: 'repeatSeconds', name: 'Повторять сигнал каждые, секунд', type: 'number', default: 5, min: 2, max: 120 },
+      { key: 'repeatSeconds', name: 'Пауза между сигналами, секунд', type: 'number', default: 15, min: 2, max: 300 },
       {
         key: 'system',
         name: 'Системные уведомления',

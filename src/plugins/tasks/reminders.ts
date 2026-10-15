@@ -1,4 +1,5 @@
 import { path as paths, renderInline, type Off, type Plugin } from '../../api'
+import { Signal, type Repeat } from './sound'
 import { fromIso } from './dates'
 import type { TaskStore } from './store'
 import { formatTaskLine, isOpen, movePlainReminder, parseTaskLine, reminderTime, type Task } from './task'
@@ -66,97 +67,6 @@ export function laterTime(option: string, morning = '09:00', now = new Date()): 
 }
 
 /** A short, hard-to-miss signal: three rising beeps, made with the Web Audio API. */
-class Beeper {
-  private context: AudioContext | null = null
-  private timer: ReturnType<typeof setInterval> | undefined
-  /** How many signals have sounded since the last `start`. */
-  count = 0
-
-  start(everySeconds: number): void {
-    if (this.timer) return
-    this.count = 0
-    this.beep()
-    this.timer = setInterval(() => this.beep(), Math.max(2, everySeconds) * 1000)
-    // Browsers keep audio muted until the page has been interacted with.
-    window.addEventListener('pointerdown', this.unlock, true)
-    window.addEventListener('keydown', this.unlock, true)
-  }
-
-  stop(): void {
-    clearInterval(this.timer)
-    this.timer = undefined
-    window.removeEventListener('pointerdown', this.unlock, true)
-    window.removeEventListener('keydown', this.unlock, true)
-  }
-
-  private unlock = () => void this.context?.resume()
-
-  /** Which signal to play and how loud (0..1); set from the settings before each start. */
-  sound = 'chime'
-  volume = 0.6
-
-  /** Plays the signal once, for trying it out in the settings. */
-  preview(): void {
-    this.beep()
-  }
-
-  private beep(): void {
-    this.count++
-    try {
-      const context = (this.context ??= new AudioContext())
-      void context.resume()
-      const out = context.createGain()
-      out.gain.value = Math.max(0, Math.min(1, this.volume))
-      out.connect(context.destination)
-      /** One struck note: it sounds at once and dies away, like a bell or a chime bar, with overtones above it. */
-      const strike = (frequency: number, at: number, length: number, loud: number, overtones: [ratio: number, share: number][] = [[2, 0.22], [3, 0.08]], type: OscillatorType = 'sine') => {
-        const start = context.currentTime + at
-        for (const [ratio, share] of [[1, 1], ...overtones] as [number, number][]) {
-          const oscillator = context.createOscillator()
-          const gain = context.createGain()
-          oscillator.type = type
-          oscillator.frequency.value = frequency * ratio
-          gain.gain.setValueAtTime(0.0001, start)
-          gain.gain.exponentialRampToValueAtTime(loud * share, start + 0.012)
-          // Overtones die sooner than the note itself, which is what makes it sound struck rather than switched on.
-          gain.gain.exponentialRampToValueAtTime(0.0001, start + length / Math.sqrt(ratio))
-          oscillator.connect(gain).connect(out)
-          oscillator.start(start)
-          oscillator.stop(start + length + 0.05)
-        }
-      }
-      if (this.sound === 'bell') {
-        // A small bell: one note with the uneven overtones of metal.
-        strike(659.25, 0, 2.4, 0.5, [[2.76, 0.35], [5.4, 0.18], [8.93, 0.08]])
-        strike(659.25, 0.9, 2.0, 0.3, [[2.76, 0.3], [5.4, 0.12]])
-      } else if (this.sound === 'soft') {
-        // Two quiet notes, a fifth apart.
-        strike(523.25, 0, 1.1, 0.32, [[2, 0.12]], 'triangle')
-        strike(783.99, 0.22, 1.4, 0.28, [[2, 0.1]], 'triangle')
-      } else if (this.sound === 'classic') {
-        // Three rising beeps: plain, and hard to miss.
-        ;[880, 1100, 1320].forEach((frequency, i) => {
-          const start = context.currentTime + i * 0.22
-          const oscillator = context.createOscillator()
-          const gain = context.createGain()
-          oscillator.frequency.value = frequency
-          gain.gain.setValueAtTime(0, start)
-          gain.gain.linearRampToValueAtTime(0.35, start + 0.02)
-          gain.gain.linearRampToValueAtTime(0, start + 0.18)
-          oscillator.connect(gain).connect(out)
-          oscillator.start(start)
-          oscillator.stop(start + 0.2)
-        })
-      } else {
-        // A chime: a rising chord, each note ringing into the next.
-        ;[783.99, 987.77, 1174.66, 1567.98].forEach((frequency, i) => strike(frequency, i * 0.14, 1.6, 0.36))
-      }
-    } catch {
-      // No audio device or audio blocked: the alert is still on screen.
-    }
-  }
-}
-
 /**
  * Watches the tasks and, when one is due, covers the screen with an alert that
  * stays (and keeps beeping) until each task in it is completed, postponed or
@@ -164,7 +74,7 @@ class Beeper {
  */
 export class Reminders {
   private dialog: HTMLDialogElement | null = null
-  private beeper = new Beeper()
+  private beeper = new Signal()
   private shown = ''
   private title = document.title
   private flash: ReturnType<typeof setInterval> | undefined
@@ -176,12 +86,22 @@ export class Reminders {
 
   start(): Off {
     const check = () => this.check()
-    const timer = setInterval(check, CHECK_EVERY)
+    // The clock runs on a thread of its own: a tab in the background has its own timers slowed
+    // to once a minute or less, a worker's are not, so a reminder comes on time there too.
+    let ticker: Worker | null = null
+    try {
+      ticker = new Worker(URL.createObjectURL(new Blob([`setInterval(() => postMessage(0), ${CHECK_EVERY})`], { type: 'text/javascript' })))
+      ticker.onmessage = check
+    } catch {
+      ticker = null
+    }
+    const timer = ticker ? undefined : setInterval(check, CHECK_EVERY)
     const off = this.store.on('change', check)
     document.addEventListener('visibilitychange', check)
     check()
     return () => {
       clearInterval(timer)
+      ticker?.terminate()
       off()
       document.removeEventListener('visibilitychange', check)
       this.close()
@@ -232,15 +152,14 @@ export class Reminders {
     return this.timed().filter(({ key, at, closed }) => !closed && at.getTime() - lead <= now && at.getTime() >= oldest && !((snoozed[key] ?? 0) > now))
   }
 
-  private tune(): void {
-    this.beeper.sound = this.setting<string>('soundKind') ?? 'chime'
-    this.beeper.volume = Math.max(0, Math.min(100, this.setting<number>('volume') ?? 60)) / 100
+  private sound(): { kind: string; volume: number } {
+    return { kind: this.setting<string>('soundKind') ?? 'glass', volume: Math.max(0, Math.min(100, this.setting<number>('volume') ?? 40)) / 100 }
   }
 
   /** Plays the chosen signal once. */
   playSound(): void {
-    this.tune()
-    this.beeper.preview()
+    const { kind, volume } = this.sound()
+    void this.beeper.play(kind, volume)
   }
 
   /** Whether alerts are held back right now: "do not disturb" was asked for, or it is the quiet time of day. */
@@ -275,8 +194,8 @@ export class Reminders {
     }
     this.render(due)
     if (this.setting<boolean>('sound')) {
-      this.tune()
-      this.beeper.start(this.setting<number>('repeatSeconds'))
+      const { kind, volume } = this.sound()
+      this.beeper.start(kind, volume, (this.setting<string>('soundRepeat') ?? 'few') as Repeat, this.setting<number>('repeatSeconds'))
     }
     if (this.setting<boolean>('system') && globalThis.Notification?.permission === 'granted') {
       for (const { key, task } of fresh) {
