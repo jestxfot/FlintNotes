@@ -1,4 +1,5 @@
 import { autocompletion, completionKeymap } from '@codemirror/autocomplete'
+import { selectionOverlay } from './selection'
 import { plainText } from './plain-text'
 import { defaultKeymap, history, historyKeymap, indentWithTab } from '@codemirror/commands'
 import { indentOnInput } from '@codemirror/language'
@@ -48,6 +49,7 @@ export class MarkdownView implements FileView {
         extensions: [
           history(),
           drawSelection(),
+          selectionOverlay,
           dropCursor(),
           indentOnInput(),
           EditorView.lineWrapping,

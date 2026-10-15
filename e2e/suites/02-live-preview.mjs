@@ -135,4 +135,29 @@ export async function run(t) {
   await wait(400)
   ok('the cursor inside the element brings its tags back', (await t.text()).includes('<mark>marked</mark>'))
 
+
+  // ---- the selection is drawn over the text, along the text itself, in code blocks too
+  const selected = await page.evaluate(async () => {
+    const view = app.workspace.activeEditor
+    const text = view.state.doc.toString()
+    const from = text.indexOf('```js')
+    const to = text.indexOf('```', from + 5) + 3
+    view.focus()
+    view.dispatch({ selection: { anchor: from, head: to } })
+    await new Promise((resolve) => requestAnimationFrame(() => requestAnimationFrame(resolve)))
+    const marks = [...document.querySelectorAll('.leaf:not([hidden]) .flint-selection')].map((el) => el.getBoundingClientRect())
+    const code = [...document.querySelectorAll('.leaf:not([hidden]) .cm-line.lp-code')].find((el) => el.textContent.includes('const a = 1'))
+    const line = code.getBoundingClientRect()
+    const textEnd = (() => {
+      const range = document.createRange()
+      range.selectNodeContents(code)
+      return range.getBoundingClientRect().right
+    })()
+    const onLine = marks.find((rect) => rect.top < line.bottom && rect.bottom > line.top)
+    const layerAbove = getComputedStyle(document.querySelector('.leaf:not([hidden]) .flint-selection-layer')).zIndex
+    return { count: marks.length, onLine: onLine ? [Math.round(onLine.left), Math.round(onLine.right)] : null, textEnd: Math.round(textEnd), lineRight: Math.round(line.right), layerAbove }
+  })
+  ok('a selection is drawn over the note, along the selected text, also in a code block', selected.count >= 3 && selected.onLine && selected.onLine[1] <= selected.textEnd + 12 && selected.onLine[1] < selected.lineRight - 40, JSON.stringify(selected))
+  await t.cursorToEnd()
+
 }

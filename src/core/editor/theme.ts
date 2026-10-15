@@ -15,9 +15,13 @@ const theme = EditorView.theme({
   },
   '.cm-line': { padding: '0' },
   '.cm-cursor': { borderLeftColor: 'var(--accent)' },
+  // The selection is drawn over the text by selection.ts; the layer CodeMirror keeps behind the text stays empty.
   '&.cm-focused > .cm-scroller > .cm-selectionLayer .cm-selectionBackground, .cm-selectionBackground': {
-    backgroundColor: 'var(--selection)',
+    backgroundColor: 'transparent',
   },
+  '.flint-selection-layer': { pointerEvents: 'none' },
+  '.flint-selection': { backgroundColor: 'var(--selection-over)', borderRadius: '2px' },
+  '&:not(.cm-focused) .flint-selection': { opacity: '0.55' },
   '.cm-gutters': { backgroundColor: 'transparent', border: 'none', color: 'var(--text-faint)' },
   '.cm-tooltip': {
     border: '1px solid var(--border)',

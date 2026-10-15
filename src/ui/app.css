@@ -17,6 +17,8 @@
   --accent: #7852ee;
   --accent-text: #ffffff;
   --selection: #dcd2fb;
+  /* Seen through: the selection lies over the text and over blocks with backgrounds of their own. */
+  --selection-over: color-mix(in srgb, var(--accent) 24%, transparent);
   --shadow: 0 2px 8px rgb(0 0 0 / 0.07), 0 12px 32px rgb(0 0 0 / 0.14);
   --syn-keyword: #d53984;
   --syn-string: #08b94e;
@@ -49,6 +51,7 @@
     --accent: #a68af9;
     --accent-text: #ffffff;
     --selection: #3f3466;
+    --selection-over: color-mix(in srgb, var(--accent) 34%, transparent);
     --shadow: 0 2px 8px rgb(0 0 0 / 0.3), 0 12px 32px rgb(0 0 0 / 0.5);
     --syn-keyword: #fa99cd;
     --syn-string: #44cf6e;
@@ -74,6 +77,7 @@
   --accent: #a68af9;
   --accent-text: #ffffff;
   --selection: #3f3466;
+  --selection-over: color-mix(in srgb, var(--accent) 34%, transparent);
   --shadow: 0 2px 8px rgb(0 0 0 / 0.3), 0 12px 32px rgb(0 0 0 / 0.5);
   --syn-keyword: #fa99cd;
   --syn-string: #44cf6e;
