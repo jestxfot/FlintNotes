@@ -274,3 +274,18 @@
   background: color-mix(in srgb, var(--color-yellow, #e5c07b) 45%, transparent);
   color: inherit;
 }
+
+/* Whatever is shown in the note as a block of its own (the title, a table, a card, anything a plugin
+   draws) has no outer margin up or down: the editor measures such blocks without their margins, and
+   one would put every line below it out of place, so that a click would land on another line. Room
+   around a block is made with padding inside it. */
+.cm-editor .cm-content > :not(.cm-line) {
+  margin-top: 0 !important;
+  margin-bottom: 0 !important;
+}
+
+/* The same inside a line: a picture or an embedded file with a margin of its own would let that
+   margin out past the line, which the editor does not count either. A line keeps such margins in. */
+.cm-editor .cm-line {
+  display: flow-root;
+}

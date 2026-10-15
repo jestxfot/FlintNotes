@@ -279,8 +279,10 @@ code {
 .inline-title {
   display: block;
   width: 100%;
-  margin-bottom: 0.5em;
-  padding: 0;
+  /* Room below as padding, not margin: the editor measures what it shows without margins,
+     and a margin here put every line below where the editor thought it was. */
+  margin: 0;
+  padding: 0 0 0.5em;
   border: none;
   outline: none;
   background: none;
@@ -418,9 +420,14 @@ input[type='checkbox']:disabled {
   gap: 0.35em;
 }
 
+.inline-title-row {
+  padding-bottom: 0.5em;
+}
+
 .inline-title-row .inline-title {
   flex: 1;
   min-width: 0;
+  padding-bottom: 0;
 }
 
 .inline-title-icon {

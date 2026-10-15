@@ -160,4 +160,18 @@ export async function run(t) {
   ok('a selection is drawn over the note, along the selected text, also in a code block', selected.count >= 3 && selected.onLine && selected.onLine[1] <= selected.textEnd + 12 && selected.onLine[1] < selected.lineRight - 40, JSON.stringify(selected))
   await t.cursorToEnd()
 
+
+  // ---- every line is where the editor thinks it is: a click lands on the line under the pointer
+  const misplaced = await page.evaluate(() => {
+    const view = app.workspace.activeEditor
+    return [...document.querySelectorAll('.leaf:not([hidden]) .cm-line')]
+      .map((el) => {
+        const block = view.lineBlockAt(view.posAtDOM(el))
+        const drawn = el.getBoundingClientRect()
+        return { text: el.textContent.slice(0, 20), off: Math.round(drawn.bottom - (view.documentTop + block.bottom)) }
+      })
+      .filter((line) => Math.abs(line.off) > 1)
+  })
+  ok('every line is drawn where the editor places it, under titles, pictures, embeds and blocks', misplaced.length === 0, JSON.stringify(misplaced.slice(0, 5)))
+
 }
