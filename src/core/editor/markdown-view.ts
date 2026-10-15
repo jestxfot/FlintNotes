@@ -179,8 +179,10 @@ export class MarkdownView implements FileView {
     }
   }
 
-  async onExternalChange(): Promise<void> {
-    const text = await this.app.vault.read(this.path).catch(() => null)
+  async onExternalChange(written?: string): Promise<void> {
+    // The text this app has just saved is known; only a change made elsewhere is read from disk.
+    if (written !== undefined && written === this.text()) return void (this.saved = written)
+    const text = written ?? (await this.app.vault.read(this.path).catch(() => null))
     if (text === null || this.destroyed) return
     const current = this.text()
     if (text === current) {

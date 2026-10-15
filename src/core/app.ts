@@ -350,7 +350,10 @@ export class App {
     // The file list and the settings do not depend on each other; plugin code is
     // requested as soon as the settings say which plugins are on.
     await this.vault.identify()
-    await Promise.all([this.vault.load(), this.state.load(), this.settings.load().then(() => this.plugins.preload())])
+    performance.mark('flint:identify')
+    this.metadata.prefetch()
+    const done = (name: string) => () => performance.mark(`flint:${name}`)
+    await Promise.all([this.vault.load().then(done('tree')), this.state.load().then(done('state')), this.settings.load().then(done('settings')).then(() => this.plugins.preload())])
     this.panels.init()
     // Once only: the page may be set up again (a vault is switched), the list of settings is the same object.
     if (!coreSettings.defs.some((def) => def.key === 'panels')) coreSettings.defs.splice(coreSettings.defs.findIndex((def) => def.key === 'zoom'), 0, panelsSetting(this))

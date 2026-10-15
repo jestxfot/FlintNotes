@@ -1,4 +1,5 @@
 import { parse as parseYaml } from 'yaml'
+import { IndexCache } from './index-cache'
 import { moment } from './moment'
 import { expandVariables } from './variables'
 import { Events } from './events'
@@ -212,10 +213,17 @@ export class MetadataCache extends Events<MetadataEvents> {
   private indexed = new Map<string, number>()
   /** Answers of `resolve` since the last rebuild; the same links are asked about again and again. */
   private resolved = new Map<string, string | null>()
+  /** The index as it was at the end of the last visit, kept by the browser. */
+  private stored: IndexCache | null = null
 
   constructor(private vault: Vault) {
     super()
     this.ready = new Promise((resolve) => (this.markReady = resolve))
+  }
+
+  /** Starts reading the index the browser kept, as early as the vault is known: it arrives while the rest starts. */
+  prefetch(): void {
+    this.stored ??= new IndexCache(this.vault.urlName || 'vault')
   }
 
   /** Starts following the vault. Links by name resolve from here on; contents come with `load`. */
@@ -233,6 +241,7 @@ export class MetadataCache extends Events<MetadataEvents> {
     vault.on('delete', (entry) => {
       this.cache.delete(entry.path)
       this.texts.delete(entry.path)
+      this.stored?.remove(entry.path)
       this.rebuild()
     })
     vault.on('rename', (entry, oldPath) => this.onRename(entry, oldPath))
@@ -325,25 +334,85 @@ export class MetadataCache extends Events<MetadataEvents> {
     return note ? path.slice(0, -3) : path
   }
 
+  /** Puts a note as it is now into the index kept by the browser. */
+  private remember(path: string): void {
+    const entry = this.vault.get(path)
+    const text = this.texts.get(path)
+    const meta = this.cache.get(path)
+    if (entry && text !== undefined && meta) this.stored?.put({ path, mtime: entry.mtime, size: entry.size, text, meta })
+  }
+
+  /**
+   * Reads every note. Notes whose file has not changed since the last visit come
+   * from the index the browser kept, already parsed; only the others are read
+   * from the server: one by one when they are few, in one stream when they are many.
+   */
   private async indexAll(): Promise<void> {
-    try {
-      await this.vault.readNotes((path, text) => {
-        // A note read on its own meanwhile (it was just edited) is newer than the stream.
-        if (this.versions.has(path) || !this.vault.get(path)) return
-        this.texts.set(path, text)
-        this.cache.set(path, parseMarkdown(text))
-        this.trigger('changed', path)
-      })
-    } catch (err) {
-      console.error('Reading all notes at once failed; reading them one by one', err)
-      const queue = this.vault.files().filter((entry) => isNote(entry) && !this.cache.has(entry.path))
+    this.stored ??= new IndexCache(this.vault.urlName || 'vault')
+    performance.mark('flint:index-start')
+    const kept = await this.stored.readAll()
+    performance.mark('flint:index-kept')
+    const notes = this.vault.files().filter(isNote)
+    const stale: string[] = []
+    let sliceStart = performance.now()
+    for (const entry of notes) {
+      const known = kept.get(entry.path)
+      kept.delete(entry.path)
+      if (!known || known.mtime !== entry.mtime || known.size !== entry.size) {
+        stale.push(entry.path)
+        continue
+      }
+      // A note read on its own meanwhile (it was just edited) is newer than what was kept.
+      if (this.versions.has(entry.path)) continue
+      this.texts.set(entry.path, known.text)
+      this.cache.set(entry.path, known.meta)
+      this.indexed.set(entry.path, entry.mtime)
+      this.trigger('changed', entry.path)
+      if (performance.now() - sliceStart > 12) {
+        await new Promise((resume) => setTimeout(resume))
+        sliceStart = performance.now()
+      }
+    }
+    // What was kept for notes that are gone is forgotten.
+    for (const path of kept.keys()) this.stored.remove(path)
+
+    const take = (path: string, text: string) => {
+      if (this.versions.has(path) || !this.vault.get(path)) return
+      this.texts.set(path, text)
+      this.cache.set(path, parseMarkdown(text))
+      this.indexed.set(path, this.vault.get(path)!.mtime)
+      this.remember(path)
+      this.trigger('changed', path)
+    }
+    const oneByOne = async (paths: string[]) => {
+      const queue = [...paths]
       const worker = async () => {
-        for (let entry = queue.pop(); entry; entry = queue.pop()) await this.index(entry.path)
+        for (let path = queue.pop(); path; path = queue.pop()) {
+          const text = await this.vault.read(path).catch(() => null)
+          if (text !== null) take(path, text)
+        }
       }
       await Promise.all(Array.from({ length: 8 }, worker))
     }
+    if (stale.length > 150) {
+      const wanted = new Set(stale)
+      try {
+        await this.vault.readNotes((path, text) => wanted.has(path) && take(path, text))
+      } catch (err) {
+        console.error('Reading all notes at once failed; reading them one by one', err)
+        await oneByOne(stale.filter((path) => !this.cache.has(path)))
+      }
+    } else await oneByOne(stale)
+    // Notes came from the kept index and from the server in no set order; queries list them
+    // in the order of the files, whatever way they arrived.
+    const order = this.vault.files().filter(isNote).map((entry) => entry.path)
+    const inOrder = new Set(order)
+    const sorted = <T>(map: Map<string, T>) => new Map([...order.filter((path) => map.has(path)).map((path): [string, T] => [path, map.get(path)!]), ...[...map].filter(([path]) => !inOrder.has(path))])
+    this.cache = sorted(this.cache)
+    this.texts = sorted(this.texts)
     this.loading = false
     this.rebuild()
+    performance.mark('flint:index')
   }
 
   private async index(path: string): Promise<void> {
@@ -366,6 +435,7 @@ export class MetadataCache extends Events<MetadataEvents> {
     const meta = parseMarkdown(text)
     this.texts.set(path, text)
     this.cache.set(path, meta)
+    this.remember(path)
     this.trigger('changed', path)
     if (!this.loading && (!before || signature(before) !== signature(meta))) this.rebuild()
   }
@@ -384,6 +454,8 @@ export class MetadataCache extends Events<MetadataEvents> {
       this.cache.set(entry.path, meta)
       this.texts.set(entry.path, this.texts.get(oldPath) ?? '')
       this.texts.delete(oldPath)
+      this.stored?.remove(oldPath)
+      this.remember(entry.path)
     } else if (isNote(entry)) {
       void this.index(entry.path)
     }

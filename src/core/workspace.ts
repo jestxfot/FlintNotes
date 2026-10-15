@@ -9,7 +9,8 @@ export interface FileView {
   /** Set by views built on the text editor, so plugins can reach it. */
   editor?: EditorView
   /** The file changed on disk. */
-  onExternalChange?(): void
+  /** The file was changed: elsewhere (no text given; the view reads it), or by this app (the text it wrote). */
+  onExternalChange?(text?: string): void
   onRename?(path: string): void
   /** Whether the view only shows its file, without letting it be typed in; views that can do both have `setReading`. */
   reading?: boolean
@@ -123,6 +124,11 @@ export class Workspace extends Events<WorkspaceEvents> {
     app.vault.on('modify', (entry) => {
       this.leaves.filter((l) => l.path === entry.path).forEach((leaf) => leaf.view?.onExternalChange?.())
       for (const shown of this.embedded) if (shown.path === entry.path) shown.view?.onExternalChange?.()
+    })
+    // A file this app wrote: every other view of it takes the new text without asking the server for it.
+    app.vault.on('written', (entry, text) => {
+      this.leaves.filter((l) => l.path === entry.path).forEach((leaf) => leaf.view?.onExternalChange?.(text))
+      for (const shown of this.embedded) if (shown.path === entry.path) shown.view?.onExternalChange?.(text)
     })
   }
 

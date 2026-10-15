@@ -263,15 +263,29 @@ export class Vault extends Events<VaultEvents> {
     data: string | ArrayBuffer,
     options: { create?: boolean; keepalive?: boolean } = {},
   ): Promise<VaultEntry> {
-    const res = await request(url('file', path) + (options.create ? '&create=1' : ''), {
-      method: 'PUT',
-      body: data,
-      keepalive: options.keepalive,
-    })
-    const entry: VaultEntry = await res.json()
+    this.writing.set(path, (this.writing.get(path) ?? 0) + 1)
+    let entry: VaultEntry
+    try {
+      const res = await request(url('file', path) + (options.create ? '&create=1' : ''), {
+        method: 'PUT',
+        body: data,
+        keepalive: options.keepalive,
+      })
+      entry = await res.json()
+    } finally {
+      const left = (this.writing.get(path) ?? 1) - 1
+      if (left) this.writing.set(path, left)
+      else this.writing.delete(path)
+    }
     if (!path.startsWith('.')) {
-      if (typeof data === 'string') this.trigger('written', entry, data)
-      this.upsert(entry)
+      if (typeof data === 'string') {
+        // Text this app wrote is no news from outside: the views showing the file get it as it is
+        // ('written'), instead of each reading it back from the server as a change made elsewhere.
+        const known = this.entries.has(entry.path)
+        this.entries.set(entry.path, entry)
+        if (!known) this.trigger('create', entry)
+        this.trigger('written', entry, data)
+      } else this.upsert(entry)
       // The server refuses `create` for a file that exists, so a success means this
       // app made the file. (The file watcher may already have reported it.)
       if (options.create) this.trigger('created-here', entry)
@@ -341,10 +355,14 @@ export class Vault extends Events<VaultEvents> {
     for (const entry of list) this.upsert(entry)
   }
 
+  /** Files this app is writing right now: the watcher's word about them is the echo of that write. */
+  private writing = new Map<string, number>()
+
   private upsert(entry: VaultEntry): void {
     const previous = this.entries.get(entry.path)
     this.entries.set(entry.path, entry)
     if (!previous) this.trigger('create', entry)
+    else if (this.writing.has(entry.path)) return
     else if (entry.kind === 'file' && (previous.mtime !== entry.mtime || previous.size !== entry.size)) {
       this.trigger('modify', entry)
     }

@@ -42,12 +42,20 @@ export function change(before: string[], after: string[]): { at: number; del: nu
 
 /** The text of a note as it was at version `index`. */
 export function textAt(history: History, index: number): string {
-  let text: string[] = []
+  return linesAt(history, index).join('\n')
+}
+
+/** The lines of the note as they were at a version, put together from the first one on. */
+function linesAt(history: History, index: number): string[] {
+  const text: string[] = []
   for (let i = 0; i <= index && i < history.versions.length; i++) {
     const { at, del, ins } = history.versions[i]
-    text = [...text.slice(0, at), ...ins, ...text.slice(at + del)]
+    // In place: a copy of the whole note for every version made long histories slow.
+    text.splice(at, del)
+    // In parts: one call with a hundred thousand arguments would overflow the stack.
+    for (let k = 0; k < ins.length; k += 10_000) text.splice(at + k, 0, ...ins.slice(k, k + 10_000))
   }
-  return text.join('\n')
+  return text
 }
 
 async function pack(value: unknown): Promise<ArrayBuffer> {
@@ -139,6 +147,18 @@ export class HistoryStore {
   }
   private recording: Promise<void> = Promise.resolve()
 
+  /** Waits until every version asked for has been made. */
+  idle(): Promise<void> {
+    return this.recording
+  }
+
+  /**
+   * The lines of the last version of each history and of the one before it, kept from
+   * the last time: a new version is compared with them instead of rebuilding them from
+   * the first version on at every save.
+   */
+  private tips = new Map<string, { count: number; tip: string[]; base: string[] | null }>()
+
   private async take(path: string, text: string, when: number, by: Version['by'], options: { created: number; merge: number; keep: number }): Promise<void> {
     let id = this.index[path]
     let history = id ? await this.get(path) : null
@@ -151,21 +171,28 @@ export class HistoryStore {
     const versions = history.versions
     const last = versions.length - 1
     const current = lines(text)
-    const before = last >= 0 ? lines(textAt(history, last)) : []
+    const known = this.tips.get(id)
+    const fresh = known && known.count === versions.length
+    const before = last < 0 ? [] : fresh ? known.tip : linesAt(history, last)
     const diff = change(before, current)
     if (last >= 0 && !diff.del && !diff.ins.length) return
     const previous = versions[last]
     // Saves by this app that follow one another closely are one sitting: the last version is replaced, not added to.
+    let base: string[] | null
     if (last > 0 && by === 'here' && previous.by === 'here' && when - previous.t < options.merge) {
-      const base = lines(textAt(history, last - 1))
+      base = fresh && known.base ? known.base : linesAt(history, last - 1)
       const merged = change(base, current)
       versions[last] = { t: when, by, ...merged, plus: merged.ins.length, minus: merged.del }
-    } else versions.push({ t: when, by, ...diff, plus: diff.ins.length, minus: diff.del })
+    } else {
+      base = before
+      versions.push({ t: when, by, ...diff, plus: diff.ins.length, minus: diff.del })
+    }
     // The oldest versions give way when there are too many: the two oldest become one.
     while (versions.length > Math.max(2, options.keep)) {
       const text1 = lines(textAt(history, 1))
       versions.splice(0, 2, { ...versions[1], at: 0, del: 0, ins: text1, plus: text1.length, minus: 0 })
     }
+    this.tips.set(id, { count: versions.length, tip: current, base: versions.length > 1 ? base : null })
     await this.write(id, history)
   }
 

@@ -12,6 +12,9 @@ const listed = (text: string) => text.split('\n').map((line) => line.trim().repl
  * history shows who changed what and when, compares any version with the
  * note as it is now, and brings a version back.
  */
+/** How long typing must pause before the note's text becomes a version. */
+const PAUSE = 5000
+
 export default class NoteHistory extends Plugin {
   private store = new HistoryStore(this.app)
 
@@ -28,16 +31,37 @@ export default class NoteHistory extends Plugin {
     /** Texts this app has just written, so that the file event that follows is not taken for another program's change. */
     const mine = new Map<string, string>()
 
+    // Typing saves the note every moment; its history takes the text once the typing pauses
+    // (or the page is left), not at every save: a version is a diff and a packed file to write.
+    const pending = new Map<string, { text: string; entry: VaultEntry; at: number; timer: ReturnType<typeof setTimeout> }>()
+    const settle = (path: string) => {
+      const waiting = pending.get(path)
+      if (!waiting) return
+      clearTimeout(waiting.timer)
+      pending.delete(path)
+      void store.record(path, waiting.text, waiting.at, 'here', options(waiting.entry))
+    }
+    this.settleAll = () => settleAll()
+    const settleAll = () => [...pending.keys()].forEach(settle)
     this.register(
       app.vault.on('written', (entry, text) => {
         if (!watched(entry.path)) return
         mine.set(entry.path, text)
-        void store.record(entry.path, text, Date.now(), 'here', options(entry))
+        clearTimeout(pending.get(entry.path)?.timer)
+        pending.set(entry.path, { text, entry, at: Date.now(), timer: setTimeout(() => settle(entry.path), PAUSE) })
       }),
     )
+    const hidden = () => document.visibilityState === 'hidden' && settleAll()
+    document.addEventListener('visibilitychange', hidden)
+    this.register(() => {
+      document.removeEventListener('visibilitychange', hidden)
+      settleAll()
+    })
     this.register(
       app.vault.on('modify', (entry) => {
         if (entry.kind !== 'file' || !watched(entry.path)) return
+        // What was typed here comes before what another program did after it.
+        settle(entry.path)
         void app.vault.read(entry.path).then(
           (text) => {
             if (mine.get(entry.path) === text) return
@@ -61,8 +85,18 @@ export default class NoteHistory extends Plugin {
       void store.record(path, text, entry?.mtime || Date.now(), 'outside', options(entry))
     }
     this.register(app.workspace.on('active-change', (leaf) => leaf && !leaf.path.startsWith('view:') && begin(leaf.path)))
-    this.register(app.vault.on('rename', (entry, from) => void store.renamed(from, entry.path)))
-    this.register(app.vault.on('delete', (entry) => void store.deleted(entry.path)))
+    this.register(
+      app.vault.on('rename', (entry, from) => {
+        settle(from)
+        void store.renamed(from, entry.path)
+      }),
+    )
+    this.register(
+      app.vault.on('delete', (entry) => {
+        settle(entry.path)
+        void store.deleted(entry.path)
+      }),
+    )
 
     const open = (path: string) => void this.show(path).catch((err) => app.notice(`История: ${errorMessage(err)}`))
     this.addCommand({
@@ -99,8 +133,14 @@ export default class NoteHistory extends Plugin {
   }
 
   /** The window with a note's versions. */
+  /** Puts down at once what is waiting for a pause in typing. */
+  private settleAll: () => void = () => {}
+
   private async show(path: string): Promise<void> {
     const { app, store } = this
+    // The window shows what was typed a moment ago too.
+    this.settleAll()
+    await store.idle()
     const history = await store.get(path)
     const exists = !!app.vault.get(path)
     const current = exists ? await app.vault.read(path) : ''

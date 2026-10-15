@@ -49,6 +49,9 @@ export class PluginManager extends Events<{ change: [] }> {
   }
 
   /** Finds all plugins and enables the ones that were on in the previous session. */
+  /** How long each plugin took to arrive and to start, in milliseconds: what to look at when starting up is slow. */
+  readonly timings = new Map<string, { load: number; start: number }>()
+
   async init(): Promise<void> {
     for (const [file, manifest] of Object.entries(manifests)) {
       const id = folderOf(file)
@@ -89,9 +92,12 @@ export class PluginManager extends Events<{ change: [] }> {
     this.busy.add(id)
     let plugin: Plugin | undefined
     try {
+      const began = performance.now()
       const PluginClass = await entry.load()
+      const loaded = performance.now()
       plugin = new PluginClass(this.app, entry.manifest)
       await plugin.onload()
+      this.timings.set(id, { load: Math.round(loaded - began), start: Math.round(performance.now() - loaded) })
       this.active.set(id, plugin)
     } catch (err) {
       // Undo whatever the plugin managed to register before it failed.
