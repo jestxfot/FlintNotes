@@ -275,6 +275,46 @@ async function waitFor(origin: string): Promise<void> {
   }
 }
 
+/** A build id (the time it was made) as a date to read. */
+const builtAt = (id: string) => (/^\d{4}-/.test(id) ? new Date(id).toLocaleString('ru', { day: 'numeric', month: 'long', hour: '2-digit', minute: '2-digit' }) : 'для разработки')
+
+/** Which build the page and the server are, and whether the next one will come by itself. */
+const buildSetting = (): SettingsSection['defs'][number] => ({
+  key: 'build',
+  group: 'Программа',
+  section: 'Обновление',
+  name: 'Сборка',
+  desc: 'После новой сборки (npm run release) программа запуска сама заменяет сервер, а открытые страницы перезагружаются сами, сохранив набранное: обновлять страницу вручную не нужно',
+  type: 'custom',
+  render: (el) => {
+    const row = el.appendChild(document.createElement('div'))
+    row.className = 'build-info'
+    const show = () => {
+      const server = connection.server
+      const page = __FLINT_BUILD__
+      row.replaceChildren(
+        ...[
+          `Эта страница: ${builtAt(page)}`,
+          server ? `Сервер: ${server.build === page ? 'та же сборка' : builtAt(server.build)}` : 'Сервер: нет связи',
+          !server
+            ? ''
+            : server.updates
+              ? 'Новые сборки подхватываются сами'
+              : 'Сервер запущен без программы запуска: новую сборку он не подхватит. Запускайте FlintNotes.vbs (или node release/launcher.mjs)',
+        ]
+          .filter(Boolean)
+          .map((text) => Object.assign(document.createElement('small'), { textContent: text })),
+      )
+    }
+    show()
+    const off = connection.on('build', show)
+    return () => {
+      off()
+      row.remove()
+    }
+  },
+})
+
 const autostartSetting = (app: App): SettingsSection['defs'][number] => ({
   key: 'autostart',
   group: 'Программа',
@@ -357,7 +397,7 @@ export class App {
     this.panels.init()
     // Once only: the page may be set up again (a vault is switched), the list of settings is the same object.
     if (!coreSettings.defs.some((def) => def.key === 'panels')) coreSettings.defs.splice(coreSettings.defs.findIndex((def) => def.key === 'zoom'), 0, panelsSetting(this))
-    if (!coreSettings.defs.some((def) => def.key === 'autostart')) coreSettings.defs.push(autostartSetting(this), portSetting(this), vaultsSetting(this))
+    if (!coreSettings.defs.some((def) => def.key === 'autostart')) coreSettings.defs.push(autostartSetting(this), portSetting(this), buildSetting(), vaultsSetting(this))
     this.settings.addSection(coreSettings)
     // One plain sign that the server is not answering, instead of an error from every part that asks it something.
     const down = this.statusBar.addItem()

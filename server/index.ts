@@ -654,7 +654,7 @@ api.get('/events', (c) => {
     listeners.add(send)
     stream.onAbort(() => void listeners.delete(send))
     // Which build answers: a page made by an older one reloads itself (see the launcher).
-    send({ type: 'hello', build: BUILD })
+    send({ type: 'hello', build: BUILD, updates: !!process.env.FLINT_LAUNCHER })
     while (!stream.aborted && !stream.closed) {
       await stream.sleep(30_000)
       await stream.writeSSE({ event: 'ping', data: '' })

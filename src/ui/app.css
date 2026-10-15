@@ -725,3 +725,11 @@ input[type='checkbox']:disabled {
 .cm-editor.reading .lp-checkbox {
   user-select: none;
 }
+
+/* Which build the page and the server are, in the settings. */
+.build-info {
+  display: flex;
+  flex-direction: column;
+  gap: 2px;
+  color: var(--text-muted);
+}

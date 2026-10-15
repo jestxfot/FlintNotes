@@ -46,7 +46,11 @@ export class ServerDown extends Error {
 }
 
 /** Whether the server answers, for everyone who would otherwise each report the same failure. */
-export const connection = Object.assign(new Events<{ change: [online: boolean]; build: [build: string] }>(), { online: true })
+export const connection = Object.assign(new Events<{ change: [online: boolean]; build: [build: string] }>(), {
+  online: true,
+  /** The build of the server answering, and whether a launcher replaces it with each new build (from its greeting). */
+  server: null as { build: string; updates: boolean } | null,
+})
 function setOnline(online: boolean): void {
   if (connection.online === online) return
   connection.online = online
@@ -114,7 +118,10 @@ export class Vault extends Events<VaultEvents> {
     source.onerror = () => setOnline(false)
     source.onmessage = (message) => {
       const event: RemoteEvent = JSON.parse(message.data)
-      if (event.type === 'hello') connection.trigger('build', event.build)
+      if (event.type === 'hello') {
+        connection.server = { build: event.build, updates: !!event.updates }
+        connection.trigger('build', event.build)
+      }
       else if (event.type === 'upsert') this.upsert(event.entry)
       else this.remove(event.path)
     }
