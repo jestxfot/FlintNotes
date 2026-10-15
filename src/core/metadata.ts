@@ -1,4 +1,5 @@
 import { parse as parseYaml } from 'yaml'
+import { ParsePool } from './parse-pool'
 import { IndexCache } from './index-cache'
 import { moment } from './moment'
 import { expandVariables } from './variables'
@@ -376,10 +377,10 @@ export class MetadataCache extends Events<MetadataEvents> {
     // What was kept for notes that are gone is forgotten.
     for (const path of kept.keys()) this.stored.remove(path)
 
-    const take = (path: string, text: string) => {
+    const take = (path: string, text: string, meta = parseMarkdown(text)) => {
       if (this.versions.has(path) || !this.vault.get(path)) return
       this.texts.set(path, text)
-      this.cache.set(path, parseMarkdown(text))
+      this.cache.set(path, meta)
       this.indexed.set(path, this.vault.get(path)!.mtime)
       this.remember(path)
       this.trigger('changed', path)
@@ -396,11 +397,33 @@ export class MetadataCache extends Events<MetadataEvents> {
     }
     if (stale.length > 150) {
       const wanted = new Set(stale)
+      // Many notes (a first start): they are parsed on other threads while the rest still arrives.
+      const pool = new ParsePool()
+      const parsing: Promise<void>[] = []
+      let batch: [string, string][] = []
+      let size = 0
+      const send = () => {
+        if (!batch.length) return
+        const notes = batch
+        batch = []
+        size = 0
+        parsing.push(pool.parse(notes).then((parsed) => parsed.forEach(([path, meta], i) => take(path, notes[i][1], meta))))
+      }
       try {
-        await this.vault.readNotes((path, text) => wanted.has(path) && take(path, text))
+        await this.vault.readNotes((path, text) => {
+          if (!wanted.has(path)) return
+          batch.push([path, text])
+          size += text.length
+          if (batch.length >= 64 || size > 400_000) send()
+        })
+        send()
+        await Promise.all(parsing)
       } catch (err) {
         console.error('Reading all notes at once failed; reading them one by one', err)
+        await Promise.all(parsing).catch(() => {})
         await oneByOne(stale.filter((path) => !this.cache.has(path)))
+      } finally {
+        pool.close()
       }
     } else await oneByOne(stale)
     // Notes came from the kept index and from the server in no set order; queries list them
