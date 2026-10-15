@@ -74,6 +74,8 @@ async function request(input: string, init?: RequestInit): Promise<Response> {
 }
 
 /** The vault: every file and folder of the notes directory, kept in sync with the disk. */
+const errorText = (err: unknown) => (err instanceof Error ? err.message : String(err))
+
 export class Vault extends Events<VaultEvents> {
   name = ''
   /** The name the vault goes by in addresses. */
@@ -224,7 +226,7 @@ export class Vault extends Events<VaultEvents> {
   }
 
   /** What a web page says about itself: title, description, picture. */
-  async unfurl(address: string): Promise<{ url: string; title: string; description: string; image: string; favicon: string; author?: string }> {
+  async unfurl(address: string): Promise<{ url: string; title: string; description: string; image: string; favicon: string; author?: string; problem?: string }> {
     const server = () => request(`/api/unfurl?url=${encodeURIComponent(address)}`).then((res) => res.json())
     if (!/^https?:\/\/((www|m|music)\.)?(youtube\.com|youtu\.be)\//i.test(address)) return server()
     // A video site is asked by the browser itself as well: it lets pages ask it (its answer says so), and the
@@ -245,7 +247,10 @@ export class Vault extends Events<VaultEvents> {
       throw fromServer.status === 'rejected' ? fromServer.reason : new Error('Страница не ответила')
     }
     const author = video.author_name ?? page?.author ?? ''
+    // Why the video's own description is missing: the server's word, or that the server did not answer.
+    const problem = page?.problem ?? (fromServer.status === 'rejected' ? errorText(fromServer.reason) : undefined)
     return {
+      ...(problem && !(page?.description && page.description !== author) ? { problem } : {}),
       url: address,
       title: video.title ?? page?.title ?? '',
       // The video's own description if the server could read it; its channel otherwise.

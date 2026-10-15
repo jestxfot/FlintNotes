@@ -99,6 +99,8 @@ export default class LinkEmbed extends Plugin {
     const unanswered = new Set<string>()
     /** Video cards asked about in this visit already. */
     const checked = new Set<string>()
+    /** Videos whose missing description was already told of. */
+    const told = new Set<string>()
     /**
      * A card with empty fields asks the page once and writes what it says into
      * the block itself (as Link Embed writes it): what was written by hand stays.
@@ -132,6 +134,11 @@ export default class LinkEmbed extends Plugin {
         // Anything else the block says is kept, after the fields of the card.
         for (const [key, value] of Object.entries(data)) if (!(key in next) && value !== null && value !== undefined) next[key] = text(value)
         const changed = Object.entries(next).some(([key, value]) => value !== text(data[key]))
+        // A video whose description the server could not read: said once, with the reason, instead of a silent channel name.
+        if (page.problem && video && !told.has(url)) {
+          told.add(url)
+          app.notice(`Карточка YouTube: описание видео не получено — ${page.problem}. Подробности в release/flintnotes.log`)
+        }
         if (changed) setSource(Object.entries(next).map(([key, value]) => `${key}: ${quote(value)}`).join('\n'))
       } catch {
         unanswered.add(url)

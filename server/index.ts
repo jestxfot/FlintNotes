@@ -14,7 +14,7 @@ import os from 'node:os'
 import path from 'node:path'
 import { fileURLToPath } from 'node:url'
 import type { ExternalPluginInfo, RemoteEvent, VaultEntry, VaultInfo } from '../shared/protocol'
-import { viaProxy, webGet, youtubeVideo } from './web'
+import { describe, viaProxy, webGet, youtubeVideo } from './web'
 import { TreeCache } from './tree-cache'
 
 // The vaults the user has opened are remembered between runs, outside any vault.
@@ -562,16 +562,19 @@ api.get('/unfurl', async (c) => {
   let final = url.href
   // A video: its title, channel and frame, and the description under it, which its page keeps.
   if (/(^|\.)(youtube\.com|youtu\.be)$/i.test(url.hostname)) {
-    const video = await youtubeVideo(url.href).catch(() => null)
-    if (video) return c.json({ url: url.href, title: video.title, description: video.description, author: video.author, image: video.image, favicon: 'https://www.youtube.com/favicon.ico' })
+    const video = await youtubeVideo(url.href).catch((err) => (console.error(`Карточка ссылки: видео ${url.href}: ${describe(err)}`), null))
+    if (video?.problem) console.error(`Карточка ссылки: описание видео ${url.href} не получено: ${video.problem}`)
+    if (video) return c.json({ url: url.href, title: video.title, description: video.description, author: video.author, image: video.image, favicon: 'https://www.youtube.com/favicon.ico', ...(video.problem ? { problem: video.problem } : {}) })
   }
   // Pages are asked the way a browser asks, through the computer's proxy if it has one. A slow site gets a second, longer try.
   try {
     const page = await webGet(url.href, { timeout: 8000 }).catch(() => webGet(url.href, { timeout: 20_000 }))
     final = page.url || url.href
     html = page.text
-  } catch {
-    throw new HTTPException(502, { message: 'Страница не ответила' })
+  } catch (err) {
+    // Why exactly, in the answer and in the log: a page that opens in the browser and not here is a matter of the network.
+    console.error(`Карточка ссылки: ${url.href} не ответила: ${describe(err)}`)
+    throw new HTTPException(502, { message: `Страница не ответила серверу FlintNotes (${describe(err)})` })
   }
   const decode = (text: string) =>
     text.replace(/&(#x?[0-9a-f]+|amp|lt|gt|quot|apos|nbsp);/gi, (all, code: string) => {

@@ -107,7 +107,58 @@ async function readText(body: AsyncIterable<Uint8Array>, limit: number): Promise
 }
 
 /** Gets a page of the web, through the computer's proxy when it has one; redirects are followed. */
-export async function webGet(address: string, { timeout = 8000, limit = 600_000 }: { timeout?: number; limit?: number } = {}): Promise<WebPage> {
+export async function webGet(address: string, options: { timeout?: number; limit?: number } = {}): Promise<WebPage> {
+  try {
+    return await nodeGet(address, options)
+  } catch (err) {
+    // Windows reaches the web with all of its own settings, a proxy given by an automatic
+    // configuration script (PAC) included, which Node knows nothing of. Asked through
+    // Windows itself, the page comes the way it comes to the browser.
+    if (process.platform !== 'win32') throw err
+    const reason = describe(err)
+    try {
+      return await windowsGet(address, options)
+    } catch (again) {
+      throw new Error(`${reason}; через Windows: ${describe(again)}`)
+    }
+  }
+}
+
+/** What went wrong, in a few words: the system's error code if there is one. */
+export function describe(err: unknown): string {
+  const cause = (err as { cause?: { code?: string; message?: string } })?.cause
+  const code = cause?.code ?? (err as { code?: string })?.code
+  const message = cause?.message ?? (err instanceof Error ? err.message : String(err))
+  return code && !message.includes(code) ? `${code}: ${message}` : message
+}
+
+/** A page asked through Windows' own web client (PowerShell), with the system's proxy settings. */
+function windowsGet(address: string, { timeout = 8000, limit = 600_000 }: { timeout?: number; limit?: number }): Promise<WebPage> {
+  // The address goes in by the environment, never into the command's text.
+  const script = [
+    '$ProgressPreference = "SilentlyContinue"',
+    '[Console]::OutputEncoding = [System.Text.Encoding]::UTF8',
+    '[System.Net.ServicePointManager]::SecurityProtocol = [System.Net.SecurityProtocolType]::Tls12',
+    `$r = Invoke-WebRequest -UseBasicParsing -Uri $env:FLINT_URL -TimeoutSec ${Math.ceil(timeout / 1000) + 5} -UserAgent $env:FLINT_AGENT -Headers @{ 'Accept-Language' = 'ru,en;q=0.8' }`,
+    '[Console]::Out.Write([string]$r.StatusCode + "`n" + $r.BaseResponse.ResponseUri.AbsoluteUri + "`n")',
+    '[Console]::Out.Write($r.Content)',
+  ].join('; ')
+  return new Promise((resolve, reject) => {
+    execFile(
+      'powershell.exe',
+      ['-NoProfile', '-NonInteractive', '-ExecutionPolicy', 'Bypass', '-Command', script],
+      { env: { ...process.env, FLINT_URL: address, FLINT_AGENT: BROWSER_HEADERS['user-agent'] }, windowsHide: true, timeout: timeout + 10_000, maxBuffer: Math.max(limit * 4, 8_000_000), encoding: 'utf8' },
+      (err, out, errors) => {
+        if (err) return reject(new Error((errors || err.message).trim().split(/\r?\n/)[0] || 'PowerShell'))
+        const [status, url, ...rest] = out.split('\n')
+        resolve({ status: Number(status) || 200, url: url?.trim() || address, text: rest.join('\n').slice(0, limit) })
+      },
+    )
+  })
+}
+
+/** A page asked by Node itself: straight, or through the proxy of the environment or of Windows' settings. */
+async function nodeGet(address: string, { timeout = 8000, limit = 600_000 }: { timeout?: number; limit?: number } = {}): Promise<WebPage> {
   const proxy = await systemProxy()
   if (!proxy) {
     const res = await fetch(address, { signal: AbortSignal.timeout(timeout), redirect: 'follow', headers: BROWSER_HEADERS })
@@ -135,7 +186,7 @@ export async function webGet(address: string, { timeout = 8000, limit = 600_000 
  * description (the text under the video), cut to a few lines. Hashtag lines
  * at the top of the description are left out: they are not what it says.
  */
-export async function youtubeVideo(address: string): Promise<{ title: string; author: string; image: string; description: string } | null> {
+export async function youtubeVideo(address: string): Promise<{ title: string; author: string; image: string; description: string; problem?: string } | null> {
   const [embed, page] = await Promise.allSettled([webGet(`https://www.youtube.com/oembed?format=json&url=${encodeURIComponent(address)}`, { timeout: 8000, limit: 50_000 }), webGet(address, { timeout: 10_000, limit: 3_000_000 })])
   let title = ''
   let author = ''
@@ -151,6 +202,8 @@ export async function youtubeVideo(address: string): Promise<{ title: string; au
     }
   }
   let description = ''
+  // Why the description could not be had, to be told rather than guessed.
+  let problem = page.status === 'rejected' ? describe(page.reason) : page.value.status !== 200 ? `страница видео ответила ${page.value.status}` : ''
   if (page.status === 'fulfilled' && page.value.status === 200) {
     const raw = /"shortDescription":"((?:\\.|[^"\\])*)"/.exec(page.value.text)?.[1]
     if (raw) {
@@ -162,9 +215,10 @@ export async function youtubeVideo(address: string): Promise<{ title: string; au
     }
     if (!title) title = /<meta\s+property="og:title"\s+content="([^"]*)"/.exec(page.value.text)?.[1] ?? ''
     if (!author) author = /"ownerChannelName":"((?:\\.|[^"\\])*)"/.exec(page.value.text)?.[1] ?? ''
+    if (!description && !/"shortDescription"/.test(page.value.text)) problem = 'на странице видео нет описания (возможно, YouTube показал страницу согласия)'
   }
   if (!title) return null
-  return { title, author, image, description: description || author }
+  return { title, author, image, description: description || author, ...(problem ? { problem } : {}) }
 }
 
 /** The description as a few readable lines: no rows of hashtags, no runs of spaces, at most about 300 letters. */
