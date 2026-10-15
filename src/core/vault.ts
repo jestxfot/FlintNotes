@@ -225,6 +225,20 @@ export class Vault extends Events<VaultEvents> {
 
   /** What a web page says about itself: title, description, picture. */
   async unfurl(address: string): Promise<{ url: string; title: string; description: string; image: string; favicon: string }> {
+    // A video site is asked by the browser itself: it lets pages ask it (its answer says so), and
+    // the browser reaches it the way it opens the site, through whatever proxy or VPN it uses. The
+    // server, a program of its own, may not get through where the browser does.
+    if (/^https?:\/\/((www|m|music)\.)?(youtube\.com|youtu\.be)\//i.test(address)) {
+      try {
+        const res = await fetch(`https://www.youtube.com/oembed?format=json&url=${encodeURIComponent(address)}`, { signal: AbortSignal.timeout(6000) })
+        if (res.ok) {
+          const video = (await res.json()) as { title?: string; author_name?: string; thumbnail_url?: string }
+          if (video.title) return { url: address, title: video.title, description: video.author_name ?? '', image: video.thumbnail_url ?? '', favicon: 'https://www.youtube.com/favicon.ico' }
+        }
+      } catch {
+        // The server is asked below.
+      }
+    }
     return (await request(`/api/unfurl?url=${encodeURIComponent(address)}`)).json()
   }
 

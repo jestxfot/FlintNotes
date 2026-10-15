@@ -71,6 +71,9 @@ export async function run(t) {
   await page.unroute('**/api/unfurl*')
   await page.route('**/api/unfurl*', (route) => route.fulfill({ json: { url: 'https://example.com/b', title: 'B', description: '', image: `${t.url}api/file?path=pic.png`, favicon: '' } }))
   await page.route('https://i.ytimg.com/**', (route) => route.fulfill({ body: fixture('pic.png'), contentType: 'image/png' }))
+  // A video's card is asked of the video site by the browser itself.
+  const asked = []
+  await page.route('https://www.youtube.com/oembed**', (route) => (asked.push(route.request().url()), route.fulfill({ json: { title: 'Video title', author_name: 'A channel', thumbnail_url: 'https://i.ytimg.com/vi/xHrhYhfLrF8/hqdefault.jpg' }, headers: { 'access-control-allow-origin': '*' } })))
   await t.open('Cards')
   await wait(1500)
   const pictures = await page.locator(`${leaf} .embed-card-image img`).evaluateAll((list) => list.map((img) => img.src))
@@ -78,6 +81,8 @@ export async function run(t) {
   await wait(2500)
   const cards = read('Cards.md')
   const pageCard = cards.split('```').find((part) => part.includes('https://example.com/b')) ?? ''
+  const videoCard = cards.split('```').find((part) => part.includes('xHrhYhfLrF8')) ?? ''
+  ok('a video card is filled by asking the video site from the browser', asked.length >= 1 && videoCard.includes('description: "A channel"') && videoCard.includes('title: "A video"'), videoCard)
   ok('a card with empty fields fills them in, in the block itself; what was written stays', /image: "[^"]*pic\.png"/.test(pageCard) && pageCard.includes('title: "A page"'), cards)
 
   // ---- charts
