@@ -100,6 +100,7 @@ export class MarkdownView implements FileView {
           this.app.editor.extension,
           EditorView.updateListener.of((update) => {
             if (update.docChanged) this.scheduleSave()
+            if (update.selectionSet || update.docChanged) this.schedulePlace()
           }),
           // Plugins may add items for the editor; with none, the browser's own menu (spelling, copy, paste) stays.
           EditorView.domEventHandlers({ contextmenu: (event, view) => this.app.menus.show(event, 'editor', view) }),
@@ -108,6 +109,8 @@ export class MarkdownView implements FileView {
     })
     this.app.editor.attach(this.editor)
     this.skipFrontmatter()
+    this.restorePlace()
+    this.editor.scrollDOM.addEventListener('scroll', () => this.schedulePlace(), { passive: true })
     if (indexed !== undefined) void this.onExternalChange()
     return this
   }
@@ -266,7 +269,58 @@ export class MarkdownView implements FileView {
     this.editor.focus()
   }
 
+  // ---- where the note was left
+
+  private placeTimer: ReturnType<typeof setTimeout> | undefined
+
+  private remembering(): boolean {
+    return this.app.settings.get<boolean>('core', 'rememberPosition') !== false
+  }
+
+  /** Opens the note where it was left: the cursor where it was, the same line at the top. */
+  private restorePlace(): void {
+    if (!this.remembering()) return
+    const place = this.app.positions.get(this.path)
+    if (!place) return
+    const length = this.editor.state.doc.length
+    const clamp = (pos: number) => Math.max(0, Math.min(length, pos))
+    this.editor.dispatch({ selection: { anchor: clamp(place.anchor), head: clamp(place.head) } })
+    // The line that was at the top goes to the top again, once the note is laid out on the screen
+    // (a tab opened in the background is laid out only when it is shown).
+    const top = clamp(place.top)
+    let tries = 0
+    const scroll = () => {
+      if (this.destroyed) return
+      const scroller = this.editor.scrollDOM
+      if (!scroller.clientHeight) return void (tries++ < 600 && requestAnimationFrame(scroll))
+      const offset = this.editor.documentTop - scroller.getBoundingClientRect().top + scroller.scrollTop
+      scroller.scrollTop = Math.ceil(this.editor.lineBlockAt(top).top + offset)
+      // Lines above may have been measured anew by this scroll: once more, to land exactly.
+      if (tries++ < 3) requestAnimationFrame(scroll)
+    }
+    requestAnimationFrame(scroll)
+  }
+
+  private schedulePlace(): void {
+    clearTimeout(this.placeTimer)
+    this.placeTimer = setTimeout(() => this.rememberPlace(), 500)
+  }
+
+  /** Puts down where the cursor is and which line is at the top; not while the note is out of sight. */
+  private rememberPlace(): void {
+    clearTimeout(this.placeTimer)
+    if (this.destroyed || !this.remembering()) return
+    const scroller = this.editor.scrollDOM
+    if (!scroller.clientHeight) return
+    const { anchor, head } = this.editor.state.selection.main
+    const above = scroller.getBoundingClientRect().top - this.editor.documentTop
+    // A couple of pixels in: a scroll rounded to whole pixels must not count the line above as the first.
+    const top = above > 0 ? this.editor.lineBlockAtHeight(above + 2).from : 0
+    this.app.positions.put(this.path, { anchor, head, top })
+  }
+
   destroy(): void {
+    this.rememberPlace()
     void this.flush()
     this.destroyed = true
     this.app.editor.detach(this.editor)

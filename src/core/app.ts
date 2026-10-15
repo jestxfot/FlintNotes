@@ -1,4 +1,5 @@
 import { RibbonItems } from './ribbon-items'
+import { NotePositions } from './positions'
 import { Explorer } from './explorer'
 import { NoteCreation } from './creation'
 import { Commands } from './commands'
@@ -86,6 +87,8 @@ const coreSettings: SettingsSection = {
     },
     { key: 'spellcheck', group: 'Редактор', section: 'Режим работы', name: 'Проверять орфографию', desc: 'Подчёркивает слова с ошибками средствами браузера', type: 'toggle', default: false },
     { key: 'autoPair', group: 'Редактор', section: 'Режим работы', name: 'Закрывать скобки и кавычки', desc: 'Открывающая скобка или кавычка сразу получает закрывающую; выделенный текст оборачивается', type: 'toggle', default: true },
+
+    { key: 'rememberPosition', group: 'Редактор', section: 'Режим работы', name: 'Помнить место в заметке', desc: 'Заметка открывается там, где её оставили: курсор и прокрутка — и по кнопкам «Назад» и «Вперёд», и при открытии заново', type: 'toggle', default: true },
 
     // ---- Файлы и ссылки
     {
@@ -358,6 +361,8 @@ export class App {
   readonly embeds = new Embeds()
   readonly statusBar = new StatusBar()
   readonly state = new VaultState(this.vault)
+  /** Where each note was left, to open it there again. */
+  readonly positions = new NotePositions(this.state, this.vault)
   readonly panels = new Panels(this.state)
   readonly workspace = new Workspace(this)
   readonly plugins = new PluginManager(this)
