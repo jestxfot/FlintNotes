@@ -44,8 +44,13 @@ export default class QuickSwitcher extends Plugin {
           placeholder: 'Имя файла или алиас…',
           items: (typed) => {
             const query = typed.trim().toLowerCase()
-            // With nothing typed, the most recently edited files.
-            if (!query) return files.map((file) => ({ file })).sort((a, b) => b.file.mtime - a.file.mtime)
+            // With nothing typed: the notes opened last (when the recent notes plugin keeps them), then the most recently edited files.
+            if (!query) {
+              const recent = app.services.get<{ list(): string[] }>('recent-files')?.list() ?? []
+              const first = recent.flatMap((file) => (app.vault.get(file) ? [{ file: app.vault.get(file)! }] : []))
+              const seen = new Set(recent)
+              return [...first, ...files.filter((file) => !seen.has(file.path)).sort((a, b) => b.mtime - a.mtime).map((file) => ({ file }))]
+            }
             return items
               .map((item) => ({ item, rank: score(item, query) }))
               .filter(({ rank }) => rank > 0)

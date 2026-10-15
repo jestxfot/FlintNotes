@@ -1,0 +1,75 @@
+.recent-files {
+  display: flex;
+  flex-direction: column;
+  gap: 1px;
+  padding: 4px 6px 10px;
+  font: 13.5px/1.35 var(--font-ui);
+}
+
+.recent-files-row {
+  display: flex;
+  align-items: center;
+  gap: 7px;
+  min-width: 0;
+  padding: 4px 6px;
+  border-radius: var(--radius-s);
+  color: var(--text-muted);
+  cursor: pointer;
+}
+
+.recent-files-row:hover,
+.recent-files-row:focus-visible {
+  background: var(--bg-hover);
+  color: var(--text);
+  outline: none;
+}
+
+.recent-files-row.active {
+  background: color-mix(in srgb, var(--accent) 14%, transparent);
+  color: var(--text);
+}
+
+.recent-files-row > svg {
+  flex: none;
+}
+
+.recent-files-name {
+  flex: 0 1 auto;
+  overflow: hidden;
+  text-overflow: ellipsis;
+  white-space: nowrap;
+}
+
+.recent-files-folder {
+  flex: 1 1 0;
+  min-width: 0;
+  overflow: hidden;
+  color: var(--text-faint);
+  font-size: 0.85em;
+  text-overflow: ellipsis;
+  white-space: nowrap;
+}
+
+.recent-files-remove {
+  display: flex;
+  flex: none;
+  margin-left: auto;
+  padding: 2px;
+  border-radius: var(--radius-s);
+  color: var(--text-faint);
+  opacity: 0;
+}
+
+.recent-files-row:hover .recent-files-remove {
+  opacity: 1;
+}
+
+.recent-files-remove:hover {
+  background: var(--bg);
+  color: var(--text);
+}
+
+.recent-files-empty {
+  margin: 8px;
+  color: var(--text-faint);
+}
