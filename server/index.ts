@@ -643,7 +643,45 @@ const clients = new Map<string, Set<(event: RemoteEvent) => void>>()
 api.get('/events', (c) => {
   const dir = root()
   return streamSSE(c, async (stream) => {
-    const send = (event: RemoteEvent) => void stream.writeSSE({ data: JSON.stringify(event) })
+    // What waits to be sent to this page, by the file it is about. A page that reads slowly (a tab in
+    // the background, a connection gone quiet) gets the last word on each file, not a pile of every
+    // change: unread events kept one by one once filled the server's memory to the last byte while
+    // other programs kept writing into the vault. Past a limit the page is told to read the list anew.
+    const waiting = new Map<string, RemoteEvent>()
+    let behind = false
+    let sending = false
+    const pump = async () => {
+      if (sending) return
+      sending = true
+      try {
+        while (!stream.aborted && !stream.closed && (waiting.size || behind)) {
+          if (behind) {
+            behind = false
+            waiting.clear()
+            await stream.writeSSE({ data: JSON.stringify({ type: 'resync' } satisfies RemoteEvent) })
+            continue
+          }
+          const batch = [...waiting.values()]
+          waiting.clear()
+          // Each write waits until the page has taken the one before.
+          for (const event of batch) await stream.writeSSE({ data: JSON.stringify(event) })
+        }
+      } catch {
+        // The page went away; its listener is taken off below.
+      } finally {
+        sending = false
+      }
+    }
+    const send = (event: RemoteEvent) => {
+      const key = event.type === 'upsert' ? event.entry.path : event.type === 'delete' ? event.path : `:${event.type}`
+      waiting.delete(key)
+      waiting.set(key, event)
+      if (waiting.size > 5000) {
+        waiting.clear()
+        behind = true
+      }
+      void pump()
+    }
     const listeners = clients.get(dir) ?? clients.set(dir, new Set()).get(dir)!
     listeners.add(send)
     stream.onAbort(() => void listeners.delete(send))

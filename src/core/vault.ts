@@ -125,6 +125,7 @@ export class Vault extends Events<VaultEvents> {
         connection.trigger('build', event.build)
       }
       else if (event.type === 'upsert') this.upsert(event.entry)
+      else if (event.type === 'resync') void this.sync()
       else this.remove(event.path)
     }
   }

@@ -16,6 +16,8 @@ export type RemoteEvent =
   /** First on every connection: the build of the server, so a page from an older one knows to reload. */
   /** Sent first on every connection: which build the server is, and whether a launcher will replace it with the next one. */
   | { type: 'hello'; build: string; updates?: boolean }
+  /** The page fell too far behind the changes: it reads the list of files anew. */
+  | { type: 'resync' }
 
 /** A folder the user has opened as a vault. */
 export interface VaultInfo {
