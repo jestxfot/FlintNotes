@@ -262,6 +262,11 @@ export class Vault extends Events<VaultEvents> {
   }
 
 
+  /** Every way the server has to a page, tried one by one: for finding out why a page does not open for it. */
+  async netCheck(address: string): Promise<{ build: string; platform: string; steps: { step: string; ok: boolean; ms: number; result: string }[] }> {
+    return (await request(`/api/net-check?url=${encodeURIComponent(address)}`)).json()
+  }
+
   /** Names of the files in a folder, hidden folders included (`.obsidian/...`); empty if there is no such folder. */
   async list(path: string): Promise<string[]> {
     return (await request(url('list', path))).json()

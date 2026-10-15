@@ -14,7 +14,7 @@ import os from 'node:os'
 import path from 'node:path'
 import { fileURLToPath } from 'node:url'
 import type { ExternalPluginInfo, RemoteEvent, VaultEntry, VaultInfo } from '../shared/protocol'
-import { describe, viaProxy, webGet, youtubeVideo } from './web'
+import { checkWay, describe, viaProxy, webGet, youtubeVideo } from './web'
 import { TreeCache } from './tree-cache'
 
 // The vaults the user has opened are remembered between runs, outside any vault.
@@ -606,6 +606,20 @@ api.get('/unfurl', async (c) => {
     image: absolute(meta.get('og:image') ?? meta.get('twitter:image')),
     favicon: absolute(icons.length ? attr(icons[0], 'href') : '/favicon.ico'),
   })
+})
+
+// Why a page does not open for the server: every way to it tried, each with what came of it.
+api.get('/net-check', async (c) => {
+  let url: URL
+  try {
+    url = new URL(c.req.query('url') ?? '')
+  } catch {
+    throw new HTTPException(400, { message: 'Это не адрес страницы' })
+  }
+  if (url.protocol !== 'http:' && url.protocol !== 'https:') throw new HTTPException(400, { message: 'Нужен адрес http или https' })
+  const addresses = await lookup(url.hostname, { all: true }).catch(() => [])
+  if (addresses.some((a) => PRIVATE.test(a.address))) throw new HTTPException(400, { message: 'Страница недоступна' })
+  return c.json({ build: BUILD, platform: `${process.platform} ${process.arch}, Node ${process.version}`, steps: await checkWay(url.href) })
 })
 
 api.get('/plugins', async (c) => {

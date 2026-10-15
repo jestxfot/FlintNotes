@@ -112,3 +112,46 @@
   color: var(--danger, #d1453b);
   font: 0.88em var(--font-mono);
 }
+
+/* The check of the way to a card's page. */
+.embed-check {
+  width: min(760px, calc(100vw - 32px));
+  padding: 16px 18px;
+  border: 1px solid var(--border);
+  border-radius: var(--radius-l);
+  background: var(--bg);
+  color: var(--text);
+}
+
+.embed-check::backdrop {
+  background: rgb(0 0 0 / 0.4);
+}
+
+.embed-check h2 {
+  margin: 0 0 10px;
+  font: 600 16px var(--font-ui);
+}
+
+.embed-check pre {
+  max-height: 60vh;
+  margin: 0;
+  overflow: auto;
+  font: 12.5px/1.5 var(--font-mono);
+  white-space: pre-wrap;
+  overflow-wrap: anywhere;
+  user-select: text;
+}
+
+.embed-check-buttons {
+  display: flex;
+  justify-content: flex-end;
+  gap: 8px;
+  margin-top: 12px;
+}
+
+.embed-check-buttons button {
+  padding: 5px 12px;
+  border: 1px solid var(--border);
+  border-radius: var(--radius-m);
+  background: var(--bg-alt);
+}

@@ -235,3 +235,51 @@ export function cleanDescription(text: string): string {
   }
   return joined
 }
+
+/** One step of a check of the way to a page: what was tried, how long it took, what came of it. */
+export interface NetStep {
+  step: string
+  ok: boolean
+  ms: number
+  result: string
+}
+
+/**
+ * Tries every way the server has to a page, one by one, and says what came of
+ * each: for finding out, on the computer where it happens, why a page that
+ * opens in the browser does not open for the server.
+ */
+export async function checkWay(address: string): Promise<NetStep[]> {
+  const steps: NetStep[] = []
+  const timed = async (step: string, run: () => Promise<string>) => {
+    const began = Date.now()
+    try {
+      steps.push({ step, ok: true, ms: Date.now() - began, result: await run() })
+    } catch (err) {
+      steps.push({ step, ok: false, ms: Date.now() - began, result: describe(err) })
+    }
+    steps[steps.length - 1].ms = Date.now() - began
+  }
+  const url = new URL(address)
+  const sayPage = (page: WebPage) => {
+    const description = /"shortDescription":"/.test(page.text) ? 'описание видео есть' : /og:description/.test(page.text) ? 'описание (og:description) есть' : 'описания на странице нет'
+    return `ответ ${page.status}, ${Math.round(page.text.length / 1024)} КБ, ${description}${page.url !== address ? `, пришла с ${page.url}` : ''}`
+  }
+  await timed('Прокси компьютера', async () => {
+    proxyCache = null
+    const proxy = await systemProxy()
+    return proxy ? `${proxy.protocol}//${proxy.host}` : 'не задан (ни HTTPS_PROXY, ни в настройках Windows)'
+  })
+  await timed(`Адрес ${url.hostname} (DNS)`, async () => {
+    const { lookup } = await import('node:dns/promises')
+    return (await lookup(url.hostname, { all: true })).map((one) => one.address).join(', ')
+  })
+  await timed('Напрямую из Node', async () => {
+    const res = await fetch(address, { signal: AbortSignal.timeout(10_000), redirect: 'follow', headers: BROWSER_HEADERS })
+    return sayPage({ status: res.status, url: res.url || address, text: res.body ? await readText(res.body as unknown as AsyncIterable<Uint8Array>, 3_000_000) : '' })
+  })
+  const proxy = await systemProxy()
+  if (proxy) await timed('Через прокси компьютера', async () => sayPage(await nodeGet(address, { timeout: 10_000, limit: 3_000_000 })))
+  if (process.platform === 'win32') await timed('Через Windows (PowerShell)', async () => sayPage(await windowsGet(address, { timeout: 15_000, limit: 3_000_000 })))
+  return steps
+}

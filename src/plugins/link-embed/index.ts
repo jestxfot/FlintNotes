@@ -137,7 +137,7 @@ export default class LinkEmbed extends Plugin {
         // A video whose description the server could not read: said once, with the reason, instead of a silent channel name.
         if (page.problem && video && !told.has(url)) {
           told.add(url)
-          app.notice(`Карточка YouTube: описание видео не получено — ${page.problem}. Подробности в release/flintnotes.log`)
+          app.notice(`Карточка YouTube: описание видео не получено — ${page.problem}. Что именно мешает, покажет команда «Проверить, видит ли сервер страницу карточки»`)
         }
         if (changed) setSource(Object.entries(next).map(([key, value]) => `${key}: ${quote(value)}`).join('\n'))
       } catch {
@@ -359,6 +359,7 @@ export default class LinkEmbed extends Plugin {
         },
       }),
     )
+    this.addCommand({ id: 'check-page', name: 'Проверить, видит ли сервер страницу карточки', icon: 'stethoscope', scope: 'note', callback: () => void this.checkPage() })
     this.addInsertCommand('insert', 'Вставить пустую карточку ссылки', '```embed\ntitle: "|"\nimage: ""\ndescription: ""\nurl: ""\n```\n', 'link')
     this.addCommand({
       id: 'embed-selection',
@@ -375,4 +376,55 @@ export default class LinkEmbed extends Plugin {
       },
     })
   }
+
+  /**
+   * Shows how the server gets to the page of the card under the cursor (or the first card of the
+   * note), step by step, and whether the browser itself reaches it: what a card cannot fill in,
+   * this tells why, on the computer where it happens.
+   */
+  private async checkPage(): Promise<void> {
+    const { app } = this
+    const editor = app.workspace.activeEditor
+    const text = editor?.state.doc.toString() ?? ''
+    const cursor = editor?.state.selection.main.head ?? 0
+    const cards = [...text.matchAll(/```embed\n([\s\S]*?)```/g)].map((m) => ({ from: m.index ?? 0, to: (m.index ?? 0) + m[0].length, url: /^url:\s*"?([^"\n]+)"?/m.exec(m[1])?.[1]?.trim() ?? '' }))
+    const card = cards.find((one) => one.from <= cursor && cursor <= one.to) ?? cards[0]
+    const address = card?.url || window.prompt('Адрес страницы для проверки', 'https://www.youtube.com/watch?v=') || ''
+    if (!/^https?:\/\//i.test(address)) return
+    const dialog = document.body.appendChild(document.createElement('dialog'))
+    dialog.className = 'embed-check'
+    const head = dialog.appendChild(document.createElement('h2'))
+    head.textContent = 'Видит ли сервер страницу'
+    const list = dialog.appendChild(document.createElement('pre'))
+    list.textContent = `${address}\n\nПроверяю…`
+    const buttons = dialog.appendChild(document.createElement('div'))
+    buttons.className = 'embed-check-buttons'
+    const copy = buttons.appendChild(document.createElement('button'))
+    copy.textContent = 'Скопировать'
+    copy.onclick = () => void navigator.clipboard.writeText(list.textContent ?? '').then(() => (copy.textContent = 'Скопировано'))
+    const close = buttons.appendChild(document.createElement('button'))
+    close.textContent = 'Закрыть'
+    close.onclick = () => dialog.close()
+    dialog.onclose = () => dialog.remove()
+    dialog.showModal()
+    const lines = [address, '']
+    // The browser's own way, for comparison: the page itself is closed to it, but a video's short answer is not.
+    const video = /youtube\.com|youtu\.be/i.test(address)
+    if (video) {
+      const began = performance.now()
+      const browser = await fetch(`https://www.youtube.com/oembed?format=json&url=${encodeURIComponent(address)}`, { signal: AbortSignal.timeout(8000) })
+        .then(async (res) => (res.ok ? `ответ ${res.status}: «${((await res.json()) as { title?: string }).title ?? ''}»` : `ответ ${res.status}`))
+        .catch((err) => `не дошёл: ${errorMessage(err)}`)
+      lines.push(`Браузер → YouTube (название видео): ${browser} — ${Math.round(performance.now() - began)} мс`)
+    }
+    try {
+      const report = await app.vault.netCheck(address)
+      lines.push(`Сервер FlintNotes: сборка ${report.build}, ${report.platform}`, '')
+      for (const step of report.steps) lines.push(`${step.ok ? '✓' : '✗'} ${step.step}: ${step.result} — ${step.ms} мс`)
+    } catch (err) {
+      lines.push(`Сервер не ответил на проверку: ${errorMessage(err)} (возможно, работает старая сборка: «Настройки → Программа → Обновление»)`)
+    }
+    list.textContent = lines.join('\n')
+  }
+
 }
