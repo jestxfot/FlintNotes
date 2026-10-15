@@ -99,6 +99,10 @@ export class PluginManager extends Events<{ change: [] }> {
       await plugin.onload()
       this.timings.set(id, { load: Math.round(loaded - began), start: Math.round(performance.now() - loaded) })
       this.active.set(id, plugin)
+      // Switched on by the user, a plugin's main button (its own tab, or its widget) is put on the left strip at once,
+      // also when it was taken off before. Not so when plugins are started with the app: buttons taken off stay off.
+      const main = persist ? plugin.mainButton() : null
+      if (main) this.app.ribbonItems.ensure(main, 'left', main.startsWith('view:panel-') ? undefined : entry.manifest.name)
     } catch (err) {
       // Undo whatever the plugin managed to register before it failed.
       plugin?.unload()

@@ -47,4 +47,31 @@ export async function run(t) {
   const offered = await page.locator('dialog[open] [role=option]').allInnerTexts()
   ok('the quick switcher with nothing typed starts with the notes opened last', offered[0].startsWith('Alpha renamed') && offered[1].startsWith('Gamma'), offered.slice(0, 4).join(' / '))
   await page.keyboard.press('Escape')
+
+  // ---- a plugin switched on puts its main button on the left strip
+  const buttons = () => page.evaluate(() => app.state.get('ribbon-items', []).map((item) => item.path))
+  await page.evaluate(() => app.commands.run('core:toggle-plugin:graph'))
+  await wait(800)
+  await page.evaluate(() => app.commands.run('core:toggle-plugin:pdf-viewer'))
+  await wait(800)
+  let paths = await buttons()
+  ok('a plugin switched on gets its main button on the left strip at once; a file viewer does not', paths.includes('view:graph') && !paths.some((p) => /pdf/.test(p)), JSON.stringify(paths))
+  ok('and the button is on the left strip, named after the plugin', (await page.locator('.toolbar[data-place="left-ribbon"] button[title="Граф связей"]').count()) === 1)
+  // Taken off, it stays off when the app starts again ...
+  await page.evaluate(() => {
+    const item = app.state.get('ribbon-items', []).find((one) => one.path === 'view:graph')
+    app.ribbonItems.remove(item.id)
+  })
+  await wait(900)
+  await page.reload()
+  await page.waitForFunction(() => window.app?.plugins?.list().some((p) => p.manifest.id === 'graph' && p.enabled), null, { timeout: 20000 })
+  await wait(800)
+  ok('a button taken off does not come back when the app starts again', !(await buttons()).includes('view:graph'), JSON.stringify(await buttons()))
+  // ... and comes back when the plugin is switched on again.
+  await page.evaluate(() => app.commands.run('core:toggle-plugin:graph'))
+  await wait(500)
+  await page.evaluate(() => app.commands.run('core:toggle-plugin:graph'))
+  await wait(800)
+  ok('switched off and on again, the plugin puts its button back', (await buttons()).includes('view:graph'), JSON.stringify(await buttons()))
+
 }

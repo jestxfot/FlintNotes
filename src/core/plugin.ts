@@ -82,7 +82,17 @@ export abstract class Plugin {
   }
 
   /** Adds a panel to the left or right sidebar, and a command that brings it to the front. */
+  /** The plugin's own tab (a view not tied to a kind of file) and its first widget: what its button on an edge strip shows. */
+  private ownView: string | null = null
+  private firstPanel: string | null = null
+
+  /** What the plugin's button on an edge strip opens: its own tab, or else its first widget. */
+  mainButton(): string | null {
+    return this.ownView ?? this.firstPanel
+  }
+
   addPanel(panel: PanelDef): void {
+    this.firstPanel ??= `view:panel-${panel.id}`
     this.register(this.app.panels.add(panel))
     this.addCommand({ id: `show-${panel.id}`, name: `Показать панель «${panel.title}»`, callback: () => this.app.panels.reveal(panel.id) })
   }
@@ -147,6 +157,8 @@ export abstract class Plugin {
    * the view shows no file and is opened with `workspace.openView`.
    */
   registerView(type: string, creator: ViewCreator, extensions: string[]): void {
+    // A view of a kind of file (a viewer of pictures, of PDF) is no tab of the plugin's own.
+    if (!extensions.length) this.ownView ??= `view:${type}`
     this.register(this.app.workspace.registerView(type, creator, extensions))
   }
 

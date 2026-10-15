@@ -102,7 +102,8 @@ export async function run(t) {
   ok('the button of a plugin that is switched off is hidden', (await ribbon.locator('button').count()) === 1)
   await page.evaluate(() => app.commands.run('core:toggle-plugin:graph'))
   await wait(1200)
-  ok('and comes back with the plugin', (await ribbon.locator('button').count()) === 2 && saved().leftRibbon.length === 2)
+  // Switched on again, the plugin also puts its own main button on the strip, next to the user's.
+  ok('and comes back with the plugin', (await ribbon.locator('button').count()) === 3 && saved().leftRibbon.length === 2 && (await ribbon.locator('button[title="Граф связей"]').count()) === 1, String(await ribbon.locator('button').count()))
 
   // ---- macros
   await page.evaluate(() => app.commands.run('commander:new-macro'))

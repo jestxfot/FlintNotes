@@ -22,6 +22,9 @@ const ICONS: Record<string, string> = {
   'panel-tasks': 'list-checks',
   'panel-reminders': 'bell',
   'panel-day-planner': 'clock',
+  'panel-recent-files': 'history',
+  'panel-minimap': 'map',
+  'panel-history': 'history',
   graph: 'git-fork',
   'tasks-manager': 'list-todo',
   home: 'house',
@@ -66,6 +69,17 @@ export class RibbonItems {
     // A plugin's tab that became a button does not stay a tab as well: it moves from the strip of tabs to the button.
     const made = item
     if (path.startsWith('view:')) app.workspace.withHost(made.id, () => this.activate(made))
+  }
+
+  /** Puts a button for `path` on the strip of `side` if there is none for it on either strip; nothing is opened. */
+  ensure(path: string, side: Side, title?: string): void {
+    if (this.items.some((one) => one.path === path)) return
+    const panel = /^view:panel-(.+)$/.exec(path)?.[1]
+    const name = title ?? (panel ? this.app.panels.get(panel)?.title : undefined) ?? path.replace(/^view:/, '')
+    const item: Item = { id: `ribbon-item:${Date.now().toString(36)}${Math.random().toString(36).slice(2, 6)}`, side, path, title: name }
+    this.items.push(item)
+    this.save()
+    this.show(item)
   }
 
   remove(id: string): void {
