@@ -1,7 +1,8 @@
-/* A link as a card: what the page says about itself on the left, its picture, whole and large, on the right. */
+/* A link as a card: what the page says about itself on the left, its picture on the right. */
 .embed-card {
   display: flex;
   align-items: stretch;
+  min-height: 112px;
   overflow: hidden;
   border: 1px solid var(--border);
   border-radius: var(--radius-l);
@@ -9,44 +10,55 @@
   color: inherit;
   font-family: var(--font-ui);
   text-decoration: none;
+  transition: border-color 0.12s, box-shadow 0.12s;
 }
 
 .embed-card[href]:hover {
-  border-color: var(--accent);
+  border-color: color-mix(in srgb, var(--accent) 60%, var(--border));
+  box-shadow: 0 4px 18px rgb(0 0 0 / 0.12);
 }
 
 .embed-card-text {
   display: flex;
-  flex: 1 1 56%;
+  flex: 1 1 0;
   flex-direction: column;
-  justify-content: center;
   gap: 6px;
   min-width: 0;
   padding: 14px 18px;
 }
 
+/* The name is always seen whole enough to read: up to two lines, never cut to a sliver. */
 .embed-card-title {
+  display: -webkit-box;
   overflow: hidden;
+  font-size: 1.04em;
   font-weight: 600;
-  text-overflow: ellipsis;
-  white-space: nowrap;
+  line-height: 1.35;
+  overflow-wrap: anywhere;
+  -webkit-box-orient: vertical;
+  -webkit-line-clamp: 2;
+  line-clamp: 2;
 }
 
 .embed-card-description {
   display: -webkit-box;
   overflow: hidden;
   color: var(--text-muted);
-  font-size: 0.88em;
-  line-height: 1.4;
+  font-size: 0.9em;
+  line-height: 1.45;
+  overflow-wrap: anywhere;
   -webkit-box-orient: vertical;
-  -webkit-line-clamp: 4;
-  line-clamp: 4;
+  -webkit-line-clamp: 3;
+  line-clamp: 3;
 }
 
+/* The site, at the foot of the card. */
 .embed-card-url {
   display: flex;
   align-items: center;
   gap: 6px;
+  margin-top: auto;
+  padding-top: 2px;
   overflow: hidden;
   color: var(--text-faint);
   font-size: 0.82em;
@@ -55,26 +67,28 @@
 
 .embed-card-url img {
   flex: none;
-  width: 14px;
-  height: 14px;
+  width: 16px;
+  height: 16px;
+  border-radius: 3px;
 }
 
+/* The picture on the right, whole, in a frame of its own. */
 .embed-card-image {
   display: flex;
   flex: 0 0 auto;
   align-items: center;
-  width: min(44%, 480px);
+  justify-content: center;
+  width: clamp(160px, 32%, 360px);
   border-left: 1px solid var(--border);
   background: var(--bg);
 }
 
-/* The picture keeps its own proportions and is shown whole: nothing of it is cut away. */
 .embed-card-image img {
   display: block;
   width: 100%;
-  height: auto;
-  max-height: 340px;
-  object-fit: contain;
+  height: 100%;
+  max-height: 240px;
+  object-fit: cover;
 }
 
 @container (max-width: 520px) {
@@ -86,6 +100,11 @@
     width: 100%;
     border-left: none;
     border-bottom: 1px solid var(--border);
+  }
+
+  .embed-card-image img {
+    height: auto;
+    object-fit: contain;
   }
 }
 

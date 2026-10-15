@@ -76,7 +76,9 @@ export async function run(t) {
   const pictures = await page.locator(`${leaf} .embed-card-image img`).evaluateAll((list) => list.map((img) => img.src))
   ok('a video card shows the video\'s frame; a page card, the picture the page names', pictures.length === 2 && pictures[0].startsWith('https://i.ytimg.com/vi/xHrhYhfLrF8/') && pictures[1].includes('pic.png'), JSON.stringify(pictures))
   await wait(2500)
-  ok('what was found is remembered, and the note is left as it was', JSON.parse(read('.flint/embed-pictures.json'))['https://example.com/b'].includes('pic.png') && read('Cards.md').includes('image: ""'), read('.flint/embed-pictures.json'))
+  const cards = read('Cards.md')
+  const pageCard = cards.split('```').find((part) => part.includes('https://example.com/b')) ?? ''
+  ok('a card with empty fields fills them in, in the block itself; what was written stays', /image: "[^"]*pic\.png"/.test(pageCard) && pageCard.includes('title: "A page"'), cards)
 
   // ---- charts
   await t.open('Charts')

@@ -89,7 +89,7 @@ export async function run(t) {
   await wait(600)
 
   const card = page.locator(`${leaf} .embed-card`)
-  ok('embed: a card with title, description and address', /Example Domain.*A page for use in examples.*https:\/\/example\.com\/page/.test(await t.flat(card)), await t.flat(card))
+  ok('embed: a card with title, description and the site', /Example Domain.*A page for use in examples.*example\.com/.test(await t.flat(card)) && (await card.getAttribute('title')) === 'https://example.com/page', await t.flat(card))
   ok('embed: the card is a link that opens outside the app', (await card.getAttribute('href')) === 'https://example.com/page' && (await card.getAttribute('target')) === '_blank')
 
   const widgets = page.locator(`${leaf} .widget-block`)

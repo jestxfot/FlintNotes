@@ -74,7 +74,66 @@ export default class LinkEmbed extends Plugin {
       return file ? app.vault.url(file) : ''
     }
 
-    const card: CodeBlockProcessor = (block, el, { path }) => {
+    const quote = (value: string) => `"${value.replace(/\\/g, '\\\\').replace(/"/g, '\\"').replace(/\s+/g, ' ').trim()}"`
+    /** The picture's height as a percentage of its width, which Link Embed keeps so the card does not jump while loading. */
+    const ratio = (src: string) =>
+      new Promise<string>((resolve) => {
+        if (!src) return resolve('')
+        const image = new Image()
+        image.onload = () => resolve(image.naturalWidth ? String(Math.round((image.naturalHeight / image.naturalWidth) * 1000) / 10) : '')
+        image.onerror = () => resolve('')
+        setTimeout(() => resolve(''), 4000)
+        image.src = src
+      })
+    /** The name a card gets when the page could not be read: the address without its scheme. */
+    const standIn = (address: string) => {
+      try {
+        const parsed = new URL(address)
+        return `${parsed.hostname.replace(/^www\./, '')}${decodeURIComponent(parsed.pathname).replace(/\/$/, '')}`
+      } catch {
+        return address
+      }
+    }
+    /** Cards being filled in right now, and pages that would not answer this time. */
+    const filling = new Set<string>()
+    const unanswered = new Set<string>()
+    /**
+     * A card with empty fields asks the page once and writes what it says into
+     * the block itself (as Link Embed writes it): what was written by hand stays.
+     */
+    const fill = async (data: Record<string, unknown>, setSource: (source: string) => void) => {
+      const url = text(data.url)
+      if (!WEB.test(url) || filling.has(url) || unanswered.has(url) || this.getSetting<boolean>('fillCards') === false) return
+      const title = text(data.title)
+      const placeholder = !title || title === url || title === standIn(url)
+      if (!placeholder && text(data.image) && text(data.description) && text(data.favicon)) return
+      filling.add(url)
+      try {
+        const page = await app.vault.unfurl(url)
+        // A video's own frame is better than what its page names (that one has black bars).
+        const image = text(data.image) || this.videoPictures(url)[0] || page.image || ''
+        const next: Record<string, string> = {
+          title: placeholder ? page.title || title || url : title,
+          image,
+          description: text(data.description) || page.description || '',
+          url,
+        }
+        const favicon = text(data.favicon) || page.favicon
+        if (favicon) next.favicon = favicon
+        const aspect = text(data.aspectRatio) || (image && image !== text(data.image) ? await ratio(image) : '')
+        if (aspect) next.aspectRatio = aspect
+        // Anything else the block says is kept, after the fields of the card.
+        for (const [key, value] of Object.entries(data)) if (!(key in next) && value !== null && value !== undefined) next[key] = text(value)
+        const changed = Object.entries(next).some(([key, value]) => value !== text(data[key]))
+        if (changed) setSource(Object.entries(next).map(([key, value]) => `${key}: ${quote(value)}`).join('\n'))
+      } catch {
+        unanswered.add(url)
+      } finally {
+        filling.delete(url)
+      }
+    }
+
+    const card: CodeBlockProcessor = (block, el, { path, setSource }) => {
       const draw = (yaml: string) => {
         el.replaceChildren()
         let data: Record<string, unknown>
@@ -89,6 +148,7 @@ export default class LinkEmbed extends Plugin {
           return
         }
         const url = text(data.url)
+        void fill(data, setSource)
         const box = el.appendChild(document.createElement('a'))
         box.className = 'embed-card'
         if (WEB.test(url)) {
@@ -116,7 +176,14 @@ export default class LinkEmbed extends Plugin {
           favicon.alt = ''
           favicon.onerror = () => favicon.remove()
         }
-        site.append(url)
+        let host = url
+        try {
+          host = new URL(url).hostname.replace(/^www\./, '')
+        } catch {
+          // Not an address: shown as it is.
+        }
+        site.append(host)
+        box.title = url
 
         /**
          * Shows the first of the pictures that really is one. A picture that does not load, or is
@@ -166,6 +233,13 @@ export default class LinkEmbed extends Plugin {
     // ---- making a card from an address
     this.addSettings([
       {
+        key: 'fillCards',
+        name: 'Дописывать карточки',
+        desc: 'Карточка с пустыми полями (название-заглушка, картинка, описание, значок сайта) один раз спрашивает страницу и записывает ответ в блок embed. Заполненное вручную не меняется',
+        type: 'toggle',
+        default: true,
+      },
+      {
         key: 'findPictures',
         name: 'Искать картинку для карточек без неё',
         desc: 'Карточка, сохранённая без картинки, получает картинку страницы (og:image; у видео YouTube — кадр). Заметка не меняется; найденное запоминается в .flint/embed-pictures.json',
@@ -186,17 +260,6 @@ export default class LinkEmbed extends Plugin {
         ],
       },
     ])
-    const quote = (value: string) => `"${value.replace(/\\/g, '\\\\').replace(/"/g, '\\"').replace(/\s+/g, ' ').trim()}"`
-    /** The picture's height as a percentage of its width, which Link Embed keeps so the card does not jump while loading. */
-    const ratio = (src: string) =>
-      new Promise<string>((resolve) => {
-        if (!src) return resolve('')
-        const image = new Image()
-        image.onload = () => resolve(image.naturalWidth ? String(Math.round((image.naturalHeight / image.naturalWidth) * 1000) / 10) : '')
-        image.onerror = () => resolve('')
-        setTimeout(() => resolve(''), 4000)
-        image.src = src
-      })
     const block = async (address: string): Promise<string> => {
       // A page that does not answer still gets its card: the address is its name, and the picture is looked for later.
       const page = await app.vault.unfurl(address).catch((err) => {
