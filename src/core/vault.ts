@@ -224,23 +224,38 @@ export class Vault extends Events<VaultEvents> {
   }
 
   /** What a web page says about itself: title, description, picture. */
-  async unfurl(address: string): Promise<{ url: string; title: string; description: string; image: string; favicon: string }> {
-    // A video site is asked by the browser itself: it lets pages ask it (its answer says so), and
-    // the browser reaches it the way it opens the site, through whatever proxy or VPN it uses. The
-    // server, a program of its own, may not get through where the browser does.
-    if (/^https?:\/\/((www|m|music)\.)?(youtube\.com|youtu\.be)\//i.test(address)) {
-      try {
-        const res = await fetch(`https://www.youtube.com/oembed?format=json&url=${encodeURIComponent(address)}`, { signal: AbortSignal.timeout(6000) })
-        if (res.ok) {
-          const video = (await res.json()) as { title?: string; author_name?: string; thumbnail_url?: string }
-          if (video.title) return { url: address, title: video.title, description: video.author_name ?? '', image: video.thumbnail_url ?? '', favicon: 'https://www.youtube.com/favicon.ico' }
-        }
-      } catch {
-        // The server is asked below.
-      }
+  async unfurl(address: string): Promise<{ url: string; title: string; description: string; image: string; favicon: string; author?: string }> {
+    const server = () => request(`/api/unfurl?url=${encodeURIComponent(address)}`).then((res) => res.json())
+    if (!/^https?:\/\/((www|m|music)\.)?(youtube\.com|youtu\.be)\//i.test(address)) return server()
+    // A video site is asked by the browser itself as well: it lets pages ask it (its answer says so), and the
+    // browser reaches it the way it opens the site, through whatever proxy or VPN it uses, where the server may
+    // not get through. The browser's answer has the title, channel and frame; only the server can read the
+    // description under the video from its page. Both are asked at once, and each gives what it has.
+    const [browser, fromServer] = await Promise.allSettled([
+      fetch(`https://www.youtube.com/oembed?format=json&url=${encodeURIComponent(address)}`, { signal: AbortSignal.timeout(6000) }).then(async (res) => {
+        if (!res.ok) throw new Error(String(res.status))
+        return (await res.json()) as { title?: string; author_name?: string; thumbnail_url?: string }
+      }),
+      server(),
+    ])
+    const page = fromServer.status === 'fulfilled' ? fromServer.value : null
+    const video = browser.status === 'fulfilled' && browser.value.title ? browser.value : null
+    if (!video) {
+      if (page) return page
+      throw fromServer.status === 'rejected' ? fromServer.reason : new Error('Страница не ответила')
     }
-    return (await request(`/api/unfurl?url=${encodeURIComponent(address)}`)).json()
+    const author = video.author_name ?? page?.author ?? ''
+    return {
+      url: address,
+      title: video.title ?? page?.title ?? '',
+      // The video's own description if the server could read it; its channel otherwise.
+      description: page?.description && page.description !== author ? page.description : author,
+      author,
+      image: video.thumbnail_url ?? page?.image ?? '',
+      favicon: 'https://www.youtube.com/favicon.ico',
+    }
   }
+
 
   /** Names of the files in a folder, hidden folders included (`.obsidian/...`); empty if there is no such folder. */
   async list(path: string): Promise<string[]> {

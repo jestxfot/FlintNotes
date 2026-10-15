@@ -11,7 +11,7 @@ export const vault = {
     'pic.png': fixture('pic.png'),
     'Run.md': 'Out: <%+ await tp.user.hello({ who: "World" }) %>!\n\nBad: <%+ await tp.user.nothere() %>\n\nend\n',
     'Paste.md': 'first\n\n',
-    'Cards.md': ['```embed', 'title: "A video"', 'image: ""', 'description: ""', 'url: "https://www.youtube.com/watch?v=xHrhYhfLrF8"', '```', '', '```embed', 'title: "A page"', 'image: ""', 'description: ""', 'url: "https://example.com/b"', '```', '', 'end', ''].join('\n'),
+    'Cards.md': ['```embed', 'title: "A video"', 'image: ""', 'description: ""', 'url: "https://www.youtube.com/watch?v=xHrhYhfLrF8"', '```', '', '```embed', 'title: "A page"', 'image: ""', 'description: ""', 'url: "https://example.com/b"', '```', '', '```embed', 'title: "Older card"', 'image: "x.png"', 'description: "A channel"', 'url: "https://youtu.be/AbCdEfGhIjK"', 'favicon: "f.ico"', '```', '', 'end', ''].join('\n'),
     'Charts.md': [
       `${f}chart`, 'type: bar', 'labels: [Mon, Tue, Wed]', 'series:', '  - title: Steps', '    data: [4, 7, 5]', 'width: 60%', 'beginAtZero: true', f, '',
       `${f}chart`, 'type: pyramid', f, '',
@@ -69,7 +69,13 @@ export async function run(t) {
 
   // ---- cards saved without a picture get one
   await page.unroute('**/api/unfurl*')
-  await page.route('**/api/unfurl*', (route) => route.fulfill({ json: { url: 'https://example.com/b', title: 'B', description: '', image: `${t.url}api/file?path=pic.png`, favicon: '' } }))
+  await page.route('**/api/unfurl*', (route) =>
+    route.fulfill({
+      json: /youtu/.test(decodeURIComponent(route.request().url()))
+        ? { url: 'https://www.youtube.com/watch', title: 'Video title', description: "The video's own words", author: 'A channel', image: '', favicon: '' }
+        : { url: 'https://example.com/b', title: 'B', description: '', image: `${t.url}api/file?path=pic.png`, favicon: '' },
+    }),
+  )
   await page.route('https://i.ytimg.com/**', (route) => route.fulfill({ body: fixture('pic.png'), contentType: 'image/png' }))
   // A video's card is asked of the video site by the browser itself.
   const asked = []
@@ -77,12 +83,14 @@ export async function run(t) {
   await t.open('Cards')
   await wait(1500)
   const pictures = await page.locator(`${leaf} .embed-card-image img`).evaluateAll((list) => list.map((img) => img.src))
-  ok('a video card shows the video\'s frame; a page card, the picture the page names', pictures.length === 2 && pictures[0].startsWith('https://i.ytimg.com/vi/xHrhYhfLrF8/') && pictures[1].includes('pic.png'), JSON.stringify(pictures))
+  ok('a video card shows the video\'s frame; a page card, the picture the page names', pictures.length === 3 && pictures[0].startsWith('https://i.ytimg.com/vi/xHrhYhfLrF8/') && pictures[1].includes('pic.png'), JSON.stringify(pictures))
   await wait(2500)
   const cards = read('Cards.md')
   const pageCard = cards.split('```').find((part) => part.includes('https://example.com/b')) ?? ''
   const videoCard = cards.split('```').find((part) => part.includes('xHrhYhfLrF8')) ?? ''
-  ok('a video card is filled by asking the video site from the browser', asked.length >= 1 && videoCard.includes('description: "A channel"') && videoCard.includes('title: "A video"'), videoCard)
+  ok('a video card is filled from the browser (title, frame) and the server (the video\'s own description)', asked.length >= 1 && videoCard.includes(`description: "The video's own words"`) && videoCard.includes('title: "A video"'), videoCard)
+  const olderCard = cards.split('```').find((part) => part.includes('AbCdEfGhIjK')) ?? ''
+  ok('a description that was only the channel\'s name gives way to the video\'s own', olderCard.includes(`description: "The video's own words"`) && olderCard.includes('title: "Older card"') && olderCard.includes('image: "x.png"'), olderCard)
   ok('a card with empty fields fills them in, in the block itself; what was written stays', /image: "[^"]*pic\.png"/.test(pageCard) && pageCard.includes('title: "A page"'), cards)
 
   // ---- charts

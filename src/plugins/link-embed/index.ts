@@ -97,6 +97,8 @@ export default class LinkEmbed extends Plugin {
     /** Cards being filled in right now, and pages that would not answer this time. */
     const filling = new Set<string>()
     const unanswered = new Set<string>()
+    /** Video cards asked about in this visit already. */
+    const checked = new Set<string>()
     /**
      * A card with empty fields asks the page once and writes what it says into
      * the block itself (as Link Embed writes it): what was written by hand stays.
@@ -106,7 +108,11 @@ export default class LinkEmbed extends Plugin {
       if (!WEB.test(url) || filling.has(url) || unanswered.has(url) || this.getSetting<boolean>('fillCards') === false) return
       const title = text(data.title)
       const placeholder = !title || title === url || title === standIn(url)
-      if (!placeholder && text(data.image) && text(data.description) && text(data.favicon)) return
+      const video = this.videoPictures(url).length > 0
+      // A video card is asked once in a while even when it is full: its description may be only its channel,
+      // written before the video's own description could be read.
+      if (!placeholder && text(data.image) && text(data.description) && text(data.favicon) && (!video || checked.has(url))) return
+      checked.add(url)
       filling.add(url)
       try {
         const page = await app.vault.unfurl(url)
@@ -115,7 +121,8 @@ export default class LinkEmbed extends Plugin {
         const next: Record<string, string> = {
           title: placeholder ? page.title || title || url : title,
           image,
-          description: text(data.description) || page.description || '',
+          // A description that is only the channel's name gives way to the video's own.
+          description: (text(data.description) && !(page.author && text(data.description) === page.author && page.description && page.description !== page.author) ? text(data.description) : page.description) || '',
           url,
         }
         const favicon = text(data.favicon) || page.favicon

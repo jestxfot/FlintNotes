@@ -14,6 +14,7 @@ import os from 'node:os'
 import path from 'node:path'
 import { fileURLToPath } from 'node:url'
 import type { ExternalPluginInfo, RemoteEvent, VaultEntry, VaultInfo } from '../shared/protocol'
+import { viaProxy, webGet, youtubeVideo } from './web'
 import { TreeCache } from './tree-cache'
 
 // The vaults the user has opened are remembered between runs, outside any vault.
@@ -553,46 +554,22 @@ api.get('/unfurl', async (c) => {
   }
   if (url.protocol !== 'http:' && url.protocol !== 'https:') throw new HTTPException(400, { message: 'Нужен адрес http или https' })
   // The server fetches pages of the open web only, never of this machine or the local network.
+  // Through a proxy the proxy finds the site, and a name this machine cannot resolve is no sign of a local one.
   const addresses = await lookup(url.hostname, { all: true }).catch(() => [])
-  if (!addresses.length || addresses.some((a) => PRIVATE.test(a.address))) throw new HTTPException(400, { message: 'Страница недоступна' })
+  if (addresses.some((a) => PRIVATE.test(a.address)) || /^(localhost|.*\.local)$/i.test(url.hostname)) throw new HTTPException(400, { message: 'Страница недоступна' })
+  if (!addresses.length && !(await viaProxy())) throw new HTTPException(400, { message: 'Страница недоступна' })
   let html = ''
   let final = url.href
-  // A video site answers a plain question about a video (its name, its channel, its frame) far more
-  // surely than its page does, which is heavy and often asks for consent first.
+  // A video: its title, channel and frame, and the description under it, which its page keeps.
   if (/(^|\.)(youtube\.com|youtu\.be)$/i.test(url.hostname)) {
-    try {
-      const res = await fetch(`https://www.youtube.com/oembed?format=json&url=${encodeURIComponent(url.href)}`, { signal: AbortSignal.timeout(8000) })
-      if (res.ok) {
-        const video = (await res.json()) as { title?: string; author_name?: string; thumbnail_url?: string }
-        if (video.title) return c.json({ url: url.href, title: video.title, description: video.author_name ?? '', image: video.thumbnail_url ?? '', favicon: 'https://www.youtube.com/favicon.ico' })
-      }
-    } catch {
-      // The page itself is asked below.
-    }
+    const video = await youtubeVideo(url.href).catch(() => null)
+    if (video) return c.json({ url: url.href, title: video.title, description: video.description, author: video.author, image: video.image, favicon: 'https://www.youtube.com/favicon.ico' })
   }
-  // Pages are asked the way a browser asks: many sites turn anything else away. A slow site gets a second, longer try.
-  const ask = (timeout: number) =>
-    fetch(url, {
-      signal: AbortSignal.timeout(timeout),
-      redirect: 'follow',
-      headers: {
-        'user-agent': 'Mozilla/5.0 (Windows NT 10.0; Win64; x64) AppleWebKit/537.36 (KHTML, like Gecko) Chrome/126.0 Safari/537.36',
-        accept: 'text/html,application/xhtml+xml,*/*;q=0.8',
-        'accept-language': 'ru,en;q=0.8',
-      },
-    })
+  // Pages are asked the way a browser asks, through the computer's proxy if it has one. A slow site gets a second, longer try.
   try {
-    const res = await ask(8000).catch(() => ask(20_000))
-    final = res.url || url.href
-    // The head of the page is enough; a huge page is not read to the end.
-    const reader = res.body?.getReader()
-    const decoder = new TextDecoder()
-    while (reader && html.length < 600_000) {
-      const { done, value } = await reader.read()
-      if (done) break
-      html += decoder.decode(value, { stream: true })
-    }
-    void reader?.cancel().catch(() => {})
+    const page = await webGet(url.href, { timeout: 8000 }).catch(() => webGet(url.href, { timeout: 20_000 }))
+    final = page.url || url.href
+    html = page.text
   } catch {
     throw new HTTPException(502, { message: 'Страница не ответила' })
   }
