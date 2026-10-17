@@ -16,6 +16,8 @@ const target = document.getElementById('app')!
 const stage = (name: string) => performance.mark(`flint:${name}`)
 try {
   stage('code')
+  // Pictures of the web go through the server's way to it, a proxy if one is set (see public/web-sw.js).
+  void navigator.serviceWorker?.register('/web-sw.js').catch(() => {})
   await app.init()
   stage('init')
   mount(AppView, { target })

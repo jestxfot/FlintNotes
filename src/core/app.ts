@@ -320,6 +320,8 @@ const proxySetting = (app: App): SettingsSection['defs'][number] => ({
       apply.disabled = true
       void app.vault.setProxy(chosen()).then(({ proxy }) => {
         saved = proxy
+        // Pictures follow the new way at once, not in half a minute.
+        navigator.serviceWorker?.controller?.postMessage({ type: 'proxy-changed' })
         refresh()
         note.dataset.kind = 'result'
         note.textContent = 'Сохранено, действует сразу'

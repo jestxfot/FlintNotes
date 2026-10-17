@@ -87,17 +87,26 @@ export async function viaProxy(): Promise<boolean> {
   return (await systemProxy()) !== null
 }
 
+/** What is sent: the method, the headers and the body of a request. */
+interface Sending {
+  method?: string
+  headers?: Record<string, string>
+  body?: string
+}
+
 /** One request through the proxy: a tunnel to the site (CONNECT, or SOCKS), or for http through a web proxy the full address. */
-function throughProxy(target: URL, proxy: URL, timeout: number): Promise<http.IncomingMessage> {
+function throughProxy(target: URL, proxy: URL, timeout: number, send: Sending = {}): Promise<http.IncomingMessage> {
+  const method = send.method ?? 'GET'
+  const headers = send.headers ?? BROWSER_HEADERS
   const socks = proxy.protocol.startsWith('socks')
   const auth = proxy.username ? { 'proxy-authorization': `Basic ${Buffer.from(`${decodeURIComponent(proxy.username)}:${decodeURIComponent(proxy.password)}`).toString('base64')}` } : {}
   const proxyPort = Number(proxy.port) || (socks ? 1080 : proxy.protocol === 'https:' ? 443 : 80)
   return new Promise((resolve, reject) => {
     const fail = (err: Error) => reject(err)
     if (target.protocol === 'http:' && !socks) {
-      const request = http.request({ host: proxy.hostname, port: proxyPort, method: 'GET', path: target.href, headers: { ...BROWSER_HEADERS, host: target.host, ...auth }, timeout }, resolve)
+      const request = http.request({ host: proxy.hostname, port: proxyPort, method, path: target.href, headers: { ...headers, host: target.host, ...auth }, timeout }, resolve)
       request.on('error', fail).on('timeout', () => request.destroy(new Error('timeout')))
-      return void request.end()
+      return void request.end(send.body)
     }
     // A deadline of its own rather than the `timeout` option, which over a tunnel cuts answers short.
     let current: { destroy(err?: Error): void } | null = null
@@ -108,7 +117,8 @@ function throughProxy(target: URL, proxy: URL, timeout: number): Promise<http.In
     const ask = (socket: net.Socket) => {
       // No `agent` at all: with one (even `false`), plain http makes a connection of its own and the tunnel goes unused.
       const request = (secure ? https : http).request(
-        { host, port, path: `${target.pathname}${target.search}`, method: 'GET', headers: BROWSER_HEADERS, createConnection: () => (secure ? tls.connect({ socket, servername: host }) : socket) },
+        // The site's name as a browser gives it, without the port when it is the usual one.
+        { host, port, path: `${target.pathname}${target.search}`, method, headers: { ...headers, host: target.host }, createConnection: () => (secure ? tls.connect({ socket, servername: host }) : socket) },
         (res) => {
           res.on('end', () => clearTimeout(deadline)).on('close', () => clearTimeout(deadline))
           resolve(res)
@@ -116,7 +126,7 @@ function throughProxy(target: URL, proxy: URL, timeout: number): Promise<http.In
       )
       current = request
       request.on('error', (err) => (clearTimeout(deadline), fail(err)))
-      request.end()
+      request.end(send.body)
     }
     if (socks) {
       const tunnel = socksTunnel(proxy, proxyPort, host, port, (socket) => (current = socket))
@@ -258,6 +268,102 @@ function windowsGet(address: string, { timeout = 8000, limit = 600_000 }: { time
       },
     )
   })
+}
+
+/** What came back from a request: as it is, bytes and all. */
+export interface WebAnswer {
+  status: number
+  url: string
+  headers: Record<string, string>
+  bytes: Buffer
+}
+
+/** Reads up to `limit` bytes of a response; past that the answer is too large to take. */
+async function readBytes(body: AsyncIterable<Uint8Array>, limit: number): Promise<Buffer> {
+  const parts: Buffer[] = []
+  let size = 0
+  for await (const chunk of body) {
+    size += chunk.length
+    if (size > limit) throw new Error('слишком большой ответ')
+    parts.push(Buffer.from(chunk))
+  }
+  return Buffer.concat(parts)
+}
+
+/**
+ * Any request to the web (a picture, an API's answer), made the way pages are asked: through
+ * the proxy chosen in the settings or the computer's. Redirects of reading requests are followed.
+ * Where Node does not get through on Windows, a reading request is asked through Windows itself.
+ */
+export async function webFetch(address: string, { timeout = 12_000, limit = 25_000_000, ...send }: Sending & { timeout?: number; limit?: number } = {}): Promise<WebAnswer> {
+  const method = (send.method ?? 'GET').toUpperCase()
+  const headers = { ...BROWSER_HEADERS, accept: '*/*', ...send.headers }
+  try {
+    const proxy = await systemProxy()
+    if (!proxy) {
+      const res = await fetch(address, { method, headers, body: method === 'GET' || method === 'HEAD' ? undefined : send.body, signal: AbortSignal.timeout(timeout), redirect: 'follow' })
+      return { status: res.status, url: res.url || address, headers: Object.fromEntries(res.headers), bytes: res.body ? await readBytes(res.body as unknown as AsyncIterable<Uint8Array>, limit) : Buffer.alloc(0) }
+    }
+    let url = new URL(address)
+    let sending: Sending = { method, headers, body: send.body }
+    for (let hops = 0; hops < 6; hops++) {
+      const res = await throughProxy(url, proxy, timeout, sending)
+      const location = res.headers.location
+      if (res.statusCode && [301, 302, 303, 307, 308].includes(res.statusCode) && location) {
+        res.resume()
+        url = new URL(location, url)
+        // As a browser does: after a 303 (and a 301 or 302 of a form) the next request only reads.
+        if (res.statusCode === 303 || (res.statusCode <= 302 && sending.method !== 'GET' && sending.method !== 'HEAD')) sending = { method: 'GET', headers }
+        continue
+      }
+      const bytes = await readBytes(res, limit)
+      res.destroy()
+      const answered: Record<string, string> = {}
+      for (const [key, value] of Object.entries(res.headers)) if (value !== undefined) answered[key] = Array.isArray(value) ? value.join(', ') : value
+      return { status: res.statusCode ?? 0, url: url.href, headers: answered, bytes }
+    }
+    throw new Error('too many redirects')
+  } catch (err) {
+    if (process.platform !== 'win32' || method !== 'GET') throw err
+    const reason = describe(err)
+    try {
+      return await windowsFetch(address, timeout, limit)
+    } catch (again) {
+      throw new Error(`${reason}; через Windows: ${describe(again)}`)
+    }
+  }
+}
+
+/** A file of the web fetched through Windows' own web client (PowerShell) into a temporary file, with the system's proxy settings. */
+async function windowsFetch(address: string, timeout: number, limit: number): Promise<WebAnswer> {
+  const { mkdtemp, readFile, rm } = await import('node:fs/promises')
+  const { tmpdir } = await import('node:os')
+  const { join } = await import('node:path')
+  const dir = await mkdtemp(join(tmpdir(), 'flint-web-'))
+  const file = join(dir, 'answer')
+  const script = [
+    '$ProgressPreference = "SilentlyContinue"',
+    '[Console]::OutputEncoding = [System.Text.Encoding]::UTF8',
+    '[System.Net.ServicePointManager]::SecurityProtocol = [System.Net.SecurityProtocolType]::Tls12',
+    `$r = Invoke-WebRequest -UseBasicParsing -Uri $env:FLINT_URL -OutFile $env:FLINT_FILE -PassThru -TimeoutSec ${Math.ceil(timeout / 1000) + 5} -UserAgent $env:FLINT_AGENT`,
+    '[Console]::Out.Write([string]$r.StatusCode + "`n" + $r.BaseResponse.ResponseUri.AbsoluteUri + "`n" + [string]$r.Headers["Content-Type"])',
+  ].join('; ')
+  try {
+    const out = await new Promise<string>((resolve, reject) =>
+      execFile(
+        'powershell.exe',
+        ['-NoProfile', '-NonInteractive', '-ExecutionPolicy', 'Bypass', '-Command', script],
+        { env: { ...process.env, FLINT_URL: address, FLINT_FILE: file, FLINT_AGENT: BROWSER_HEADERS['user-agent'] }, windowsHide: true, timeout: timeout + 10_000, encoding: 'utf8' },
+        (err, stdout, errors) => (err ? reject(new Error((errors || err.message).trim().split(/\r?\n/)[0] || 'PowerShell')) : resolve(stdout)),
+      ),
+    )
+    const [status, url, type] = out.split('\n')
+    const bytes = await readFile(file)
+    if (bytes.length > limit) throw new Error('слишком большой ответ')
+    return { status: Number(status) || 200, url: url?.trim() || address, headers: type?.trim() ? { 'content-type': type.trim() } : {}, bytes }
+  } finally {
+    await rm(dir, { recursive: true, force: true }).catch(() => {})
+  }
 }
 
 /** A page asked by Node itself: straight, or through the proxy of the environment or of Windows' settings. */

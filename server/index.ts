@@ -14,7 +14,7 @@ import os from 'node:os'
 import path from 'node:path'
 import { fileURLToPath } from 'node:url'
 import type { ExternalPluginInfo, RemoteEvent, VaultEntry, VaultInfo } from '../shared/protocol'
-import { checkWay, chooseProxy, computerProxy, describe, parseProxy, telegramName, viaProxy, webGet, youtubeVideo } from './web'
+import { checkWay, chooseProxy, computerProxy, describe, parseProxy, telegramName, viaProxy, webFetch, webGet, youtubeVideo } from './web'
 import { TreeCache } from './tree-cache'
 
 // The vaults the user has opened are remembered between runs, outside any vault.
@@ -549,21 +549,63 @@ api.post('/request', async (c) => {
     throw new HTTPException(400, { message: 'Это не адрес страницы' })
   }
   if (url.protocol !== 'http:' && url.protocol !== 'https:') throw new HTTPException(400, { message: 'Нужен адрес http или https' })
-  const addresses = await lookup(url.hostname, { all: true }).catch(() => [])
-  if (!addresses.length || addresses.some((a) => PRIVATE.test(a.address))) throw new HTTPException(400, { message: 'Адрес недоступен' })
+  await openWeb(url)
   try {
-    const res = await fetch(url, {
-      method: method ?? 'GET',
-      headers: { ...(contentType ? { 'content-type': contentType } : {}), ...headers },
-      body: method && method.toUpperCase() !== 'GET' ? body : undefined,
-      signal: AbortSignal.timeout(20_000),
-    })
-    const text = await res.text()
-    if (text.length > 20_000_000) throw new Error('too large')
-    return c.json({ status: res.status, headers: Object.fromEntries(res.headers), text })
+    // Through the proxy chosen in the settings, as everything the server asks of the web.
+    const res = await webFetch(url.href, { method: method ?? 'GET', headers: { ...(contentType ? { 'content-type': contentType } : {}), ...headers }, body, timeout: 20_000, limit: 20_000_000 })
+    return c.json({ status: res.status, headers: res.headers, text: res.bytes.toString('utf8') })
   } catch {
     throw new HTTPException(502, { message: 'Адрес не ответил' })
   }
+})
+
+/**
+ * Whether an address is of the open web, which the server may ask: never this machine or the local
+ * network. Through a proxy the proxy finds the site, and a name this machine cannot resolve is no sign of a local one.
+ */
+async function openWeb(url: URL): Promise<void> {
+  if (url.protocol !== 'http:' && url.protocol !== 'https:') throw new HTTPException(400, { message: 'Нужен адрес http или https' })
+  const addresses = await lookup(url.hostname, { all: true }).catch(() => [])
+  if (addresses.some((a) => PRIVATE.test(a.address)) || /^(localhost|.*\.local)$/i.test(url.hostname)) throw new HTTPException(400, { message: 'Адрес недоступен' })
+  if (!addresses.length && !(await viaProxy())) throw new HTTPException(400, { message: 'Адрес недоступен' })
+}
+
+/** Pictures of the web asked for lately, kept a while: a note scrolled up and down asks for the same ones again. */
+const webFiles = new Map<string, { at: number; type: string; bytes: Buffer }>()
+let webFilesSize = 0
+const WEB_FILES_LIMIT = 64_000_000
+
+// A file of the web (a card's picture, a picture in a note) for the page, through the way the server reaches
+// the web: where a proxy is set, the browser gets pictures through it too, not only the text of pages.
+api.get('/web', async (c) => {
+  let url: URL
+  try {
+    url = new URL(c.req.query('url') ?? '')
+  } catch {
+    throw new HTTPException(400, { message: 'Это не адрес' })
+  }
+  const kept = webFiles.get(url.href)
+  if (kept && Date.now() - kept.at < 3_600_000) return c.body(new Uint8Array(kept.bytes), 200, { 'content-type': kept.type, 'cache-control': 'private, max-age=86400' })
+  await openWeb(url)
+  let res
+  try {
+    res = await webFetch(url.href, { timeout: 15_000, limit: 25_000_000, headers: { accept: c.req.header('accept') ?? 'image/avif,image/webp,image/*,*/*;q=0.8' } })
+  } catch (err) {
+    throw new HTTPException(502, { message: `Не ответил: ${describe(err)}` })
+  }
+  const type = res.headers['content-type'] ?? 'application/octet-stream'
+  if (res.status === 200 && res.bytes.length < 8_000_000) {
+    webFiles.delete(url.href)
+    webFiles.set(url.href, { at: Date.now(), type, bytes: res.bytes })
+    webFilesSize += res.bytes.length
+    // The oldest go first.
+    for (const [key, file] of webFiles) {
+      if (webFilesSize <= WEB_FILES_LIMIT) break
+      webFiles.delete(key)
+      webFilesSize -= file.bytes.length
+    }
+  }
+  return c.body(new Uint8Array(res.bytes), res.status as 200, { 'content-type': type, 'cache-control': res.status === 200 ? 'private, max-age=86400' : 'no-store' })
 })
 
 api.get('/unfurl', async (c) => {

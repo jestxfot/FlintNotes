@@ -27,7 +27,13 @@ const pages = {
 export async function run(t) {
   const { page, ok, wait } = t
   // A site of its own, and a SOCKS5 proxy that leads every name to it (and says which names it was asked for).
-  const site = http.createServer((req, res) => res.end(pages[req.headers.host?.split(':')[0]] ?? '<title>?</title>'))
+  const paths = []
+  const site = http.createServer((req, res) => {
+    paths.push(`${req.headers.host}${req.url}`)
+    // Telegram's pictures: a channel's, by its name.
+    if (req.url.startsWith('/i/userpic/') || req.url.startsWith('/img/')) return res.writeHead(200, { 'content-type': 'image/png' }).end(fixture('pic.png'))
+    res.end(pages[req.headers.host?.split(':')[0]] ?? '<title>?</title>')
+  })
   await new Promise((resolve) => site.listen(0, '127.0.0.1', resolve))
   const asked = []
   const proxy = net.createServer((client) => {
@@ -60,8 +66,9 @@ export async function run(t) {
   await new Promise((resolve) => proxy.listen(0, '127.0.0.1', resolve))
   const address = `socks5://127.0.0.1:${proxy.address().port}`
 
-  // Telegram's own pictures, as Telegram would give them.
-  await page.route(/^https?:\/\/(t\.me\/i\/userpic|telegram\.org\/img)\//, (route) => route.fulfill({ contentType: 'image/png', body: fixture('pic.png') }))
+  // Telegram's own pictures, as Telegram would give them, should the browser ask for them itself.
+  // The context's routes see what the page's service worker asks for too.
+  await page.context().route(/^https?:\/\/(t\.me\/i\/userpic|telegram\.org\/img)\//, (route) => route.fulfill({ contentType: 'image/png', body: fixture('pic.png') }))
   try {
     await t.open('Start')
     await page.evaluate(() => app.commands.run('core:settings'))
@@ -85,13 +92,18 @@ export async function run(t) {
     // A Telegram channel's card fills in through the proxy, with the channel's picture by its lasting address.
     await t.open('Channel')
     await t.cursorToEnd()
-    await page.waitForFunction(() => /Тестовый канал/.test(app.workspace.activeEditor.state.doc.toString()), null, { timeout: 10_000 }).catch(() => {})
+    for (let i = 0; i < 40 && !t.read('Channel.md').includes('Тестовый канал'); i++) await wait(500)
     const channel = t.read('Channel.md')
     ok('a Telegram card is filled in through the SOCKS proxy', channel.includes('title: "Тестовый канал"') && channel.includes('description: "О чём канал. Вторая строка"') && asked.includes('t.me'), channel + asked.join(','))
     ok('its picture is the channel\'s own lasting one, not the signed link of its page', channel.includes('image: "https://t.me/i/userpic/320/flinttestchan.jpg"'), channel)
     await wait(400)
     ok('the card says whose channel it is', (await t.flat(page.locator(`${t.leaf} .embed-card-url`))).includes('t.me · @flinttestchan'), await t.flat(page.locator(`${t.leaf} .embed-card-url`)).catch(() => 'none'))
     ok('and shows its picture round, as a portrait', (await page.locator(`${t.leaf} .embed-card-image.is-avatar`).count()) === 1)
+    // Pictures, too, come through the proxy: the browser hands them to the server, which asks through the proxy.
+    // (The site's icon is the one on plain http here; the channel's picture is on https, which this test site cannot be.)
+    const icon = page.locator(`${t.leaf} .embed-card-url img`)
+    await page.waitForFunction(() => document.querySelector('.leaf:not([hidden]) .embed-card-url img')?.naturalWidth > 0, null, { timeout: 10_000 }).catch(() => {})
+    ok('pictures of the web come through the proxy as well', paths.includes('telegram.org/img/favicon-32x32.png') && (await icon.count()) === 1 && (await icon.evaluate((img) => img.naturalWidth)) > 0, paths.join(', '))
 
     // Through a proxy a name this computer cannot resolve is the proxy's to find.
     await t.open('Site')
