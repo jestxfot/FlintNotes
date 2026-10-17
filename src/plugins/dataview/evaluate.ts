@@ -1,6 +1,6 @@
 import { Moment } from '../../api'
 import { sanitize, type Page } from './pages'
-import { QueryError, type Node } from './parser'
+import { NAMED_DATES, QueryError, type Node } from './parser'
 import { compare, Dur, equals, formatDuration, Link, parseDate, parseDuration, toText, truthy, typeOf } from './values'
 
 /** What an expression is evaluated against. */
@@ -36,6 +36,17 @@ const DURATION_PARTS: Record<string, (d: Dur) => number> = {
   years: (d) => d.months / 12, months: (d) => d.months, weeks: (d) => d.ms / 604_800_000, days: (d) => d.ms / 86_400_000,
   hours: (d) => d.ms / 3_600_000, minutes: (d) => d.ms / 60_000, seconds: (d) => d.ms / 1000,
 }
+/** The parts of a difference of dates: each what is left after the larger ones, as on a calendar. */
+const CALENDAR_PARTS: Record<string, (d: Dur) => number> = {
+  years: (d) => Math.trunc(d.months / 12), months: (d) => d.months % 12, weeks: (d) => Math.trunc(d.ms / 604_800_000), days: (d) => Math.trunc(d.ms / 86_400_000),
+  hours: (d) => Math.trunc((d.ms % 86_400_000) / 3_600_000), minutes: (d) => Math.trunc((d.ms % 3_600_000) / 60_000), seconds: (d) => Math.trunc((d.ms % 60_000) / 1000),
+}
+
+/** How far apart two dates are, in whole calendar months and what is left: from 26 December to 17 October is 9 months and 21 days. */
+export function between(later: Moment, earlier: Moment): Dur {
+  const months = later.diff(earlier, 'months')
+  return new Dur(months, later.valueOf() - earlier.clone().add(months, 'months').valueOf(), true)
+}
 
 function index(object: unknown, key: unknown, scope: Scope): unknown {
   switch (typeOf(object)) {
@@ -55,7 +66,7 @@ function index(object: unknown, key: unknown, scope: Scope): unknown {
       return page ? lookup(page, String(key)) : null
     }
     case 'date': return own(DATE_PARTS, String(key))?.(object as Moment) ?? null
-    case 'duration': return own(DURATION_PARTS, String(key))?.(object as Dur) ?? null
+    case 'duration': return own((object as Dur).calendar ? CALENDAR_PARTS : DURATION_PARTS, String(key))?.(object as Dur) ?? null
     case 'string': return typeof key === 'number' ? ((object as string)[key] ?? null) : key === 'length' ? (object as string).length : null
     case 'object': return lookup(object as Record<string, unknown>, String(key))
     default: return null
@@ -85,7 +96,7 @@ function binary(op: string, a: unknown, b: unknown): unknown {
     if (ta === 'string' || tb === 'string') return toText(a) + toText(b)
   }
   if (op === '-') {
-    if (ta === 'date' && tb === 'date') return new Dur(0, (a as Moment).valueOf() - (b as Moment).valueOf())
+    if (ta === 'date' && tb === 'date') return between(a as Moment, b as Moment)
     if (ta === 'date' && tb === 'duration') return addDuration(a as Moment, b as Dur, -1)
     if (ta === 'duration' && tb === 'duration') return new Dur((a as Dur).months - (b as Dur).months, (a as Dur).ms - (b as Dur).ms)
   }
@@ -133,7 +144,7 @@ export const FUNCTIONS: Record<string, Fn> = {
   link: each((path, display) => (path instanceof Link ? new Link(path.path, display ?? path.display) : path === null ? null : new Link(text(path), display ?? undefined))),
   embed: each((link, on = true) => (link instanceof Link ? new Link(link.path, link.display, !!on, link.subpath) : link)),
   elink: (url, display) => `[${text(display ?? url)}](${text(url)})`,
-  date: each((value) => (value instanceof Moment ? value : value instanceof Link ? parseDate(value.display ?? '') ?? parseDate(value.path.replace(/^.*\//, '').replace(/\.md$/, '')) : typeof value === 'string' ? parseDate(value) : null)),
+  date: each((value) => (value instanceof Moment ? value : value instanceof Link ? parseDate(value.display ?? '') ?? parseDate(value.path.replace(/^.*\//, '').replace(/\.md$/, '')) : typeof value === 'string' ? (own(NAMED_DATES, value.trim().toLowerCase())?.() ?? parseDate(value)) : null)),
   dur: each((value) => (value instanceof Dur ? value : typeof value === 'string' ? parseDuration(value) : null)),
   number: each((value) => (typeof value === 'number' ? value : typeof value === 'string' ? (/-?\d+(\.\d+)?/.exec(value) ? Number(/-?\d+(\.\d+)?/.exec(value)![0]) : null) : null)),
   string: (value) => text(value),
@@ -218,7 +229,7 @@ export function evaluate(node: Node, scope: Scope): unknown {
       const value = evaluate(node.arg, scope)
       if (node.op === '!') return !truthy(value)
       if (typeof value === 'number') return -value
-      if (value instanceof Dur) return new Dur(-value.months, -value.ms)
+      if (value instanceof Dur) return new Dur(-value.months, -value.ms, value.calendar)
       return null
     }
     case 'binary': {

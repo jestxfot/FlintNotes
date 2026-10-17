@@ -19,6 +19,12 @@ export class Dur {
   constructor(
     public months: number,
     public ms: number,
+    /**
+     * A difference of two dates, as Dataview gives it: its parts are read like a calendar's,
+     * whole years, then the months left over, then the days (`(date(today) - birthday).years`
+     * is an age), where a duration written out (`dur(36 hours)`) gives each part in full.
+     */
+    public calendar = false,
   ) {}
 
   /** Length in milliseconds, counting a month as 30 days, for comparing and sorting. */

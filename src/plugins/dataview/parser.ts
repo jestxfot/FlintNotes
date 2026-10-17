@@ -48,7 +48,7 @@ export function tokenize(source: string): Token[] {
 export const unquote = (quoted: string) => quoted.slice(1, -1).replace(/\\(["\\])/g, '$1')
 
 /** Dates that have a name: `date(today)`, `date(eom)`. They are worked out when the query runs. */
-const NAMED_DATES: Record<string, () => Moment> = {
+export const NAMED_DATES: Record<string, () => Moment> = {
   now: () => moment(),
   today: () => moment().startOf('day'),
   tomorrow: () => moment().startOf('day').add(1, 'day'),
