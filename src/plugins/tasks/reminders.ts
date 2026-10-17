@@ -1,6 +1,7 @@
 import { path as paths, renderInline, type Off, type Plugin } from '../../api'
 import { Signal, type Repeat } from './sound'
-import { fromIso } from './dates'
+import { fromIso, iso } from './dates'
+import { daysChip } from './days-left'
 import type { TaskStore } from './store'
 import { formatTaskLine, isOpen, movePlainReminder, parseTaskLine, reminderTime, type Task } from './task'
 
@@ -355,7 +356,7 @@ export class Reminders {
         const text = item.appendChild(document.createElement('div'))
         text.className = 'alert-text'
         // A line of the day plan says its hours itself; the time before it is enough.
-        text.append(renderInline(app, task.description.replace(/^\d{1,2}:\d{2}(?:\s*[-–—]\s*\d{1,2}:\d{2})?\s+(?=\S)/, ''), task.path))
+        text.append(renderInline(app, task.description.replace(/^\d{1,2}:\d{2}(?:\s*[-–—]\s*\d{1,2}:\d{2})?\s+(?=\S)/, ''), task.path), ' ', daysChip(task.due ?? task.scheduled ?? iso(at), task.due || task.scheduled ? undefined : 'Напоминание'))
         const actions = item.appendChild(document.createElement('div'))
         actions.className = 'alert-actions'
         actions.append(
@@ -391,7 +392,7 @@ export class Reminders {
         item.className = 'alert-task'
         const text = item.appendChild(document.createElement('div'))
         text.className = 'alert-text'
-        text.append(renderInline(app, task.description, task.path))
+        text.append(renderInline(app, task.description, task.path), ' ', daysChip(task.due ?? task.scheduled ?? iso(at), task.due || task.scheduled ? undefined : 'Напоминание'))
         const when = item.appendChild(document.createElement('div'))
         when.className = 'alert-when'
         const time = at.toLocaleString('ru', { day: 'numeric', month: 'long', hour: '2-digit', minute: '2-digit' })

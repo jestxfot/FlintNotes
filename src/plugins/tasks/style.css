@@ -1053,3 +1053,19 @@
   padding: 5px 10px;
   font-size: 13px;
 }
+
+/* The caption at the end of a task's line in a note. */
+.cm-line .lp-days-left {
+  margin-left: 0.5em;
+  font-size: 0.8em;
+  cursor: default;
+  vertical-align: baseline;
+}
+
+/* In a reminder's card and row, beside its text. */
+.reminder-row .task-chip.days,
+.alert-text .task-chip.days {
+  flex: none;
+  margin-left: 0.4em;
+  white-space: nowrap;
+}

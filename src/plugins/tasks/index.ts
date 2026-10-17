@@ -2,6 +2,7 @@ import { mount, unmount } from 'svelte'
 import { SOUNDS } from './sound'
 import { cm, errorMessage, path as paths, Plugin, renderInline, type CodeBlockContext, type PreviewRenderer } from '../../api'
 import { today } from './dates'
+import { daysChip } from './days-left'
 import { Reminders, stamp } from './reminders'
 import { mountReminders } from './reminders-panel'
 import { tasksProcessor } from './render'
@@ -47,6 +48,13 @@ export default class Tasks extends Plugin {
         default: 'not done\ngroup by when\nsort by due\nsort by priority',
       },
       { key: 'managerFile', name: 'Заметка для новых задач менеджера', desc: 'Сюда попадают задачи, добавленные в менеджере задач не в списке конкретной заметки', type: 'text', default: 'Задачи.md', placeholder: 'Задачи.md' },
+      {
+        key: 'daysLeft',
+        name: 'Сколько дней осталось у задачи',
+        desc: 'У невыполненной задачи с днём (📅 или ⏳) в конце строки в заметке пишется «осталось 5 дней», «завтра» или «просрочено на 2 дня»; то же — у задач и напоминаний в менеджере, на странице напоминаний и в окне напоминания. Сам текст заметки не меняется',
+        type: 'toggle',
+        default: true,
+      },
       {
         key: 'remindDue',
         name: 'Напоминать о задачах со сроком',
@@ -248,15 +256,45 @@ export default class Tasks extends Plugin {
       },
     })
 
+    /** How long is left until an open task's day, at the end of its line in the editor. */
+    class DaysLeftWidget extends cm.view.WidgetType {
+      constructor(
+        readonly target: string,
+        readonly what: string,
+        readonly day: string,
+      ) {
+        super()
+      }
+      eq(other: DaysLeftWidget) {
+        // The day is part of it: past midnight the caption is drawn again.
+        return other.target === this.target && other.what === this.what && other.day === this.day
+      }
+      toDOM() {
+        const chip = daysChip(this.target, this.what)
+        chip.classList.add('lp-days-left')
+        return chip
+      }
+      ignoreEvent() {
+        return true
+      }
+    }
+
     /** In the editor a task's dates, priority and repeat rule are set apart from its text. */
     const fields: PreviewRenderer = {
       name: 'task-fields',
       nodes: ['Task'],
-      render(node, ctx) {
+      render: (node, ctx) => {
         const text = ctx.text(node.from, node.to)
         for (const m of text.matchAll(FIELD)) {
           const overdue = m[0].startsWith('📅') && !/^\[[xX-]\]/.test(text) && m[0].slice(-10) < today()
           ctx.mark(node.from + m.index, node.from + m.index + m[0].length, { class: overdue ? 'lp-task-field overdue' : 'lp-task-field' })
+        }
+        // An open task with a day says how long is left, whatever the list it is in.
+        if (/^\[ \]/.test(text) && !text.includes('\n') && this.getSetting<boolean>('daysLeft') !== false) {
+          const due = /📅\uFE0F?\s*(\d{4}-\d{2}-\d{2})/.exec(text)?.[1]
+          const scheduled = /⏳\uFE0F?\s*(\d{4}-\d{2}-\d{2})/.exec(text)?.[1]
+          const target = due ?? scheduled
+          if (target) ctx.widget(node.to, new DaysLeftWidget(target, due ? 'Срок' : 'Запланировано', today()), 1)
         }
       },
     }

@@ -1,6 +1,7 @@
 import { path as paths, plural, renderInline, type App, type CodeBlockProcessor } from '../../api'
 import { drawCalendar, type CalendarState } from './calendar'
-import { daysBetween, shortDate, today } from './dates'
+import { shortDate, today } from './dates'
+import { daysChip } from './days-left'
 import { parseQuery, runQuery } from './query'
 import type { TaskStore } from './store'
 import { isDone, isOpen, NO_PRIORITY, PRIORITIES, type Task } from './task'
@@ -35,9 +36,7 @@ export function taskRow(app: App, store: TaskStore, task: Task, hide: Set<string
   // How long is left until the task's date, counted afresh every time the list is drawn.
   const target = task.due ?? task.scheduled
   if (target && isOpen(task) && shown('days left')) {
-    const days = daysBetween(today(), target)
-    const label = days === 0 ? 'сегодня' : days === 1 ? 'завтра' : days > 0 ? `осталось ${plural(days, ['день', 'дня', 'дней'])}` : `просрочено на ${plural(-days, ['день', 'дня', 'дней'])}`
-    row.append(chip(days < 0 ? 'days overdue' : days <= 1 ? 'days soon' : 'days', label, `${task.due ? 'Срок' : 'Запланировано'}: ${target}`))
+    row.append(daysChip(target, task.due ? 'Срок' : 'Запланировано'))
   }
   if (task.priority !== NO_PRIORITY && shown('priority')) {
     const priority = PRIORITIES[task.priority]

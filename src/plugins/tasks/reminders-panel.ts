@@ -1,4 +1,6 @@
 import { renderInline, type App } from '../../api'
+import { iso } from './dates'
+import { daysChip } from './days-left'
 import type { Due, Reminders } from './reminders'
 import type { TaskStore } from './store'
 import type { Task } from './task'
@@ -99,6 +101,8 @@ export function mountReminders(app: App, store: TaskStore, reminders: Reminders,
         // A line of the day plan says its hours itself; the time before it is enough.
         text.append(renderInline(app, task.description.replace(/^\d{1,2}:\d{2}(?:\s*[-–—]\s*\d{1,2}:\d{2})?\s+(?=\S)/, ''), task.path))
         el(text, 'span', 'reminder-source', task.path.replace(/^.*\//, '').replace(/\.md$/, ''))
+        // How long is left: to the task's own day, or to the reminder's if the line has no day of its own.
+        if (!due.closed) row.append(daysChip(task.due ?? task.scheduled ?? iso(at), task.due || task.scheduled ? undefined : 'Напоминание'))
         if (until) el(row, 'span', 'reminder-snoozed', `отложено до ${clock(new Date(until))}`)
         const tools = el(row, 'span', 'reminder-tools')
         const tool = (icon: string, label: string, action: (event: MouseEvent) => void) => {

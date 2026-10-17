@@ -3,6 +3,7 @@
   import { path as paths, renderInline, watch, type App } from '../../api'
   import { drawCalendar, type CalendarState } from './calendar'
   import { addDays, daysBetween, parseDateSpec, shortDate, today } from './dates'
+  import { daysLeft } from './days-left'
   import type { TaskStore } from './store'
   import { formatTaskLine, isDone, isOpen, NO_PRIORITY, parseTaskLine, PRIORITIES, type Task, type TaskFields } from './task'
 
@@ -333,6 +334,7 @@
                 {#if task.recurrence}<span class="chip" title={task.recurrence}>🔁</span>{/if}
                 {#if task.reminder}<span class="chip" title={`Напоминание: ${task.reminder}`}>⏰</span>{/if}
                 {#if list.kind !== 'note' && sort !== 'note'}<span class="where" title={task.path}>{title(task.path)}</span>{/if}
+                {#if dayOf(task) && isOpen(task)}<span class="task-chip days {daysLeft(dayOf(task)!, task.due ? 'Срок' : 'Запланировано', now).tone}" title={daysLeft(dayOf(task)!, task.due ? 'Срок' : 'Запланировано', now).title}>{daysLeft(dayOf(task)!, task.due ? 'Срок' : 'Запланировано', now).label}</span>{/if}
                 {#if dayOf(task)}<span class="date {dateClass(task)}">{shortDate(dayOf(task)!)}</span>{/if}
               </div>
             {/each}
