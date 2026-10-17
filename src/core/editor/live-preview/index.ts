@@ -70,6 +70,19 @@ const widths = new Map<string, number>()
 /** Asks the inline layer to redraw although the text did not change. */
 const refresh = StateEffect.define<null>()
 
+/**
+ * Leaves out what is inside a range that a widget stands in for: `inline code` drawn as a computed
+ * value has its backticks hidden and its text styled as code by one renderer, and is replaced whole
+ * by another. Replacements that start at the same place are drawn in no fixed order, so now and
+ * then the hidden backtick won and swallowed the widget: the value vanished after an edit.
+ */
+function withoutCovered(ranges: Range<Decoration>[]): Range<Decoration>[] {
+  const isWidget = (range: Range<Decoration>) => range.from < range.to && (range.value.spec as { widget?: unknown }).widget !== undefined && !range.value.spec.block
+  const widgets = ranges.filter(isWidget)
+  if (!widgets.length) return ranges
+  return ranges.filter((range) => range.from === range.to || isWidget(range) || !widgets.some((widget) => widget.from <= range.from && widget.to >= range.to))
+}
+
 /** Collects the decorations of one rendering pass and answers questions about the cursor. */
 export class RenderContext {
   readonly ranges: Range<Decoration>[] = []
@@ -413,7 +426,7 @@ export class LivePreview {
           },
         })
       }
-      return Decoration.set(ctx.ranges, true)
+      return Decoration.set(withoutCovered(ctx.ranges), true)
     }
 
     const buildBlocks = (state: EditorState): DecorationSet => {
