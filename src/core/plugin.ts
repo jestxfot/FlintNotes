@@ -5,6 +5,7 @@ import type { App } from './app'
 import type { Command } from './commands'
 import type { CodeBlockProcessor, PreviewRenderer } from './editor/live-preview'
 import type { EmbedRenderer } from './embeds'
+import { addInlineCodeRenderer, addLinkBadgeProvider, type InlineCodeRenderer, type LinkBadgeProvider } from './inline'
 import type { Off } from './events'
 import type { MenuItem } from './menu'
 import type { ToolbarButton, ToolbarPlace } from './toolbars'
@@ -132,6 +133,19 @@ export abstract class Plugin {
   /** Teaches Live Preview to draw a Markdown element. */
   registerPreviewRenderer(renderer: PreviewRenderer): void {
     this.register(this.app.livePreview.addRenderer(renderer))
+  }
+
+  /**
+   * Draws `inline code` as something else in text shown outside the editor (task lists, the
+   * planner, cards, table cells), as a preview renderer does in the editor. `null` leaves it as code.
+   */
+  registerInlineCode(renderer: InlineCodeRenderer): void {
+    this.register(addInlineCodeRenderer(renderer))
+  }
+
+  /** Puts a mark after links to some notes, in the editor and wherever else links are drawn. */
+  registerLinkBadge(provider: LinkBadgeProvider): void {
+    this.register(addLinkBadgeProvider(provider))
   }
 
   /**

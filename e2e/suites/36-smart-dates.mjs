@@ -10,9 +10,11 @@ const yearsAgo = (years, offset = 0) => {
 }
 
 export const vault = {
-  plugins: ['properties', 'dataview', 'tasks'],
+  plugins: ['properties', 'dataview', 'tasks', 'links'],
   files: {
-    'Варюша.md': `---\nдень рождения: ${yearsAgo(17, 3)}\nсрок: ${day(-2)}\nвстреча: ${day(20)}\nзаметка: просто текст\n---\n\nВарюше \`= (date(today) - this["день рождения"]).years\` лет.\n\n- [ ] Поздравить, \`= (date(today) - date(${yearsAgo(17, 3)})).years\` лет 📅 ${day(3)}\n\nend\n`,
+    'Варюша.md': `---\nдень рождения: ${yearsAgo(17, 3)}\nсрок: ${day(-2)}\nвстреча: ${day(20)}\nзаметка: просто текст\n---\n\nВарюше \`= (date(today) - this["день рождения"]).years\` лет.\n\n- [ ] Поздравить [[Варюша]], \`= (date(today) - date(${yearsAgo(17, 3)})).years\` лет 📅 ${day(3)}\n\nend\n`,
+    'Друзья.md': 'Позвать [[Варюша]] и [[Никто]].\n\n\`\`\`tasks\nnot done\n\`\`\`\n\nend\n',
+    'Никто.md': '---\nсоздано: 2020-01-01\n---\n',
   },
 }
 
@@ -55,5 +57,27 @@ export async function run(t) {
 
   // In the text, an age counts itself the way Dataview counts it: whole years between two dates.
   const shown = await t.text()
-  ok('an inline query gives an age in whole years', shown.includes('Варюше 16 лет') && shown.includes('Поздравить, 16 лет'), shown)
+  ok('an inline query gives an age in whole years', shown.includes('Варюше 16 лет') && /Поздравить.*, 16 лет/.test(shown), shown)
+  // An edit of the note leaves the values where they are (the code's hidden backticks no longer win over them now and then).
+  await page.evaluate(() => {
+    const editor = app.workspace.activeEditor
+    const at = editor.state.doc.toString().indexOf('Варюше')
+    editor.dispatch({ changes: { from: at, insert: 'Итак. ' } })
+  })
+  await t.cursorToEnd()
+  await wait(1500)
+  const after = await t.text()
+  ok('values stay after the note is edited', after.includes('Варюше 16 лет') && /Поздравить.*, 16 лет/.test(after), after)
+
+  // Elsewhere: a mention of a person whose birthday is near stands out, and a task's text counts its value as in the note.
+  await t.open('Друзья')
+  await t.cursorToEnd()
+  await wait(1200)
+  const badges = page.locator(`${t.leaf} .cm-content .link-badge`)
+  ok('a link to a person whose birthday is near carries a cake with the days left', (await badges.count()) >= 1 && (await badges.first().innerText()).includes('через 3 дня') && (await badges.first().getAttribute('data-tone')) === 'soon', await badges.allInnerTexts())
+  ok('its tooltip says the date and the age to come', /исполнится 17 лет/.test((await badges.first().getAttribute('title')) ?? ''), await badges.first().getAttribute('title'))
+  ok('a note without a birthday gets none', !(await t.text()).includes('Никто🎂'))
+  const listed = await t.flat(page.locator(`${t.leaf} .cm-content`))
+  ok('a task listed by a query shows its inline value, not the code', /Поздравить Варюша.*, 16 лет/.test(listed) && !listed.includes('= (date(today)'), listed)
+  ok('and the mention in it carries the cake too', (await badges.count()) === 2, await badges.allInnerTexts())
 }

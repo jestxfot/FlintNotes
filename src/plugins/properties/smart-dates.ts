@@ -81,12 +81,7 @@ export function dateHint(value: unknown, sense: Exclude<DateSense, 'auto'>, now:
   const title = `${date.format('dddd, D MMMM YYYY')} — ${exact}`
 
   if (sense === 'yearly' && days < 0) {
-    const age = today.diff(date, 'years')
-    // The next time it comes round: this year's, or next year's if this year's has passed (29 February falls on the 28th).
-    let turning = age
-    let next = date.clone().add(turning, 'years')
-    if (next.isBefore(today)) next = date.clone().add(++turning, 'years')
-    const left = next.diff(today, 'days')
+    const { age, turning, next, left } = comingRound(date, today)
     if (left === 0) return { text: `сегодня ${count(turning, YEARS)}`, tone: 'today', title: `${title}; сегодня ровно ${count(turning, YEARS)}` }
     const when = left === 1 ? 'завтра' : left === 2 ? 'послезавтра' : `через ${count(left, DAYS)}`
     return {
@@ -108,6 +103,40 @@ export function dateHint(value: unknown, sense: Exclude<DateSense, 'auto'>, now:
     return { text: `осталось ${span(days, today, date)}`, tone: days <= 3 ? 'soon' : undefined, title }
   }
   return { text: soonTime ?? relative(date, today), tone: days === 0 ? 'today' : undefined, title }
+}
+
+/**
+ * A date that comes back every year, seen from `today`: how many years have passed, when it comes
+ * round next (this year's, or next year's if this year's has passed; 29 February falls on the 28th),
+ * how many years it will be then, and in how many days.
+ */
+function comingRound(date: Moment, today: Moment): { age: number; turning: number; next: Moment; left: number } {
+  const age = today.diff(date, 'years')
+  let turning = age
+  let next = date.clone().add(turning, 'years')
+  if (next.isBefore(today)) next = date.clone().add(++turning, 'years')
+  return { age, turning, next, left: next.diff(today, 'days') }
+}
+
+/**
+ * The mark that links to a note with a birthday (or another date that comes back every year) get:
+ * a cake, which stands out with the days left in the last two weeks before it, and on the day itself.
+ */
+export function yearlyBadge(frontmatter: Record<string, unknown> | null | undefined, chosen: (key: string) => DateSense | undefined, now: Moment = moment()): { text: string; title: string; tone?: string } | null {
+  for (const [key, value] of Object.entries(frontmatter ?? {})) {
+    if (typeof value !== 'string' || senseOf(key, chosen(key)) !== 'yearly') continue
+    const match = DATE.exec(value.trim())
+    const date = match ? moment(match[1], 'YYYY-MM-DD') : null
+    if (!match || !date?.isValid() || date.format('YYYY-MM-DD') !== match[1]) continue
+    const today = now.clone().startOf('day')
+    if (!date.isBefore(today)) continue
+    const { age, turning, next, left } = comingRound(date, today)
+    const title = `${key}: ${date.format('D MMMM YYYY')} — ${count(age, YEARS)}; ${left === 0 ? `сегодня ${count(turning, YEARS)}` : `${next.format('D MMMM, dddd')}, через ${count(left, DAYS)}, исполнится ${count(turning, YEARS)}`}`
+    if (left === 0) return { text: `🎂 сегодня ${count(turning, YEARS)}`, title, tone: 'today' }
+    if (left <= 14) return { text: `🎂 ${left === 1 ? 'завтра' : left === 2 ? 'послезавтра' : `через ${count(left, DAYS)}`}`, title, tone: 'soon' }
+    return { text: '🎂', title }
+  }
+  return null
 }
 
 /** Minutes as hours and minutes: "3 ч 20 мин", "45 мин". */

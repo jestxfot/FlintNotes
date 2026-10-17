@@ -763,3 +763,25 @@ input[type='checkbox']:disabled {
   gap: 2px;
   color: var(--text-muted);
 }
+
+/* A mark after a link that says something of the note it leads to: a birthday coming, say. */
+.link-badge {
+  margin-left: 0.25em;
+  font-size: 0.85em;
+  white-space: nowrap;
+  cursor: default;
+}
+
+.link-badge[data-tone='soon'],
+.link-badge[data-tone='today'] {
+  padding: 0 0.4em;
+  border-radius: 999px;
+  background: color-mix(in srgb, var(--accent) 16%, transparent);
+  color: var(--accent);
+  font-weight: 600;
+}
+
+.link-badge[data-tone='today'] {
+  background: var(--accent);
+  color: var(--bg);
+}

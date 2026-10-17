@@ -1,12 +1,15 @@
 import {
   cm,
+  drawLinkBadge,
   embedDepth,
   EmbedWidget,
   errorMessage,
   filePath,
   ImageWidget,
+  linkBadge,
   path,
   type App,
+  type LinkBadge,
   type PreviewRenderer,
   moment,
   type Moment,
@@ -67,6 +70,19 @@ export const wikilinkRenderer = (app: App): PreviewRenderer => {
     }
   }
 
+  /** A mark after a link that a plugin gives the note it points to: a birthday coming, say. */
+  class Badge extends cm.view.WidgetType {
+    constructor(readonly badge: LinkBadge) {
+      super()
+    }
+    eq(other: Badge) {
+      return other.badge.text === this.badge.text && other.badge.title === this.badge.title && other.badge.tone === this.badge.tone
+    }
+    toDOM() {
+      return drawLinkBadge(this.badge)
+    }
+  }
+
   const target = (event: MouseEvent) => {
     if (event.button !== 0 || !(event.target instanceof Element)) return undefined
     const rendered = event.target.closest<HTMLElement>('.lp-wikilink')?.dataset.target
@@ -121,6 +137,8 @@ export const wikilinkRenderer = (app: App): PreviewRenderer => {
         class: dest ? 'lp-wikilink' : 'lp-wikilink lp-wikilink-missing',
         attributes: { 'data-target': link.trim() },
       })
+      const badge = dest && !embed ? linkBadge(dest) : null
+      if (badge) ctx.widget(node.to, new Badge(badge), 1)
     },
     extension: cm.view.EditorView.domEventHandlers({
       // Swallowing mousedown keeps the cursor out of the link, which would reveal its source.

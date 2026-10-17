@@ -5,6 +5,70 @@ import { openLink } from './links'
 const INLINE =
   /(`[^`\n]+`)|(==[^=\n]+==)|(\*\*[^*\n]+\*\*)|(~~[^~\n]+~~)|(\*[^*\s][^*\n]*\*|_[^_\s][^_\n]*_)|(!?\[\[[^\]\n]+\]\])|(\[[^\]\n]+\]\([^)\s]+\))|((?<![\p{L}\p{N}_/#&;])#[\p{L}\p{N}_/-]+)|(https?:\/\/[^\s<>)\]]+)|(<br\s*\/?>)/gu
 
+/** Draws the text of an `inline code` as something else, a computed value say; `null` leaves it as code. */
+export type InlineCodeRenderer = (code: string, sourcePath: string) => Node | null
+
+const codeRenderers = new Set<InlineCodeRenderer>()
+
+/** Teaches `renderInline` to draw some inline code as something else; returns how to stop. */
+export function addInlineCodeRenderer(renderer: InlineCodeRenderer): () => void {
+  codeRenderers.add(renderer)
+  return () => codeRenderers.delete(renderer)
+}
+
+/** Inline code as a plugin draws it (`= expression` as its value, with Dataview), or as code. */
+function drawCode(code: string, sourcePath: string): Node {
+  for (const renderer of codeRenderers) {
+    try {
+      const drawn = renderer(code, sourcePath)
+      if (drawn) return drawn
+    } catch (err) {
+      console.error('Inline code renderer failed', err)
+    }
+  }
+  return element('code', '', code)
+}
+
+/** A mark after a link to a note, saying something of that note: its birthday is near, say. */
+export interface LinkBadge {
+  text: string
+  title?: string
+  /** `today` and `soon` stand out; anything else is quiet. */
+  tone?: string
+}
+
+/** Says what mark, if any, links to the note at a path get. */
+export type LinkBadgeProvider = (path: string) => LinkBadge | null
+
+const badgeProviders = new Set<LinkBadgeProvider>()
+
+/** Gives links to notes a mark after them; returns how to stop. */
+export function addLinkBadgeProvider(provider: LinkBadgeProvider): () => void {
+  badgeProviders.add(provider)
+  return () => badgeProviders.delete(provider)
+}
+
+/** The mark for links to the note at `path`, if a plugin gives one. */
+export function linkBadge(path: string): LinkBadge | null {
+  for (const provider of badgeProviders) {
+    try {
+      const badge = provider(path)
+      if (badge) return badge
+    } catch (err) {
+      console.error('Link badge failed', err)
+    }
+  }
+  return null
+}
+
+/** The element of a link's mark. */
+export function drawLinkBadge(badge: LinkBadge): HTMLElement {
+  const el = element('span', 'link-badge', badge.text)
+  if (badge.title) el.title = badge.title
+  if (badge.tone) el.dataset.tone = badge.tone
+  return el
+}
+
 function element<K extends keyof HTMLElementTagNameMap>(tag: K, className: string, text: string) {
   const el = document.createElement(tag)
   if (className) el.className = className
@@ -49,7 +113,7 @@ export function renderInline(app: App, text: string, sourcePath: string): Docume
     out.append(text.slice(last, m.index))
     last = m.index + m[0].length
     const [all, code, mark, bold, strike, italic, wiki, md, tag, url, br] = m
-    if (code) out.append(element('code', '', code.slice(1, -1)))
+    if (code) out.append(drawCode(code.slice(1, -1), sourcePath))
     else if (mark) out.append(element('mark', 'inline-mark', mark.slice(2, -2).trim()))
     else if (bold) out.append(element('strong', '', bold.slice(2, -2)))
     else if (strike) out.append(element('s', '', strike.slice(2, -2)))
@@ -57,6 +121,9 @@ export function renderInline(app: App, text: string, sourcePath: string): Docume
     else if (wiki) {
       const [target, alias] = wiki.replace(/^!?\[\[|\]\]$/g, '').split('|')
       out.append(link(alias ?? target, target, true))
+      const dest = app.metadata.resolve(target.split('#')[0], sourcePath)
+      const badge = dest ? linkBadge(dest) : null
+      if (badge) out.append(drawLinkBadge(badge))
     } else if (md) {
       const [, label, href] = /^\[([^\]]+)\]\(([^)]+)\)$/.exec(md)!
       out.append(link(label, href, false))

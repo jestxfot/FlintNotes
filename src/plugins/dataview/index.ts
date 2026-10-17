@@ -134,6 +134,35 @@ export default class Dataview extends Plugin {
     const plugin = this
     let version = 0
     let used = false
+    /** The value of an inline query (`= expression`, or `$= script`) of the note at `path`. */
+    const drawValue = (source: string, js: boolean, path: string) => {
+      const el = document.createElement('span')
+      el.className = 'dv-inline'
+      const scope = env(path)
+      const fail = (err: unknown) => {
+        el.classList.add('dv-inline-error')
+        el.textContent = `Dataview: ${errorMessage(err)}`
+      }
+      try {
+        if (!js) el.append(renderValue(scope, evaluate(parseExpression(source), scopeFor(scope, pages.get(path) ?? {}))))
+        else if (!plugin.getSetting<boolean>('js')) fail('скрипты выключены')
+        else runInlineScript(source, scope, el).then((value) => value !== undefined && el.append(renderValue(scope, value)), fail)
+      } catch (err) {
+        fail(err)
+      }
+      return el
+    }
+    /** Which kind of inline query a piece of inline code is, if any. */
+    const inlineQuery = (text: string): { source: string; js: boolean } | null => {
+      const prefix = this.getSetting<string>('inlinePrefix') || '='
+      if (text.startsWith('$=')) return { source: text.slice(2).trim(), js: true }
+      return text.startsWith(prefix) ? { source: text.slice(prefix.length).trim(), js: false } : null
+    }
+    // Outside the editor too: a task's text in the planner, the task manager, reminders, a table's cell.
+    this.registerInlineCode((code, path) => {
+      const query = inlineQuery(code)
+      return query ? drawValue(query.source, query.js, path) : null
+    })
     class InlineValue extends cm.view.WidgetType {
       constructor(
         readonly source: string,
@@ -147,21 +176,7 @@ export default class Dataview extends Plugin {
         return other.source === this.source && other.js === this.js && other.path === this.path && other.version === this.version
       }
       toDOM() {
-        const el = document.createElement('span')
-        el.className = 'dv-inline'
-        const scope = env(this.path)
-        const fail = (err: unknown) => {
-          el.classList.add('dv-inline-error')
-          el.textContent = `Dataview: ${errorMessage(err)}`
-        }
-        try {
-          if (!this.js) el.append(renderValue(scope, evaluate(parseExpression(this.source), scopeFor(scope, pages.get(this.path) ?? {}))))
-          else if (!plugin.getSetting<boolean>('js')) fail('скрипты выключены')
-          else runInlineScript(this.source, scope, el).then((value) => value !== undefined && el.append(renderValue(scope, value)), fail)
-        } catch (err) {
-          fail(err)
-        }
-        return el
+        return drawValue(this.source, this.js, this.path)
       }
     }
     const inline: PreviewRenderer = {
@@ -170,13 +185,11 @@ export default class Dataview extends Plugin {
       render: (node, ctx) => {
         const marks = node.node.getChildren('CodeMark')
         if (marks.length < 2) return
-        const text = ctx.text(marks[0].to, marks[marks.length - 1].from)
-        const prefix = this.getSetting<string>('inlinePrefix') || '='
-        const js = text.startsWith('$=')
-        if (!js && !text.startsWith(prefix)) return
+        const query = inlineQuery(ctx.text(marks[0].to, marks[marks.length - 1].from))
+        if (!query) return
         used = true
         if (ctx.isActive(node.from, node.to)) return
-        ctx.replace(node.from, node.to, new InlineValue(text.slice(js ? 2 : prefix.length).trim(), js, ctx.path, version))
+        ctx.replace(node.from, node.to, new InlineValue(query.source, query.js, ctx.path, version))
       },
     }
     this.registerPreviewRenderer(inline)

@@ -1,6 +1,6 @@
 import { Plugin } from '../../api'
 import { propertiesForm, type SmartDates } from './form'
-import type { DateSense } from './smart-dates'
+import { yearlyBadge, type DateSense } from './smart-dates'
 import './style.css'
 
 export default class Properties extends Plugin {
@@ -10,6 +10,13 @@ export default class Properties extends Plugin {
         key: 'smartDates',
         name: 'Подсказки у дат',
         desc: 'Рядом со свойством-датой: сколько осталось или прошло; у дня рождения и годовщины — сколько лет и через сколько дней следующая; у срока — сколько осталось или на сколько просрочен. Что значит дата, угадывается по имени свойства или выбирается в его меню («Подсказка у даты»). Заметка при этом не меняется',
+        type: 'toggle',
+        default: true,
+      },
+      {
+        key: 'birthdayLinks',
+        name: 'Дни рождения у ссылок',
+        desc: 'Ссылка на заметку с днём рождения (или другой ежегодной датой) получает 🎂: за две недели — со счётом дней, в сам день — «сегодня» и сколько исполнилось. Наведите на 🎂, чтобы увидеть дату и возраст',
         type: 'toggle',
         default: true,
       },
@@ -27,7 +34,12 @@ export default class Properties extends Plugin {
       },
       watch: (redraw) => (redraws.add(redraw), () => redraws.delete(redraw)),
     }
-    this.onSettingChange((key) => (key === 'dateSenses' || key === 'smartDates') && redraws.forEach((redraw) => redraw()))
+    this.onSettingChange((key) => {
+      if (key === 'dateSenses' || key === 'smartDates') redraws.forEach((redraw) => redraw())
+      if (key === 'dateSenses' || key === 'birthdayLinks') this.app.livePreview.refresh()
+    })
+    // Links to people (to any note with a date that comes back every year) say when it comes.
+    this.registerLinkBadge((path) => (this.getSetting<boolean>('birthdayLinks') === false ? null : yearlyBadge(this.app.metadata.get(path)?.frontmatter, smart.chosen)))
     this.registerBlockRenderer('Frontmatter', (source, root, ctx) => propertiesForm(source, root, ctx, smart))
 
     this.addCommand({
