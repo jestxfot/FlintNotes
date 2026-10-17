@@ -5,7 +5,7 @@ import type { App } from './app'
 import type { Command } from './commands'
 import type { CodeBlockProcessor, PreviewRenderer } from './editor/live-preview'
 import type { EmbedRenderer } from './embeds'
-import { addInlineCodeRenderer, addLinkBadgeProvider, type InlineCodeRenderer, type LinkBadgeProvider } from './inline'
+import { addInlineCodeRenderer, addLinkBadgeProvider, addWordMark, type InlineCodeRenderer, type LinkBadgeProvider, type WordMark } from './inline'
 import type { Off } from './events'
 import type { MenuItem } from './menu'
 import type { ToolbarButton, ToolbarPlace } from './toolbars'
@@ -141,6 +141,11 @@ export abstract class Plugin {
    */
   registerInlineCode(renderer: InlineCodeRenderer): void {
     this.register(addInlineCodeRenderer(renderer))
+  }
+
+  /** Sets apart words in text drawn outside the editor (tasks, cards, table cells); the editor's own text is the plugin's to mark. */
+  registerWordMark(mark: WordMark): void {
+    this.register(addWordMark(mark))
   }
 
   /** Puts a mark after links to some notes, in the editor and wherever else links are drawn. */

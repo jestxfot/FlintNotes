@@ -29,6 +29,41 @@ function drawCode(code: string, sourcePath: string): Node {
   return element('code', '', code)
 }
 
+/** Words to set apart wherever text is drawn: the abbreviation of a birthday, say. */
+export interface WordMark {
+  /** Must have the `g` flag; a match is wrapped in a span of the class. */
+  pattern: RegExp
+  className: string
+  title?: string
+}
+
+const wordMarks = new Set<WordMark>()
+
+/** Sets apart the words that match, in text drawn by `renderInline`; returns how to stop. */
+export function addWordMark(mark: WordMark): () => void {
+  wordMarks.add(mark)
+  return () => wordMarks.delete(mark)
+}
+
+/** Plain text, with the words that plugins set apart wrapped in spans of their own. */
+function plain(out: DocumentFragment, text: string): void {
+  if (!text) return
+  const marks = [...wordMarks]
+  if (!marks.length) return void out.append(text)
+  const found = marks.flatMap((mark) => [...text.matchAll(mark.pattern)].map((m) => ({ from: m.index, to: m.index + m[0].length, mark })))
+  found.sort((a, b) => a.from - b.from)
+  let at = 0
+  for (const one of found) {
+    if (one.from < at) continue
+    out.append(text.slice(at, one.from))
+    const span = element('span', one.mark.className, text.slice(one.from, one.to))
+    if (one.mark.title) span.title = one.mark.title
+    out.append(span)
+    at = one.to
+  }
+  out.append(text.slice(at))
+}
+
 /** A mark after a link to a note, saying something of that note: its birthday is near, say. */
 export interface LinkBadge {
   text: string
@@ -110,7 +145,7 @@ export function renderInline(app: App, text: string, sourcePath: string): Docume
 
   let last = 0
   for (const m of text.matchAll(INLINE)) {
-    out.append(text.slice(last, m.index))
+    plain(out, text.slice(last, m.index))
     last = m.index + m[0].length
     const [all, code, mark, bold, strike, italic, wiki, md, tag, url, br] = m
     if (code) out.append(drawCode(code.slice(1, -1), sourcePath))
@@ -138,6 +173,6 @@ export function renderInline(app: App, text: string, sourcePath: string): Docume
     else if (br) out.append(document.createElement('br'))
     else out.append(all)
   }
-  out.append(text.slice(last))
+  plain(out, text.slice(last))
   return out
 }

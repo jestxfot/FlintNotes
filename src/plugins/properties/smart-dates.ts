@@ -70,6 +70,10 @@ export interface DateHint {
 /** What is worth saying about a date property's value today; nothing for what is not a date. */
 export function dateHint(value: unknown, sense: Exclude<DateSense, 'auto'>, now: Moment = moment()): DateHint | null {
   if (sense === 'none' || typeof value !== 'string') return null
+  if (sense === 'yearly') {
+    const round = yearlyRound(value, now)
+    if (round) return round.hint
+  }
   const match = DATE.exec(value.trim())
   if (!match) return null
   const date = moment(match[1], 'YYYY-MM-DD')
@@ -79,17 +83,6 @@ export function dateHint(value: unknown, sense: Exclude<DateSense, 'auto'>, now:
   const days = date.diff(today, 'days')
   const exact = days === 0 ? 'сегодня' : days > 0 ? `через ${count(days, DAYS)}` : `${count(-days, DAYS)} назад`
   const title = `${date.format('dddd, D MMMM YYYY')} — ${exact}`
-
-  if (sense === 'yearly' && days < 0) {
-    const { age, turning, next, left } = comingRound(date, today)
-    if (left === 0) return { text: `сегодня ${count(turning, YEARS)}`, tone: 'today', title: `${title}; сегодня ровно ${count(turning, YEARS)}` }
-    const when = left === 1 ? 'завтра' : left === 2 ? 'послезавтра' : `через ${count(left, DAYS)}`
-    return {
-      text: `${count(age, YEARS)} · ${when} исполнится ${count(turning, YEARS)}`,
-      tone: left <= 7 ? 'soon' : undefined,
-      title: `${title}; следующая ${next.format('D MMMM YYYY, dddd')}: ${count(turning, YEARS)}`,
-    }
-  }
 
   // A time of day matters only for today and the days next to it.
   const at = match[2] ? moment(`${match[1]} ${match[2].slice(0, 5)}`, 'YYYY-MM-DD HH:mm') : null
@@ -105,17 +98,73 @@ export function dateHint(value: unknown, sense: Exclude<DateSense, 'auto'>, now:
   return { text: soonTime ?? relative(date, today), tone: days === 0 ? 'today' : undefined, title }
 }
 
+const MONTH_NAMES = ['январ', 'феврал', 'март', 'апрел', 'ма', 'июн', 'июл', 'август', 'сентябр', 'октябр', 'ноябр', 'декабр']
+
+/** A date that comes back every year, as written: month and day, and the year if it is known. */
+interface YearlyDate {
+  month: number
+  day: number
+  /** The year of birth (or of the first time); `undefined` when only the day is written, or a placeholder year stands in. */
+  year?: number
+}
+
 /**
- * A date that comes back every year, seen from `today`: how many years have passed, when it comes
- * round next (this year's, or next year's if this year's has passed; 29 February falls on the 28th),
- * how many years it will be then, and in how many days.
+ * Reads a date that comes back every year: `1990-10-11`, `11 октября`, `10-11` or `--10-11`. A year before 1900
+ * (`1000-10-11` is how an unknown year is often written, to keep the date a date) is no year.
  */
-function comingRound(date: Moment, today: Moment): { age: number; turning: number; next: Moment; left: number } {
-  const age = today.diff(date, 'years')
-  let turning = age
-  let next = date.clone().add(turning, 'years')
-  if (next.isBefore(today)) next = date.clone().add(++turning, 'years')
-  return { age, turning, next, left: next.diff(today, 'days') }
+function yearlyDate(value: string): YearlyDate | null {
+  const text = value.trim()
+  const iso = /^(\d{4})-(\d{2})-(\d{2})(?:[T ].*)?$/.exec(text)
+  if (iso) {
+    const [year, month, day] = [Number(iso[1]), Number(iso[2]), Number(iso[3])]
+    return month >= 1 && month <= 12 && day >= 1 && day <= 31 ? { month, day, year: year >= 1900 ? year : undefined } : null
+  }
+  const short = /^-{0,2}(\d{1,2})-(\d{1,2})$/.exec(text)
+  if (short) return Number(short[1]) >= 1 && Number(short[1]) <= 12 && Number(short[2]) >= 1 && Number(short[2]) <= 31 ? { month: Number(short[1]), day: Number(short[2]) } : null
+  const words = /^(\d{1,2})\s+([а-яё]+)\.?(?:\s+(\d{4}))?$/i.exec(text)
+  if (words) {
+    const month = MONTH_NAMES.findIndex((name) => words[2].toLowerCase().startsWith(name)) + 1
+    const year = words[3] ? Number(words[3]) : undefined
+    return month && Number(words[1]) >= 1 && Number(words[1]) <= 31 ? { month, day: Number(words[1]), year: year && year >= 1900 ? year : undefined } : null
+  }
+  return null
+}
+
+/** Where a date that comes back every year stands today: when it comes next, and how old it makes whoever it is of. */
+function yearlyRound(value: string, now: Moment): { hint: DateHint; badge: { text: string; title: string; tone?: string } } | null {
+  const parts = yearlyDate(value)
+  if (!parts) return null
+  const today = now.clone().startOf('day')
+  // 29 February falls on the 28th in the years that have none.
+  const on = (year: number) => {
+    const first = moment(`${year}-${String(parts.month).padStart(2, '0')}-01`, 'YYYY-MM-DD')
+    const day = first.clone().add(parts.day - 1, 'days')
+    return day.month() === first.month() ? day : first.clone().endOf('month').startOf('day')
+  }
+  let next = on(today.year())
+  if (next.isBefore(today)) next = on(today.year() + 1)
+  const left = next.diff(today, 'days')
+  const turning = parts.year === undefined ? undefined : next.year() - parts.year
+  // A date still to come (a birth date in the future) has no age yet.
+  if (turning !== undefined && turning < 0) return null
+  const age = turning === undefined ? undefined : left === 0 ? turning : turning - 1
+  const when = left === 0 ? 'сегодня' : left === 1 ? 'завтра' : left === 2 ? 'послезавтра' : `через ${count(left, DAYS)}`
+  const day = next.format('D MMMM, dddd')
+  const tone = left === 0 ? 'today' : left <= 7 ? 'soon' : undefined
+  const badgeTone = left === 0 ? 'today' : left <= 14 ? 'soon' : undefined
+  const knownAge = parts.year === undefined ? '' : `${count(age!, YEARS)}; `
+  const hint: DateHint = {
+    text: turning === undefined ? when : left === 0 ? `сегодня ${count(turning, YEARS)}` : `${count(age!, YEARS)} · ${when} исполнится ${count(turning, YEARS)}`,
+    tone,
+    title: `${knownAge}${left === 0 ? 'сегодня' : `${day} — ${when}`}${turning === undefined ? '' : left === 0 ? ` исполнилось ${count(turning, YEARS)}` : `, исполнится ${count(turning, YEARS)}`}`,
+  }
+  // Always with the days left: a birthday that is far off is quiet, one within two weeks stands out.
+  const badge = {
+    text: left === 0 ? `🎂 сегодня${turning === undefined ? '' : ` ${count(turning, YEARS)}`}` : `🎂 ${when}`,
+    title: hint.title,
+    tone: badgeTone,
+  }
+  return { hint, badge }
 }
 
 /**
@@ -125,16 +174,8 @@ function comingRound(date: Moment, today: Moment): { age: number; turning: numbe
 export function yearlyBadge(frontmatter: Record<string, unknown> | null | undefined, chosen: (key: string) => DateSense | undefined, now: Moment = moment()): { text: string; title: string; tone?: string } | null {
   for (const [key, value] of Object.entries(frontmatter ?? {})) {
     if (typeof value !== 'string' || senseOf(key, chosen(key)) !== 'yearly') continue
-    const match = DATE.exec(value.trim())
-    const date = match ? moment(match[1], 'YYYY-MM-DD') : null
-    if (!match || !date?.isValid() || date.format('YYYY-MM-DD') !== match[1]) continue
-    const today = now.clone().startOf('day')
-    if (!date.isBefore(today)) continue
-    const { age, turning, next, left } = comingRound(date, today)
-    const title = `${key}: ${date.format('D MMMM YYYY')} — ${count(age, YEARS)}; ${left === 0 ? `сегодня ${count(turning, YEARS)}` : `${next.format('D MMMM, dddd')}, через ${count(left, DAYS)}, исполнится ${count(turning, YEARS)}`}`
-    if (left === 0) return { text: `🎂 сегодня ${count(turning, YEARS)}`, title, tone: 'today' }
-    if (left <= 14) return { text: `🎂 ${left === 1 ? 'завтра' : left === 2 ? 'послезавтра' : `через ${count(left, DAYS)}`}`, title, tone: 'soon' }
-    return { text: '🎂', title }
+    const round = yearlyRound(value, now)
+    if (round) return { ...round.badge, title: `${key}: ${round.badge.title}` }
   }
   return null
 }

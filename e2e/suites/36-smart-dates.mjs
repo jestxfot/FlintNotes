@@ -15,6 +15,10 @@ export const vault = {
     'Варюша.md': `---\nдень рождения: ${yearsAgo(17, 3)}\nсрок: ${day(-2)}\nвстреча: ${day(20)}\nзаметка: просто текст\n---\n\nВарюше \`= (date(today) - this["день рождения"]).years\` лет.\n\n- [ ] Поздравить [[Варюша]], \`= (date(today) - date(${yearsAgo(17, 3)})).years\` лет 📅 ${day(3)}\n\nend\n`,
     'Друзья.md': 'Позвать [[Варюша]] и [[Никто]].\n\n\`\`\`tasks\nnot done\n\`\`\`\n\nend\n',
     'Никто.md': '---\nсоздано: 2020-01-01\n---\n',
+    // A year that is not known is written as a placeholder, or not at all.
+    'Без года.md': `---\nдень рождения: 1000-${day(40).slice(5)}\n---\n`,
+    'Только день.md': `---\nbirthday: ${Number(day(200).slice(8))} ${['января', 'февраля', 'марта', 'апреля', 'мая', 'июня', 'июля', 'августа', 'сентября', 'октября', 'ноября', 'декабря'][Number(day(200).slice(5, 7)) - 1]}\n---\n`,
+    'Слова.md': 'ДР Айтац и день рождения Миши, а также и др. слова.\n\nПозвать [[Без года]] и [[Только день]].\n\nend\n',
   },
 }
 
@@ -80,4 +84,27 @@ export async function run(t) {
   const listed = await t.flat(page.locator(`${t.leaf} .cm-content`))
   ok('a task listed by a query shows its inline value, not the code', /Поздравить Варюша.*, 16 лет/.test(listed) && !listed.includes('= (date(today)'), listed)
   ok('and the mention in it carries the cake too', (await badges.count()) === 2, await badges.allInnerTexts())
+  // The planner and the reminders draw task text outside the editor: the words stand out there too.
+
+  // The days left are always written, however far the birthday is; a quiet cake then, a bright one when it is near.
+  await t.open('Слова')
+  await t.cursorToEnd()
+  await wait(1000)
+  const words = page.locator(`${t.leaf} .cm-content .word-birthday`)
+  ok('the words «ДР» and «день рождения» stand out, while «др.» does not', (await words.allInnerTexts()).join('|') === 'ДР|день рождения', await words.allInnerTexts())
+  const many = page.locator(`${t.leaf} .cm-content .link-badge`)
+  const texts = await many.allInnerTexts()
+  ok('a birthday of an unknown year says the days left and no age', texts[0] === '🎂 через 40 дней' && !/лет/.test(texts[0]), texts.join('|'))
+  ok('so does one written as «11 октября»', texts[1] === '🎂 через 200 дней', texts.join('|'))
+  ok('a far birthday is quiet, with no tone', (await many.first().getAttribute('data-tone')) === null)
+  await t.open('Друзья')
+  await t.cursorToEnd()
+  await wait(1000)
+  const drawn = await page.evaluate(() => {
+    const box = document.createElement('div')
+    box.append(flint.renderInline(app, 'ДР Айтац, [[Варюша]] ДР и т. др.', ''))
+    return { marked: [...box.querySelectorAll('.word-birthday')].map((e) => e.textContent), badges: [...box.querySelectorAll('.link-badge')].map((e) => e.textContent) }
+  })
+  ok('outside the editor (the planner, reminders) the word stands out and the link has its cake', drawn.marked.join('|') === 'ДР|ДР' && drawn.badges.length === 1 && /через 3 дня/.test(drawn.badges[0]), JSON.stringify(drawn))
+  ok('and for Варюша it is the days left too', (await badges.first().innerText()).includes('через 3 дня'))
 }
