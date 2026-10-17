@@ -1,10 +1,34 @@
 import { Plugin } from '../../api'
-import { propertiesForm } from './form'
+import { propertiesForm, type SmartDates } from './form'
+import type { DateSense } from './smart-dates'
 import './style.css'
 
 export default class Properties extends Plugin {
   onload() {
-    this.registerBlockRenderer('Frontmatter', propertiesForm)
+    this.addSettings([
+      {
+        key: 'smartDates',
+        name: 'Подсказки у дат',
+        desc: 'Рядом со свойством-датой: сколько осталось или прошло; у дня рождения и годовщины — сколько лет и через сколько дней следующая; у срока — сколько осталось или на сколько просрочен. Что значит дата, угадывается по имени свойства или выбирается в его меню («Подсказка у даты»). Заметка при этом не меняется',
+        type: 'toggle',
+        default: true,
+      },
+    ])
+    // What each date property means, by its name, for the whole vault: as Obsidian keeps the types of properties.
+    const redraws = new Set<() => void>()
+    const smart: SmartDates = {
+      enabled: () => this.getSetting<boolean>('smartDates') !== false,
+      chosen: (key) => this.getSetting<Record<string, DateSense> | undefined>('dateSenses')?.[key],
+      choose: (key, sense) => {
+        const senses = { ...this.getSetting<Record<string, DateSense> | undefined>('dateSenses') }
+        if (sense === 'auto') delete senses[key]
+        else senses[key] = sense
+        this.setSetting('dateSenses', senses)
+      },
+      watch: (redraw) => (redraws.add(redraw), () => redraws.delete(redraw)),
+    }
+    this.onSettingChange((key) => (key === 'dateSenses' || key === 'smartDates') && redraws.forEach((redraw) => redraw()))
+    this.registerBlockRenderer('Frontmatter', (source, root, ctx) => propertiesForm(source, root, ctx, smart))
 
     this.addCommand({
       id: 'add',

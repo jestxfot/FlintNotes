@@ -233,3 +233,32 @@
   flex: none;
   color: inherit;
 }
+
+/* A date's field is as wide as the date; what the date means today follows it. */
+.props input[type='date'].props-value,
+.props input[type='datetime-local'].props-value {
+  flex: none;
+}
+
+.props-hint {
+  flex: 1;
+  min-width: 0;
+  overflow: hidden;
+  color: var(--text-muted);
+  font-size: 0.86em;
+  white-space: nowrap;
+  text-overflow: ellipsis;
+}
+
+.props-hint[data-tone='soon'] {
+  color: var(--accent);
+}
+
+.props-hint[data-tone='today'] {
+  color: var(--accent);
+  font-weight: 600;
+}
+
+.props-hint[data-tone='late'] {
+  color: var(--danger, #d1453b);
+}

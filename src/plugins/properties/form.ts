@@ -1,5 +1,6 @@
 import { isMap, isScalar, parseDocument, type Document } from 'yaml'
 import { renderInline, setYamlValue, type CodeBlockContext, type CodeBlockInstance } from '../../api'
+import { dateHint, senseOf, SENSES, type DateSense } from './smart-dates'
 
 type Kind = 'text' | 'number' | 'checkbox' | 'date' | 'datetime' | 'list'
 
@@ -46,11 +47,21 @@ const el = <K extends keyof HTMLElementTagNameMap>(tag: K, className = '', text 
   return node
 }
 
+/** What the form needs to know of the meaning of date properties, which is kept per name for the whole vault. */
+export interface SmartDates {
+  /** Whether dates get their hints at all. */
+  enabled(): boolean
+  chosen(key: string): DateSense | undefined
+  choose(key: string, sense: DateSense): void
+  /** Called with a function that draws the form again, when a meaning is chosen anywhere; returns how to stop. */
+  watch(redraw: () => void): () => void
+}
+
 /**
  * Draws a note's frontmatter as a form. The YAML stays the data: each change
  * is applied to it (keeping comments and the order of keys) and written back.
  */
-export function propertiesForm(source: string, root: HTMLElement, ctx: CodeBlockContext): CodeBlockInstance {
+export function propertiesForm(source: string, root: HTMLElement, ctx: CodeBlockContext, smart?: SmartDates): CodeBlockInstance {
   root.classList.add('props')
   let written = source
   // Icons may change at any moment (other notes are being read, a rule now fits). The form is not
@@ -106,9 +117,15 @@ export function propertiesForm(source: string, root: HTMLElement, ctx: CodeBlock
         save()
       }
       const copy = () => navigator.clipboard.writeText(`${key}: ${typeof value === 'string' ? value : JSON.stringify(value)}`).catch(() => {})
+      const dated = smart && (kind === 'date' || kind === 'datetime')
+      const sense = dated ? (smart.chosen(key) ?? 'auto') : 'auto'
       const menu = (event: MouseEvent) =>
         ctx.app.menus.show(event, 'property', key, [
           { section: 'new', icon: 'info', title: 'Тип свойства', submenu: KINDS.map(({ kind: k, label }) => ({ icon: k === kind ? 'check' : KIND_ICONS[k], title: label, onClick: () => setType(k) })) },
+          // What the hint beside a date says: chosen for the name, so for this property in every note.
+          ...(dated
+            ? [{ section: 'new', icon: 'sparkles', title: 'Подсказка у даты', submenu: SENSES.map((one) => ({ icon: one.sense === sense ? 'check' : 'dot', title: one.sense === 'auto' ? `${one.label} (${SENSES.find((s) => s.sense === senseOf(key, undefined))!.label.split(':')[0].toLowerCase()})` : one.label, onClick: () => smart.choose(key, one.sense) })) }]
+            : []),
           {
             section: 'copy',
             icon: 'scissors',
@@ -170,6 +187,10 @@ export function propertiesForm(source: string, root: HTMLElement, ctx: CodeBlock
       // Tags written as one text (`tags: "#food, soup"`) are still tags: they are shown and edited as a list.
       if (key === 'tags' && typeof value === 'string') row.append(listEditor(key, value.split(/[\s,]+/).filter(Boolean), (next) => (setYamlValue(doc, key, next), save())))
       else row.append(editor(key, value, kind))
+      if (dated && smart.enabled()) {
+        const hint = dateHint(value, senseOf(key, smart.chosen(key)))
+        if (hint) row.append(hintElement(hint, value as string, senseOf(key, smart.chosen(key))))
+      }
 
       // The type and deleting are in the row's menu (a right click, or a click on the icon's menu): the row itself stays clean.
       return row
@@ -335,12 +356,44 @@ export function propertiesForm(source: string, root: HTMLElement, ctx: CodeBlock
   // Keys typed in the form belong to the form, not to the note's editor around it.
   root.addEventListener('keydown', (event) => event.stopPropagation())
   render()
+  const offSmart = smart?.watch(() => (typing() ? (stale = true) : render()))
   return {
     update(next) {
       if (next === written) return
       written = next
       render()
     },
-    destroy: offIcons,
+    destroy: () => {
+      offIcons()
+      offSmart?.()
+    },
   }
+}
+
+/** The hint beside a date: it says the same thing tomorrow in other words, so it is worked out again as the day goes on. */
+function hintElement(hint: NonNullable<ReturnType<typeof dateHint>>, value: string, sense: Exclude<DateSense, 'auto'>): HTMLElement {
+  const box = el('span', 'props-hint', hint.text)
+  if (hint.tone) box.dataset.tone = hint.tone
+  box.title = hint.title
+  box.dataset.value = value
+  box.dataset.sense = sense
+  watchHints()
+  return box
+}
+
+let hintTimer: ReturnType<typeof setInterval> | undefined
+/** Once a minute every hint on the page is said anew: past midnight "завтра" becomes "сегодня". */
+function watchHints(): void {
+  hintTimer ??= setInterval(() => {
+    const hints = document.querySelectorAll<HTMLElement>('.props-hint')
+    if (!hints.length) return void (clearInterval(hintTimer), (hintTimer = undefined))
+    for (const box of hints) {
+      const hint = dateHint(box.dataset.value, box.dataset.sense as Exclude<DateSense, 'auto'>)
+      if (!hint) continue
+      if (box.textContent !== hint.text) box.textContent = hint.text
+      box.title = hint.title
+      if (hint.tone) box.dataset.tone = hint.tone
+      else delete box.dataset.tone
+    }
+  }, 60_000)
 }
