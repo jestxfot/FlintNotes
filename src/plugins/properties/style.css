@@ -214,7 +214,8 @@
   text-align: left;
 }
 
-.props-suggest-row:hover {
+.props-suggest-row:hover,
+.props-suggest-row.is-active {
   background: var(--bg-hover);
 }
 

@@ -181,8 +181,14 @@ export function propertiesForm(source: string, root: HTMLElement, ctx: CodeBlock
         // Renaming in place keeps the property where it is in the list.
         const pair = isMap(doc.contents) ? doc.contents.items.find((item) => isScalar(item.key) && item.key.value === key) : null
         if (pair && isScalar(pair.key)) pair.key.value = next
+        // A property with no value yet takes the kind of value this name has elsewhere in the vault (a flag, a number, a list).
+        const known = vaultProperties().get(next)
+        if ((value === '' || value === null || value === undefined) && known && known.kind !== 'text') setYamlValue(doc, next, convert(value, known.kind))
         save()
+        // The value is what is filled in next.
+        root.querySelector<HTMLElement>(`.props-row[data-key="${CSS.escape(next)}"] .props-value, .props-row[data-key="${CSS.escape(next)}"] .props-list input`)?.focus()
       }
+      suggestNames(name)
 
       // Tags written as one text (`tags: "#food, soup"`) are still tags: they are shown and edited as a list.
       if (key === 'tags' && typeof value === 'string') row.append(listEditor(key, value.split(/[\s,]+/).filter(Boolean), (next) => (setYamlValue(doc, key, next), save())))
@@ -203,9 +209,97 @@ export function propertiesForm(source: string, root: HTMLElement, ctx: CodeBlock
       doc.set(name, '')
       save()
       const inputs = root.querySelectorAll<HTMLInputElement>('.props-name')
+      // Focused, so that the names to choose from are offered at once.
+      inputs[inputs.length - 1]?.focus()
       inputs[inputs.length - 1]?.select()
     }
     root.replaceChildren(el('div', 'props-heading', 'Свойства'), ...rows, add)
+  }
+
+  /** Every property name in the vault: how many notes have it, and the kind of value it usually has. */
+  const vaultProperties = () => {
+    const found = new Map<string, { count: number; kinds: Map<Kind, number> }>()
+    for (const note of ctx.app.metadata.notes()) {
+      const frontmatter = ctx.app.metadata.get(note)?.frontmatter
+      if (!frontmatter) continue
+      for (const [name, value] of Object.entries(frontmatter)) {
+        const entry = found.get(name) ?? found.set(name, { count: 0, kinds: new Map() }).get(name)!
+        entry.count++
+        // An empty value says nothing of the kind.
+        if (value !== null && value !== '') entry.kinds.set(kindOf(value), (entry.kinds.get(kindOf(value)) ?? 0) + 1)
+      }
+    }
+    return new Map([...found].map(([name, { count, kinds }]) => [name, { count, kind: ([...kinds].sort((a, b) => b[1] - a[1])[0]?.[0] ?? 'text') as Kind }]))
+  }
+
+  /**
+   * Offers, under a property's name, the names properties have in the vault (with the icon of their
+   * kind, the commonest first), so a property is named by choosing: the name, and with it the kind
+   * of value it takes elsewhere. Opens when the name is clicked into, and narrows as it is typed.
+   */
+  const suggestNames = (input: HTMLInputElement) => {
+    let popup: HTMLElement | null = null
+    let shown: string[] = []
+    let at = -1
+    let typed = false
+    const close = () => {
+      popup?.remove()
+      popup = null
+      at = -1
+    }
+    const light = () => popup?.querySelectorAll('.props-suggest-row').forEach((row, i) => row.classList.toggle('is-active', i === at))
+    const pick = (name: string) => {
+      close()
+      input.value = name
+      input.dispatchEvent(new Event('change'))
+    }
+    const open = () => {
+      // This note's own names are not offered, this property's own included: it has it already.
+      const have = new Set(Object.keys((doc.toJS() as Record<string, unknown>) ?? {}))
+      const wanted = typed ? input.value.trim().toLowerCase() : ''
+      const names = [...vaultProperties()]
+        .filter(([name]) => !have.has(name) && (!wanted || name.toLowerCase().includes(wanted)))
+        .sort((a, b) => b[1].count - a[1].count || a[0].localeCompare(b[0]))
+        .slice(0, 60)
+      close()
+      shown = names.map(([name]) => name)
+      if (!names.length) return
+      popup = document.body.appendChild(el('div', 'props-suggest'))
+      const box = input.getBoundingClientRect()
+      popup.style.left = `${box.left}px`
+      popup.style.top = `${box.bottom + 4}px`
+      popup.style.minWidth = `${Math.max(260, box.width)}px`
+      popup.style.maxHeight = `${Math.max(120, window.innerHeight - box.bottom - 16)}px`
+      for (const [name, { kind }] of names) {
+        const row = popup.appendChild(el('button', 'props-suggest-row'))
+        const look = ctx.app.icons.look('property', name)
+        const label = el('span', 'props-suggest-name', name)
+        label.prepend(Object.assign(ctx.app.icons.draw(look?.icon ?? (name === 'tags' ? 'tags' : name === 'aliases' ? 'forward' : KIND_ICONS[kind]), look?.color), { className: 'icon props-suggest-icon' }))
+        row.append(label)
+        // The field keeps the focus: the choice is made on the press, before the field would lose it.
+        row.onmousedown = (event) => {
+          event.preventDefault()
+          pick(name)
+        }
+      }
+    }
+    input.addEventListener('focus', () => ((typed = false), open()))
+    input.addEventListener('click', () => !popup && ((typed = false), open()))
+    input.addEventListener('input', () => ((typed = true), open()))
+    input.addEventListener('blur', close)
+    input.addEventListener('keydown', (event) => {
+      if (event.key === 'Escape') return close()
+      if (!popup || !shown.length) return
+      if (event.key === 'ArrowDown' || event.key === 'ArrowUp') {
+        event.preventDefault()
+        at = (at + (event.key === 'ArrowDown' ? 1 : -1) + shown.length) % shown.length
+        light()
+        popup.querySelectorAll('.props-suggest-row')[at]?.scrollIntoView({ block: 'nearest' })
+      } else if (event.key === 'Enter' && at >= 0) {
+        event.preventDefault()
+        pick(shown[at])
+      }
+    })
   }
 
   /**
