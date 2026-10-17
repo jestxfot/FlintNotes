@@ -23,6 +23,17 @@ export default class Minimap extends Plugin {
 
     /** The maps that are open, to draw them again when a setting changes. */
     const maps = new Set<{ later(wait: number): void }>()
+    /**
+     * What the editor's own element carries while its map is shown: the class that keeps the text clear
+     * of the map, and the map's width. The editor rewrites its classes and style whenever it gains or loses
+     * focus, so they are given through it (its attributes) rather than set on the element once: set once,
+     * they were gone after the first click, and the note ran under the map, where it could not be clicked.
+     */
+    const shown = new WeakMap<object, number>()
+    const attributes = cm.view.EditorView.editorAttributes.of((view) => {
+      const width = shown.get(view)
+      return width ? { class: 'has-note-map', style: `--map-width: ${width}px` } : null
+    })
     const map = cm.view.ViewPlugin.fromClass(
       class {
         private el = document.createElement('div')
@@ -58,6 +69,7 @@ export default class Minimap extends Plugin {
           cancelAnimationFrame(this.scrolling)
           this.resized.disconnect()
           this.view.scrollDOM.removeEventListener('scroll', this.onScroll)
+          shown.delete(this.view)
           this.view.dom.classList.remove('has-note-map')
           this.el.remove()
         }
@@ -74,9 +86,12 @@ export default class Minimap extends Plugin {
           const { doc } = view.state
           const show = doc.lines >= (get<number>('minLines') ?? 60)
           this.el.hidden = !show
+          const width = Math.max(40, get<number>('width') ?? 90)
+          if (show) shown.set(view, width)
+          else shown.delete(view)
+          // At once on the element, and kept there by the editor from its next update on.
           view.dom.classList.toggle('has-note-map', show)
           if (!show) return
-          const width = Math.max(40, get<number>('width') ?? 90)
           view.dom.style.setProperty('--map-width', `${width}px`)
           const height = this.el.clientHeight
           if (!height) return
@@ -171,7 +186,7 @@ export default class Minimap extends Plugin {
         }
       },
     )
-    this.registerEditorExtension(map)
+    this.registerEditorExtension([map, attributes])
     // The settings are read when the picture is drawn; a change of them draws every map again.
     this.onSettingChange(() => maps.forEach((one) => one.later(0)))
     this.addCommand({ id: 'toggle', name: 'Показать или скрыть карту заметки', icon: 'map', scope: 'note', callback: () => this.setSetting('minLines', (get<number>('minLines') ?? 60) >= 100000 ? 60 : 100000) })
