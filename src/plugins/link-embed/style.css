@@ -155,3 +155,17 @@
   border-radius: var(--radius-m);
   background: var(--bg-alt);
 }
+
+/* A Telegram channel's or person's picture: a round portrait, not a cover. */
+.embed-card-image.is-avatar {
+  width: auto;
+  padding: 16px 18px;
+  border-left: none;
+  background: none;
+}
+
+.embed-card-image.is-avatar img {
+  width: 84px;
+  height: 84px;
+  border-radius: 50%;
+}

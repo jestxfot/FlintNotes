@@ -205,6 +205,16 @@ export class Vault extends Events<VaultEvents> {
     return this.answer(await request('/api/port'))
   }
 
+  /** How the server reaches the web (`system`, `off` or a proxy's address), and the proxy this computer has, if any. */
+  async proxy(): Promise<{ proxy: string; computer: string | null }> {
+    return this.answer(await request('/api/proxy'))
+  }
+
+  /** Chooses how the server reaches the web; it is remembered for the next starts too. */
+  async setProxy(proxy: string): Promise<{ proxy: string }> {
+    return this.answer(await request('/api/proxy', json({ proxy })))
+  }
+
   /** Stops the server, and with it the launcher that would start it again. */
   async quit(): Promise<void> {
     await this.answer(await request('/api/quit', { method: 'POST' }))

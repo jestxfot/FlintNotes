@@ -6,10 +6,13 @@
  * Windows, or in HTTPS_PROXY / HTTP_PROXY), the server would not get through
  * where the browser does: a link card would say the page did not answer while
  * the page opens fine in the browser. So the proxy is looked up and used here.
+ * A proxy can also be given in the settings (an HTTP or a SOCKS one), or none
+ * used at all.
  */
 import { execFile } from 'node:child_process'
 import http from 'node:http'
 import https from 'node:https'
+import net from 'node:net'
 import tls from 'node:tls'
 
 export interface WebPage {
@@ -27,18 +30,42 @@ const BROWSER_HEADERS = {
 
 let proxyCache: { proxy: URL | null; at: number } | null = null
 
-/** The proxy of this computer, if there is one: from the environment, or Windows' own settings. Looked up once a minute. */
-async function systemProxy(): Promise<URL | null> {
-  if (proxyCache && Date.now() - proxyCache.at < 60_000) return proxyCache.proxy
-  const parse = (value: string | undefined) => {
-    if (!value) return null
-    try {
-      return new URL(/^[a-z]+:\/\//i.test(value) ? value : `http://${value}`)
-    } catch {
-      return null
-    }
+/**
+ * The way to the web chosen in the settings: `system` (the computer's proxy, if it has one),
+ * `off` (straight, whatever the computer says), or the address of a proxy (`http://host:port`,
+ * `socks5://host:port`, with a name and password if it needs them).
+ */
+let proxyChoice = 'system'
+
+/** Takes the way chosen in the settings; it is used from the next request on. */
+export function chooseProxy(choice: string): void {
+  proxyChoice = choice || 'system'
+  proxyCache = null
+}
+
+/** A proxy's address as a URL, if it is one the server can speak to: HTTP(S) or SOCKS5. A bare `host:port` is an HTTP one. */
+export function parseProxy(value: string | undefined): URL | null {
+  if (!value?.trim()) return null
+  try {
+    const proxy = new URL(/^[a-z][\w+.-]*:\/\//i.test(value.trim()) ? value.trim() : `http://${value.trim()}`)
+    return /^(https?|socks5h?|socks):$/.test(proxy.protocol) && proxy.hostname ? proxy : null
+  } catch {
+    return null
   }
-  let proxy = parse(process.env.HTTPS_PROXY ?? process.env.https_proxy ?? process.env.HTTP_PROXY ?? process.env.http_proxy)
+}
+
+/** The proxy requests go through: the one given in the settings, none, or the computer's. */
+async function systemProxy(): Promise<URL | null> {
+  if (proxyChoice === 'off') return null
+  if (proxyChoice !== 'system') return parseProxy(proxyChoice)
+  return computerProxy()
+}
+
+/** The proxy of this computer, if there is one: from the environment, or Windows' own settings. Looked up once a minute. */
+export async function computerProxy(): Promise<URL | null> {
+  if (proxyCache && Date.now() - proxyCache.at < 60_000) return proxyCache.proxy
+  const parse = parseProxy
+  let proxy = parse(process.env.HTTPS_PROXY ?? process.env.https_proxy ?? process.env.HTTP_PROXY ?? process.env.http_proxy ?? process.env.ALL_PROXY ?? process.env.all_proxy)
   if (!proxy && process.platform === 'win32') {
     const settings = await new Promise<string>((resolve) =>
       execFile('reg', ['query', 'HKCU\\Software\\Microsoft\\Windows\\CurrentVersion\\Internet Settings'], { windowsHide: true, timeout: 3000 }, (err, out) => resolve(err ? '' : out)),
@@ -48,11 +75,9 @@ async function systemProxy(): Promise<URL | null> {
     if (enabled && server) {
       // "host:port", or one per kind: "http=host:port;https=host:port".
       const parts = Object.fromEntries(server.split(';').map((part) => (part.includes('=') ? part.split('=') : ['all', part])))
-      proxy = parse(parts.https ?? parts.http ?? parts.all)
+      proxy = parse(parts.https ?? parts.http ?? parts.all) ?? (parts.socks ? parse(`socks5://${parts.socks}`) : null)
     }
   }
-  // Only plain web proxies are spoken to; a SOCKS one is left to the system.
-  if (proxy && proxy.protocol !== 'http:' && proxy.protocol !== 'https:') proxy = null
   proxyCache = { proxy, at: Date.now() }
   return proxy
 }
@@ -62,21 +87,43 @@ export async function viaProxy(): Promise<boolean> {
   return (await systemProxy()) !== null
 }
 
-/** One request through the proxy: a tunnel (CONNECT) for https, the full address for http. */
+/** One request through the proxy: a tunnel to the site (CONNECT, or SOCKS), or for http through a web proxy the full address. */
 function throughProxy(target: URL, proxy: URL, timeout: number): Promise<http.IncomingMessage> {
+  const socks = proxy.protocol.startsWith('socks')
   const auth = proxy.username ? { 'proxy-authorization': `Basic ${Buffer.from(`${decodeURIComponent(proxy.username)}:${decodeURIComponent(proxy.password)}`).toString('base64')}` } : {}
-  const proxyPort = Number(proxy.port) || (proxy.protocol === 'https:' ? 443 : 80)
+  const proxyPort = Number(proxy.port) || (socks ? 1080 : proxy.protocol === 'https:' ? 443 : 80)
   return new Promise((resolve, reject) => {
     const fail = (err: Error) => reject(err)
-    if (target.protocol === 'http:') {
+    if (target.protocol === 'http:' && !socks) {
       const request = http.request({ host: proxy.hostname, port: proxyPort, method: 'GET', path: target.href, headers: { ...BROWSER_HEADERS, host: target.host, ...auth }, timeout }, resolve)
       request.on('error', fail).on('timeout', () => request.destroy(new Error('timeout')))
       return void request.end()
     }
     // A deadline of its own rather than the `timeout` option, which over a tunnel cuts answers short.
-    let request: http.ClientRequest | null = null
-    const deadline = setTimeout(() => (request ?? tunnel).destroy(new Error('timeout')), timeout)
-    const tunnel = http.request({ host: proxy.hostname, port: proxyPort, method: 'CONNECT', path: `${target.hostname}:${target.port || 443}`, headers: { host: `${target.hostname}:${target.port || 443}`, ...auth } })
+    let current: { destroy(err?: Error): void } | null = null
+    const deadline = setTimeout(() => current?.destroy(new Error('timeout')), timeout)
+    const secure = target.protocol === 'https:'
+    const port = Number(target.port) || (secure ? 443 : 80)
+    const host = target.hostname.replace(/^\[|\]$/g, '')
+    const ask = (socket: net.Socket) => {
+      // No `agent` at all: with one (even `false`), plain http makes a connection of its own and the tunnel goes unused.
+      const request = (secure ? https : http).request(
+        { host, port, path: `${target.pathname}${target.search}`, method: 'GET', headers: BROWSER_HEADERS, createConnection: () => (secure ? tls.connect({ socket, servername: host }) : socket) },
+        (res) => {
+          res.on('end', () => clearTimeout(deadline)).on('close', () => clearTimeout(deadline))
+          resolve(res)
+        },
+      )
+      current = request
+      request.on('error', (err) => (clearTimeout(deadline), fail(err)))
+      request.end()
+    }
+    if (socks) {
+      const tunnel = socksTunnel(proxy, proxyPort, host, port, (socket) => (current = socket))
+      return void tunnel.then(ask, (err) => (clearTimeout(deadline), fail(err)))
+    }
+    const tunnel = http.request({ host: proxy.hostname, port: proxyPort, method: 'CONNECT', path: `${target.hostname}:${port}`, headers: { host: `${target.hostname}:${port}`, ...auth } })
+    current = tunnel
     tunnel.on('error', (err) => (clearTimeout(deadline), fail(err)))
     tunnel.on('connect', (answer, socket) => {
       if (answer.statusCode !== 200) {
@@ -84,14 +131,70 @@ function throughProxy(target: URL, proxy: URL, timeout: number): Promise<http.In
         socket.destroy()
         return fail(new Error(`proxy answered ${answer.statusCode}`))
       }
-      request = https.request({ host: target.hostname, path: `${target.pathname}${target.search}`, method: 'GET', headers: BROWSER_HEADERS, agent: false, createConnection: () => tls.connect({ socket, servername: target.hostname }) }, (res) => {
-        res.on('end', () => clearTimeout(deadline)).on('close', () => clearTimeout(deadline))
-        resolve(res)
-      })
-      request.on('error', (err) => (clearTimeout(deadline), fail(err)))
-      request.end()
+      ask(socket)
     })
     tunnel.end()
+  })
+}
+
+const SOCKS_REFUSALS = ['', 'сбой прокси', 'запрещено правилами прокси', 'сеть недоступна', 'сайт недоступен', 'в соединении отказано', 'время жизни истекло', 'команда не поддерживается', 'вид адреса не поддерживается']
+
+/**
+ * A connection to `host:port` through a SOCKS5 proxy (RFC 1928), with a name and password
+ * if the proxy's address has them (RFC 1929). The site's name is given to the proxy to
+ * resolve, as `socks5h` does: a name this computer cannot or should not resolve is no matter.
+ */
+function socksTunnel(proxy: URL, proxyPort: number, host: string, port: number, started: (socket: net.Socket) => void): Promise<net.Socket> {
+  return new Promise((resolve, reject) => {
+    const user = Buffer.from(decodeURIComponent(proxy.username))
+    const password = Buffer.from(decodeURIComponent(proxy.password))
+    const socket = net.connect(proxyPort, proxy.hostname)
+    started(socket)
+    let stage: 'hello' | 'login' | 'connect' = 'hello'
+    let got = Buffer.alloc(0)
+    const fail = (message: string) => {
+      socket.destroy()
+      reject(new Error(`SOCKS-прокси: ${message}`))
+    }
+    const connect = () => {
+      stage = 'connect'
+      const name = Buffer.from(host)
+      socket.write(Buffer.concat([Buffer.from([5, 1, 0, 3, name.length]), name, Buffer.from([port >> 8, port & 255])]))
+    }
+    const read = (chunk: Buffer) => {
+      got = Buffer.concat([got, chunk])
+      if (stage === 'hello') {
+        if (got.length < 2) return
+        const [version, method] = got
+        got = got.subarray(2)
+        if (version !== 5) return fail('это не SOCKS5')
+        if (method === 2) {
+          stage = 'login'
+          return void socket.write(Buffer.concat([Buffer.from([1, user.length]), user, Buffer.from([password.length]), password]))
+        }
+        if (method !== 0) return fail(user.length ? 'не принял ни один способ входа' : 'просит имя и пароль')
+        connect()
+      }
+      if (stage === 'login') {
+        if (got.length < 2) return
+        if (got[1] !== 0) return fail('не принял имя и пароль')
+        got = got.subarray(2)
+        connect()
+      }
+      if (stage === 'connect') {
+        if (got.length < 5) return
+        if (got[1] !== 0) return fail(SOCKS_REFUSALS[got[1]] ?? `отказ ${got[1]}`)
+        const end = 4 + (got[3] === 1 ? 4 : got[3] === 4 ? 16 : 1 + got[4]) + 2
+        if (got.length < end) return
+        socket.off('data', read).off('error', broke).off('close', closed)
+        if (got.length > end) socket.unshift(got.subarray(end))
+        resolve(socket)
+      }
+    }
+    const broke = (err: Error) => reject(err)
+    const closed = () => reject(new Error('SOCKS-прокси закрыл соединение'))
+    socket.on('connect', () => socket.write(Buffer.from(user.length ? [5, 2, 0, 2] : [5, 1, 0])))
+    socket.on('data', read).on('error', broke).on('close', closed)
   })
 }
 
@@ -265,10 +368,12 @@ export async function checkWay(address: string): Promise<NetStep[]> {
     const description = /"shortDescription":"/.test(page.text) ? 'описание видео есть' : /og:description/.test(page.text) ? 'описание (og:description) есть' : 'описания на странице нет'
     return `ответ ${page.status}, ${Math.round(page.text.length / 1024)} КБ, ${description}${page.url !== address ? `, пришла с ${page.url}` : ''}`
   }
-  await timed('Прокси компьютера', async () => {
+  await timed('Прокси', async () => {
     proxyCache = null
     const proxy = await systemProxy()
-    return proxy ? `${proxy.protocol}//${proxy.host}` : 'не задан (ни HTTPS_PROXY, ни в настройках Windows)'
+    if (proxyChoice === 'off') return 'выключен в настройках FlintNotes'
+    if (proxyChoice !== 'system') return proxy ? `из настроек FlintNotes: ${proxy.protocol}//${proxy.host}` : `в настройках FlintNotes непонятный адрес: ${proxyChoice}`
+    return proxy ? `компьютера: ${proxy.protocol}//${proxy.host}` : 'не задан (ни в настройках FlintNotes, ни HTTPS_PROXY, ни в настройках Windows)'
   })
   await timed(`Адрес ${url.hostname} (DNS)`, async () => {
     const { lookup } = await import('node:dns/promises')
@@ -279,7 +384,17 @@ export async function checkWay(address: string): Promise<NetStep[]> {
     return sayPage({ status: res.status, url: res.url || address, text: res.body ? await readText(res.body as unknown as AsyncIterable<Uint8Array>, 3_000_000) : '' })
   })
   const proxy = await systemProxy()
-  if (proxy) await timed('Через прокси компьютера', async () => sayPage(await nodeGet(address, { timeout: 10_000, limit: 3_000_000 })))
+  if (proxy) await timed(`Через прокси ${proxy.protocol}//${proxy.host}`, async () => sayPage(await nodeGet(address, { timeout: 10_000, limit: 3_000_000 })))
   if (process.platform === 'win32') await timed('Через Windows (PowerShell)', async () => sayPage(await windowsGet(address, { timeout: 15_000, limit: 3_000_000 })))
   return steps
+}
+
+/** Paths of t.me that are not a name: invitations, stickers, sharing and the like. */
+const TELEGRAM_PATHS = new Set(['joinchat', 'addstickers', 'addemoji', 'addlist', 'addtheme', 'share', 'proxy', 'socks', 'setlanguage', 'login', 'boost', 'contact', 'iv', 'invoice', 'giftcode', 'confirmphone'])
+
+/** The channel, group or person a Telegram address is of (`/name`, `/s/name`), and the post if it is one (`/name/123`). */
+export function telegramName(pathname: string): { name: string; post?: string } | null {
+  const [, name, post] = /^\/(?:s\/)?([A-Za-z]\w{3,31})(?:\/(\d+))?\/?$/.exec(pathname) ?? []
+  if (!name || TELEGRAM_PATHS.has(name.toLowerCase())) return null
+  return post ? { name, post } : { name }
 }

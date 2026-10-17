@@ -269,6 +269,80 @@ const portSetting = (app: App): SettingsSection['defs'][number] => ({
   },
 })
 
+/** The proxy is the program's too: link cards and video descriptions come through it. */
+const proxySetting = (app: App): SettingsSection['defs'][number] => ({
+  key: 'proxy',
+  group: 'Программа',
+  section: 'Сеть',
+  name: 'Прокси',
+  desc: 'Через что сервер FlintNotes ходит в интернет за карточками ссылок, описаниями видео и т. п. «Как у компьютера» — прокси из настроек Windows или HTTPS_PROXY. Свой прокси — HTTP (http://127.0.0.1:8080) или SOCKS5 (socks5://127.0.0.1:1080), с именем и паролем: socks5://имя:пароль@адрес:порт',
+  type: 'custom',
+  render: (el) => {
+    const row = el.appendChild(document.createElement('div'))
+    row.className = 'proxy-setting'
+    const mode = row.appendChild(document.createElement('select'))
+    for (const [value, label] of [
+      ['system', 'Как у компьютера'],
+      ['manual', 'Свой прокси'],
+      ['off', 'Без прокси'],
+    ]) mode.append(new Option(label, value))
+    const input = row.appendChild(document.createElement('input'))
+    input.type = 'text'
+    input.placeholder = 'socks5://127.0.0.1:1080'
+    input.spellcheck = false
+    const apply = row.appendChild(document.createElement('button'))
+    apply.textContent = 'Применить'
+    const check = row.appendChild(document.createElement('button'))
+    check.textContent = 'Проверить'
+    const note = row.appendChild(document.createElement('small'))
+    let saved = ''
+    let computer: string | null = null
+    const chosen = () => (mode.value === 'manual' ? input.value.trim() : mode.value)
+    const refresh = () => {
+      input.hidden = mode.value !== 'manual'
+      apply.disabled = chosen() === saved || (mode.value === 'manual' && !input.value.trim())
+      if (mode.value === 'system') note.textContent = computer ? `Сейчас у компьютера: ${computer}` : 'У компьютера прокси не задан: сервер ходит напрямую'
+      else if (note.dataset.kind !== 'result') note.textContent = ''
+    }
+    const fail = (err: unknown) => {
+      note.dataset.kind = 'result'
+      note.textContent = err instanceof Error ? err.message : String(err)
+    }
+    void app.vault.proxy().then((answer) => {
+      saved = answer.proxy
+      computer = answer.computer
+      mode.value = saved === 'system' || saved === 'off' ? saved : 'manual'
+      if (mode.value === 'manual') input.value = saved
+      refresh()
+    }, fail)
+    mode.onchange = input.oninput = () => (delete note.dataset.kind, refresh())
+    apply.onclick = () => {
+      apply.disabled = true
+      void app.vault.setProxy(chosen()).then(({ proxy }) => {
+        saved = proxy
+        refresh()
+        note.dataset.kind = 'result'
+        note.textContent = 'Сохранено, действует сразу'
+      }, (err) => (fail(err), refresh()))
+    }
+    // Whether a page that is often closed (Telegram) opens for the server the way that is saved now.
+    check.onclick = () => {
+      check.disabled = true
+      note.dataset.kind = 'result'
+      note.textContent = 'Проверяю t.me…'
+      void app.vault
+        .netCheck('https://t.me/telegram')
+        .then(({ steps }) => {
+          const way = steps.find((step) => step.step.startsWith('Через прокси')) ?? steps.find((step) => step.step.startsWith('Напрямую'))
+          const proxy = steps.find((step) => step.step === 'Прокси')
+          note.textContent = way ? `${proxy ? `Прокси ${proxy.result}. ` : ''}${way.step}: ${way.ok ? '✓' : '✗'} ${way.result} — ${way.ms} мс` : 'Сервер ничего не ответил'
+        }, fail)
+        .finally(() => (check.disabled = false))
+    }
+    return () => row.remove()
+  },
+})
+
 /** Waits until the server answers at its new address (it moves a moment after saying yes). */
 async function waitFor(origin: string): Promise<void> {
   for (let tries = 0; tries < 50; tries++) {
@@ -402,7 +476,7 @@ export class App {
     this.panels.init()
     // Once only: the page may be set up again (a vault is switched), the list of settings is the same object.
     if (!coreSettings.defs.some((def) => def.key === 'panels')) coreSettings.defs.splice(coreSettings.defs.findIndex((def) => def.key === 'zoom'), 0, panelsSetting(this))
-    if (!coreSettings.defs.some((def) => def.key === 'autostart')) coreSettings.defs.push(autostartSetting(this), portSetting(this), buildSetting(), vaultsSetting(this))
+    if (!coreSettings.defs.some((def) => def.key === 'autostart')) coreSettings.defs.push(autostartSetting(this), portSetting(this), proxySetting(this), buildSetting(), vaultsSetting(this))
     this.settings.addSection(coreSettings)
     // One plain sign that the server is not answering, instead of an error from every part that asks it something.
     const down = this.statusBar.addItem()

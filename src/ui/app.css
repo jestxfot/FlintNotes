@@ -468,7 +468,26 @@ input[type='checkbox']:disabled {
   width: 8em;
 }
 
+/* The way to the web: what kind, the proxy's address, and what came of it below. */
+.proxy-setting {
+  display: flex;
+  flex-wrap: wrap;
+  align-items: center;
+  gap: 8px 12px;
+}
+
+.proxy-setting input {
+  flex: 1 1 16em;
+  min-width: 0;
+  font-family: var(--font-mono);
+}
+
+.proxy-setting small {
+  flex-basis: 100%;
+}
+
 .autostart small,
+.proxy-setting small,
 .port-setting small {
   color: var(--text-muted);
   overflow-wrap: anywhere;

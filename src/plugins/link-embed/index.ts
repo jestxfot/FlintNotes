@@ -4,6 +4,8 @@ import './style.css'
 
 const WEB = /^https?:\/\//i
 const PICTURES = '.flint/embed-pictures.json'
+/** Paths of t.me that are not a name: invitations, stickers, sharing and the like. */
+const TELEGRAM_PATHS = new Set(['joinchat', 'addstickers', 'addemoji', 'addlist', 'addtheme', 'share', 'proxy', 'socks', 'setlanguage', 'login', 'boost', 'contact', 'iv', 'invoice', 'giftcode', 'confirmphone'])
 
 /**
  * ```embed
@@ -36,6 +38,16 @@ export default class LinkEmbed extends Plugin {
   private videoPictures(url: string): string[] {
     const video = /(?:youtube\.com\/(?:watch\?(?:.*&)?v=|shorts\/|embed\/|live\/)|youtu\.be\/)([\w-]{11})/.exec(url)
     return video ? [`https://i.ytimg.com/vi/${video[1]}/maxresdefault.jpg`, `https://i.ytimg.com/vi/${video[1]}/mqdefault.jpg`] : []
+  }
+
+  /**
+   * The channel, group or person a Telegram address is of, and its picture, which Telegram gives
+   * by the name alone: a card shows it even when the server could not read the page.
+   */
+  private telegram(url: string): { name: string; post?: string; picture: string } | null {
+    const match = /^https?:\/\/(?:www\.)?(?:t\.me|telegram\.(?:me|dog))\/(?:s\/)?([A-Za-z]\w{3,31})(?:\/(\d+))?\/?(?:[?#]|$)/i.exec(url)
+    if (!match || TELEGRAM_PATHS.has(match[1].toLowerCase())) return null
+    return { name: match[1], ...(match[2] ? { post: match[2] } : {}), picture: `https://t.me/i/userpic/320/${match[1]}.jpg` }
   }
 
   /** Asks the page for its picture, a few pages at a time, and remembers the answer. */
@@ -101,6 +113,8 @@ export default class LinkEmbed extends Plugin {
     const checked = new Set<string>()
     /** Videos whose missing description was already told of. */
     const told = new Set<string>()
+    /** Sites that did not answer, told of once a visit. */
+    const toldSites = new Set<string>()
     /**
      * A card with empty fields asks the page once and writes what it says into
      * the block itself (as Link Embed writes it): what was written by hand stays.
@@ -140,8 +154,14 @@ export default class LinkEmbed extends Plugin {
           app.notice(`Карточка YouTube: описание видео не получено — ${page.problem}. Что именно мешает, покажет команда «Проверить, видит ли сервер страницу карточки»`)
         }
         if (changed) setSource(Object.entries(next).map(([key, value]) => `${key}: ${quote(value)}`).join('\n'))
-      } catch {
+      } catch (err) {
         unanswered.add(url)
+        // Said once per site, with the reason: a card left half empty without a word looks as if nothing was tried.
+        const site = url.replace(/^https?:\/\/(www\.)?/i, '').split(/[/?#]/)[0]
+        if (!toldSites.has(site)) {
+          toldSites.add(site)
+          app.notice(`Карточка ${site} не дописана: ${errorMessage(err)}. Что мешает, покажет команда «Проверить, видит ли сервер страницу карточки»`)
+        }
       } finally {
         filling.delete(url)
       }
@@ -196,7 +216,9 @@ export default class LinkEmbed extends Plugin {
         } catch {
           // Not an address: shown as it is.
         }
-        site.append(host)
+        const telegram = this.telegram(url)
+        // A Telegram card says whose it is: the name the address is of, as Telegram writes it.
+        site.append(telegram ? `${host} · @${telegram.name}` : host)
         box.title = url
 
         /**
@@ -211,7 +233,8 @@ export default class LinkEmbed extends Plugin {
             if (!asked && WEB.test(url) && this.getSetting<boolean>('findPictures') !== false) void this.findPicture(url).then((found) => found && found !== picture && box.isConnected && show([found], true))
           }
           const frame = box.appendChild(document.createElement('div'))
-          frame.className = 'embed-card-image'
+          // A channel's or a person's picture is a portrait, shown round as Telegram shows it.
+          frame.className = telegram && !telegram.post && (picture === telegram.picture || /(^|\.)telesco\.pe\//i.test(picture.replace(/^https?:\/\//, ''))) ? 'embed-card-image is-avatar' : 'embed-card-image'
           const image = frame.appendChild(document.createElement('img'))
           image.alt = ''
           image.loading = 'lazy'
@@ -225,7 +248,7 @@ export default class LinkEmbed extends Plugin {
           image.src = picture
         }
         const written = source(text(data.image), path)
-        const candidates = [...(written ? [written] : []), ...this.videoPictures(url), ...(this.pictures[url] ? [this.pictures[url]] : [])]
+        const candidates = [...(written ? [written] : []), ...this.videoPictures(url), ...(this.pictures[url] ? [this.pictures[url]] : []), ...(telegram ? [telegram.picture] : [])]
         if (candidates.length) show([...new Set(candidates)])
         // A card saved without a picture gets the page's own (its og:image), looked up once the card is on screen.
         else if (WEB.test(url) && this.getSetting<boolean>('findPictures') !== false && this.pictures[url] === undefined) {

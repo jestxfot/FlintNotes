@@ -59,7 +59,7 @@ for (const [index, file] of suites.entries()) {
   const page = await browser.newPage({ viewport: suite.viewport ?? { width: 1300, height: 1000 } })
   const errors = []
   // A suite that cuts the connection on purpose says so, and the browser's own report of that is not a failure.
-  page.on('console', (message) => message.type() === 'error' && !(suite.expectsNetworkErrors && /net::ERR_FAILED/.test(message.text())) && errors.push(message.text()))
+  page.on('console', (message) => message.type() === 'error' && !(suite.expectsNetworkErrors && (suite.expectsNetworkErrors instanceof RegExp ? suite.expectsNetworkErrors : /net::ERR_FAILED/).test(message.text())) && errors.push(message.text()))
   page.on('pageerror', (error) => errors.push(String(error)))
   // confirm() and prompt() are accepted, as a user agreeing would.
   page.on('dialog', (dialog) => dialog.accept())

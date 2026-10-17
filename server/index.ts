@@ -14,7 +14,7 @@ import os from 'node:os'
 import path from 'node:path'
 import { fileURLToPath } from 'node:url'
 import type { ExternalPluginInfo, RemoteEvent, VaultEntry, VaultInfo } from '../shared/protocol'
-import { checkWay, describe, viaProxy, webGet, youtubeVideo } from './web'
+import { checkWay, chooseProxy, computerProxy, describe, parseProxy, telegramName, viaProxy, webGet, youtubeVideo } from './web'
 import { TreeCache } from './tree-cache'
 
 // The vaults the user has opened are remembered between runs, outside any vault.
@@ -25,6 +25,8 @@ interface Config {
   current?: string
   /** The port the server listens on; chosen in the settings. */
   port?: number
+  /** How the server reaches the web: `system` (the computer's proxy), `off`, or a proxy's address; chosen in the settings. */
+  proxy?: string
   /** Programs that templates of a vault may run, by vault folder; see `/system-commands`. */
   systemCommands?: Record<string, SystemCommands>
 }
@@ -43,6 +45,7 @@ async function readConfig(): Promise<Config> {
       vaults: Array.isArray(data.vaults) ? data.vaults.filter((v: unknown) => typeof v === 'string') : [],
       current: data.current,
       port: validPort(data.port) ? data.port : undefined,
+      proxy: typeof data.proxy === 'string' ? data.proxy : undefined,
       systemCommands: data.systemCommands && typeof data.systemCommands === 'object' ? data.systemCommands : undefined,
     }
   } catch {
@@ -54,6 +57,7 @@ const DEFAULT_PORT = 4600
 const validPort = (value: unknown): value is number => Number.isInteger(value) && (value as number) >= 1024 && (value as number) <= 65535
 
 const config = await readConfig()
+chooseProxy(config.proxy ?? 'system')
 // FLINT_PORT (tests, development) wins over the port chosen in the settings; then that port can not be changed from the app.
 const fixedPort = process.env.FLINT_PORT ? Number(process.env.FLINT_PORT) : undefined
 let port = fixedPort ?? config.port ?? DEFAULT_PORT
@@ -512,6 +516,23 @@ api.post('/port', async (c) => {
   return c.json({ port: wanted })
 })
 
+// ---- the way to the web: the computer's proxy, none, or one given here; kept in the config with the vaults
+api.get('/proxy', async (c) => {
+  const computer = await computerProxy().catch(() => null)
+  return c.json({ proxy: config.proxy ?? 'system', computer: computer ? `${computer.protocol}//${computer.host}` : null })
+})
+
+api.post('/proxy', async (c) => {
+  const origin = c.req.header('origin')
+  if (!origin || new URL(origin).host !== c.req.header('host')) throw new HTTPException(403, { message: 'Только со страницы самого приложения' })
+  const wanted = String(((await c.req.json()) as { proxy?: unknown }).proxy ?? '').trim()
+  if (wanted !== 'system' && wanted !== 'off' && !parseProxy(wanted)) throw new HTTPException(400, { message: 'Адрес прокси — например http://127.0.0.1:8080 или socks5://127.0.0.1:1080 (с именем и паролем: socks5://имя:пароль@адрес:порт)' })
+  config.proxy = wanted
+  chooseProxy(wanted)
+  await remember()
+  return c.json({ proxy: wanted })
+})
+
 // ---- what a web page says about itself, for link cards
 const PRIVATE = /^(127\.|10\.|192\.168\.|169\.254\.|172\.(1[6-9]|2\d|3[01])\.|0\.|::1$|f[cd]|fe80)/i
 
@@ -566,9 +587,24 @@ api.get('/unfurl', async (c) => {
     if (video?.problem) console.error(`Карточка ссылки: описание видео ${url.href} не получено: ${video.problem}`)
     if (video) return c.json({ url: url.href, title: video.title, description: video.description, author: video.author, image: video.image, favicon: 'https://www.youtube.com/favicon.ico', ...(video.problem ? { problem: video.problem } : {}) })
   }
+  // Telegram answers by two names; where one is closed to this computer, the other may be open.
+  const telegram = /^(www\.)?(t\.me|telegram\.me|telegram\.dog)$/i.test(url.hostname)
+  const ways = [url.href]
+  if (telegram) for (const host of ['t.me', 'telegram.me']) if (host !== url.hostname.replace(/^www\./, '')) ways.push(Object.assign(new URL(url.href), { hostname: host }).href)
   // Pages are asked the way a browser asks, through the computer's proxy if it has one. A slow site gets a second, longer try.
   try {
-    const page = await webGet(url.href, { timeout: 8000 }).catch(() => webGet(url.href, { timeout: 20_000 }))
+    const ask = async () => {
+      let failed: unknown
+      for (const way of ways) {
+        try {
+          return await webGet(way, { timeout: 8000 })
+        } catch (err) {
+          failed ??= err
+        }
+      }
+      throw failed
+    }
+    const page = await ask().catch(() => webGet(url.href, { timeout: 20_000 }))
     final = page.url || url.href
     html = page.text
   } catch (err) {
@@ -599,11 +635,16 @@ api.get('/unfurl', async (c) => {
     }
   }
   const icons = [...html.matchAll(/<link\b[^>]*>/gi)].map(([tag]) => tag).filter((tag) => /\bicon\b/i.test(attr(tag, 'rel') ?? ''))
+  let image = absolute(meta.get('og:image') ?? meta.get('twitter:image'))
+  // The picture of a channel, a group or a person on Telegram, by an address that stays: the one its page
+  // names is signed for a while and goes stale. A post keeps its own picture.
+  const channel = telegram ? telegramName(url.pathname) : null
+  if (channel && !channel.post && /(^|\.)telesco\.pe$/i.test(new URL(image || 'x:').hostname)) image = `https://t.me/i/userpic/320/${channel.name}.jpg`
   return c.json({
     url: url.href,
     title: meta.get('og:title') ?? meta.get('twitter:title') ?? decode(/<title[^>]*>([\s\S]*?)<\/title>/i.exec(html)?.[1] ?? '').replace(/\s+/g, ' ').trim(),
-    description: (meta.get('og:description') ?? meta.get('description') ?? meta.get('twitter:description') ?? '').replace(/\s+/g, ' '),
-    image: absolute(meta.get('og:image') ?? meta.get('twitter:image')),
+    description: (meta.get('og:description') ?? meta.get('description') ?? meta.get('twitter:description') ?? '').replace(/\s+/g, ' ').trim(),
+    image,
     favicon: absolute(icons.length ? attr(icons[0], 'href') : '/favicon.ico'),
   })
 })
