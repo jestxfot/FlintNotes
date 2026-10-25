@@ -129,7 +129,8 @@ export async function run(t) {
   const before = await title()
   await page.locator('.calendar .nav').last().click()
   ok('next month', (await title()) !== before)
-  await page.locator('.calendar .today').click()
+  // The button, not today's cell: that one is in the next month's grid too when today is among its first days.
+  await page.locator('.calendar button.today:not(.day)').click()
   ok('back to today', (await title()) === before)
   await page.locator('.calendar .week').first().click()
   await wait(1200)

@@ -3,7 +3,17 @@ import { dropBuiltIn, emptyData, importData, PLACE_NAMES, PLACES, renameMoved, t
 import './style.css'
 
 const FILE = '.flint/commander.json'
-const TOOLBARS: Partial<Record<Place, ToolbarPlace>> = { leftRibbon: 'left-ribbon', rightRibbon: 'right-ribbon', titleBar: 'tab-bar', pageHeader: 'page-header', explorer: 'explorer', keyboardBar: 'keyboard' }
+const TOOLBARS: Partial<Record<Place, ToolbarPlace>> = {
+  leftRibbon: 'left-ribbon',
+  leftRibbonEnd: 'left-ribbon-end',
+  rightRibbon: 'right-ribbon',
+  rightRibbonEnd: 'right-ribbon-end',
+  titleBar: 'tab-bar',
+  pageHeader: 'page-header',
+  explorer: 'explorer',
+  statusBar: 'status-bar',
+  keyboardBar: 'keyboard',
+}
 const PLACE_OF = Object.fromEntries(Object.entries(TOOLBARS).map(([place, toolbar]) => [toolbar, place])) as Record<ToolbarPlace, Place>
 
 /**
@@ -15,6 +25,10 @@ export default class Commander extends Plugin {
   private data: CommanderData = emptyData()
   /** Undoes everything that was put into the frame for the current data. */
   private placed: (() => void)[] = []
+  /** The buttons in the frame now, by their ids there. */
+  private shown = new Map<string, { place: Place; pair: Pair }>()
+  /** The id of each button in the frame; it stays when the button moves, so the place the user gave it holds. */
+  private ids = new Map<Pair, string>()
   private redrawSettings: (() => void) | null = null
 
   async onload() {
@@ -24,12 +38,15 @@ export default class Commander extends Plugin {
     // Buttons of commands whose plugin is off are not shown; they return with the plugin.
     this.register(app.commands.on('change', () => this.schedule()))
     this.register(() => this.clear())
+    // The user moved a button (dragged it, or from its menu): the lists follow, so they say where each button is.
+    this.register(app.toolbars.on('move', (id) => this.shown.has(id) && this.follow()))
 
     this.registerMenu('toolbar', (target: { place: ToolbarPlace; button?: string }, add) => {
       const place = PLACE_OF[target.place]
       if (!place) return
-      const index = target.button ? this.data[place].findIndex((pair) => this.buttonId(place, pair) === target.button) : -1
-      if (index >= 0) for (const item of this.pairMenu(place, index)) add(item)
+      // Moving a button is offered by the core, for every button.
+      const mine = target.button ? this.shown.get(target.button) : undefined
+      if (mine) for (const item of this.pairMenu(mine.place, mine.pair, false)) add(item)
       add({ section: 'new', icon: 'plus', title: 'Добавить команду…', onClick: () => this.add(place) })
     })
     this.registerMenu('file', (entry: VaultEntry | null, add) => {
@@ -108,7 +125,6 @@ export default class Commander extends Plugin {
 
   // ---- showing
 
-  private buttonId = (place: Place, pair: Pair) => `commander:${place}:${this.data[place].indexOf(pair)}`
   /** Buttons whose command exists right now. */
   private live = (place: Place) => this.data[place].filter((pair) => this.app.commands.get(pair.id))
 
@@ -144,25 +160,33 @@ export default class Commander extends Plugin {
     this.data.macros.forEach((macro, i) => {
       this.placed.push(app.commands.add({ id: `commander:macro-${i}`, name: `Макрос: ${macro.name}`, icon: macro.icon, callback: () => void this.runMacro(macro) }))
     })
+    // A button is known by its command, not by its place or number, so it is the same button wherever it is moved.
+    this.shown.clear()
+    this.ids.clear()
+    const seen = new Map<string, number>()
     for (const [place, toolbar] of Object.entries(TOOLBARS) as [Place, ToolbarPlace][]) {
-      for (const pair of this.live(place)) {
-        this.placed.push(app.toolbars.add(toolbar, { id: this.buttonId(place, pair), icon: pair.icon, title: pair.name, color: pair.color, onClick: () => this.run(pair) }))
+      for (const pair of this.data[place]) {
+        const n = (seen.get(pair.id) ?? 0) + 1
+        seen.set(pair.id, n)
+        const id = `commander:${pair.id}${n > 1 ? `:${n}` : ''}`
+        this.ids.set(pair, id)
+        if (!app.commands.get(pair.id)) continue
+        this.shown.set(id, { place, pair })
+        this.placed.push(app.toolbars.add(toolbar, { id, icon: pair.icon, title: pair.name, color: pair.color, onClick: () => this.run(pair) }))
       }
-    }
-    if (this.live('statusBar').length) {
-      const item = app.statusBar.addItem()
-      item.classList.add('commander-status')
-      for (const pair of this.live('statusBar')) {
-        const button = item.appendChild(document.createElement('button'))
-        button.title = pair.name
-        button.setAttribute('aria-label', pair.name)
-        button.style.color = app.icons.css(pair.color)
-        button.append(app.icons.draw(pair.icon))
-        button.onclick = () => this.run(pair)
-      }
-      this.placed.push(() => item.remove())
     }
     this.placing = false
+  }
+
+  /** Makes the lists say where the buttons are now and in what order; buttons of commands that are away stay at the end of their list. */
+  private follow(): void {
+    const next = {} as Record<Place, Pair[]>
+    for (const [place, toolbar] of Object.entries(TOOLBARS) as [Place, ToolbarPlace][]) {
+      next[place] = this.app.toolbars.list(toolbar).flatMap((button) => this.shown.get(button.id)?.pair ?? [])
+    }
+    for (const place of Object.keys(TOOLBARS) as Place[]) for (const pair of this.data[place]) if (!this.app.commands.get(pair.id)) next[place].push(pair)
+    Object.assign(this.data, next)
+    void this.save()
   }
 
   private async runMacro(macro: Macro): Promise<void> {
@@ -196,14 +220,26 @@ export default class Commander extends Plugin {
     })
   }
 
-  private pairMenu(place: Place, index: number): MenuItem[] {
+  /** What can be done with a button; `moves` adds moving it along its place. */
+  private pairMenu(place: Place, pair: Pair, moves: boolean): MenuItem[] {
     const list = this.data[place]
-    const pair = list[index]
+    const index = list.indexOf(pair)
+    const toolbar = TOOLBARS[place]
+    const id = this.ids.get(pair)
+    // In the frame the order is the core's, where the buttons of others are too; a menu's is the list's own.
+    const shown = toolbar ? this.app.toolbars.list(toolbar).map((button) => button.id) : []
+    const at = toolbar ? shown.indexOf(id ?? '') : index
+    const last = toolbar ? shown.length - 1 : list.length - 1
     const move = (by: number) => {
+      if (toolbar) return id && this.app.toolbars.shift(id, by)
       list.splice(index, 1)
       list.splice(index + by, 0, pair)
       void this.save()
     }
+    const moving: MenuItem[] = [
+      { section: 'edit', icon: 'arrow-left', title: 'Сдвинуть к началу', disabled: at <= 0, onClick: () => move(-1) },
+      { section: 'edit', icon: 'arrow-right', title: 'Сдвинуть к концу', disabled: at < 0 || at === last, onClick: () => move(1) },
+    ]
     return [
       {
         section: 'edit',
@@ -218,15 +254,15 @@ export default class Commander extends Plugin {
           await this.save()
         },
       },
-      { section: 'edit', icon: 'arrow-left', title: 'Сдвинуть к началу', disabled: index === 0, onClick: () => move(-1) },
-      { section: 'edit', icon: 'arrow-right', title: 'Сдвинуть к концу', disabled: index === list.length - 1, onClick: () => move(1) },
+      ...(moves ? moving : []),
       {
         section: 'danger',
         icon: 'trash',
         title: 'Убрать кнопку',
         danger: true,
         onClick: () => {
-          list.splice(index, 1)
+          list.splice(list.indexOf(pair), 1)
+          if (id) this.app.toolbars.forget(id)
           void this.save()
         },
       },
@@ -268,7 +304,7 @@ export default class Commander extends Plugin {
       const head = el(box, 'div', 'commander-head')
       el(head, 'b', '', PLACE_NAMES[place])
       el(head, 'button', 'commander-add', '+ Добавить команду').onclick = () => this.add(place)
-      this.data[place].forEach((pair, i) => {
+      this.data[place].forEach((pair) => {
         const row = el(box, 'div', app.commands.get(pair.id) ? 'commander-row' : 'commander-row missing')
         const icon = el(row, 'span', 'commander-icon')
         icon.style.color = app.icons.css(pair.color)
@@ -280,7 +316,7 @@ export default class Commander extends Plugin {
           pair.name = name.value.trim() || pair.name
           void this.save()
         }
-        for (const item of this.pairMenu(place, i)) tool(row, item.icon!, item.title, () => item.onClick?.(), item.disabled)
+        for (const item of this.pairMenu(place, pair, true)) tool(row, item.icon!, item.title, () => item.onClick?.(), item.disabled)
       })
       if (!this.data[place].length) el(box, 'div', 'commander-none', 'Пусто')
     }

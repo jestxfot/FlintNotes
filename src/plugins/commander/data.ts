@@ -17,12 +17,15 @@ export interface Macro {
   macro: Step[]
 }
 
-export const PLACES = ['leftRibbon', 'rightRibbon', 'titleBar', 'pageHeader', 'explorer', 'statusBar', 'fileMenu', 'editorMenu', 'keyboardBar'] as const
+/** Commander's places, and the bottoms of the strips, which only this app has. */
+export const PLACES = ['leftRibbon', 'leftRibbonEnd', 'rightRibbon', 'rightRibbonEnd', 'titleBar', 'pageHeader', 'explorer', 'statusBar', 'fileMenu', 'editorMenu', 'keyboardBar'] as const
 export type Place = (typeof PLACES)[number]
 
 export const PLACE_NAMES: Record<Place, string> = {
-  leftRibbon: 'Полоса слева',
-  rightRibbon: 'Полоса справа',
+  leftRibbon: 'Полоса слева, вверху',
+  leftRibbonEnd: 'Полоса слева, внизу',
+  rightRibbon: 'Полоса справа, вверху',
+  rightRibbonEnd: 'Полоса справа, внизу',
   titleBar: 'Полоса вкладок',
   pageHeader: 'Над заметкой',
   explorer: 'Список файлов',

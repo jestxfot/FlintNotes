@@ -675,6 +675,7 @@ export class App {
     })
     this.workspace.registerView('markdown', createMarkdownView, ['md'])
     this.docked.init()
+    this.toolbars.init(this.state, this.menus)
     this.ribbonItems.init()
     this.commands.setCustomHotkeys(this.settings.get<Record<string, string>>('core', 'hotkeys') ?? {})
   }

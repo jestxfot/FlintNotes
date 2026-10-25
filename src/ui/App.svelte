@@ -12,6 +12,8 @@
   import VaultsModal from './VaultsModal.svelte'
   import ContextMenu from './ContextMenu.svelte'
   import Toolbar from './Toolbar.svelte'
+  import Ribbon from './Ribbon.svelte'
+  import { TOOLBAR_PLACES } from '../core/toolbars'
   import { drag } from './drag.svelte'
   import { watch } from './reactive.svelte'
   import SettingsModal from './SettingsModal.svelte'
@@ -193,7 +195,10 @@
   const title = (path: string) => (extname(path) === 'md' ? stripExt(basename(path)) : basename(path))
   const leafById = (id: number) => workspace.leaves.find((leaf) => leaf.id === id)!
   // The strips along the edges take room only when something was put on them.
-  const ribbons = watch(app.toolbars, ['change'], () => ({ left: app.toolbars.list('left-ribbon').length > 0, right: app.toolbars.list('right-ribbon').length > 0 }))
+  const ribbons = watch(app.toolbars, ['change'], () => ({
+    left: app.toolbars.list('left-ribbon').length + app.toolbars.list('left-ribbon-end').length > 0,
+    right: app.toolbars.list('right-ribbon').length + app.toolbars.list('right-ribbon-end').length > 0,
+  }))
   const looks = watch(app.icons, ['change'], () => ({}))
   const tabLook = (path: string) => (looks.current && !path.startsWith('view:') ? app.icons.look('file', path) : undefined)
   /** An icon of the app's set inside a button of the phone's frame. */
@@ -329,7 +334,7 @@
   /** A drawer being pulled by a finger: how far out it is. */
   let pull = $state<{ side: 'left' | 'right'; px: number } | null>(null)
   let swipe: { x: number; y: number; side: 'left' | 'right' | null; closing: boolean; on: boolean } | null = null
-  const ribbonButtons = watch(app.toolbars, ['change'], () => [...app.toolbars.list('left-ribbon'), ...app.toolbars.list('right-ribbon'), ...app.toolbars.list('tab-bar'), ...app.toolbars.list('page-header')])
+  const ribbonButtons = watch(app.toolbars, ['change'], () => TOOLBAR_PLACES.filter((place) => place !== 'keyboard' && place !== 'explorer').flatMap((place) => app.toolbars.list(place)))
 
   function onFocusChange() {
     // Focus moves in two steps (out of one thing, into another): what has it is read once both are done.
@@ -587,6 +592,9 @@
     // The desktop app has no such slip: Ctrl+W is the app's own, and it saves before it closes.
     if (!desktop) window.addEventListener('beforeunload', onLeave)
     offs.push(() => window.removeEventListener('beforeunload', onLeave))
+    // Buttons may be put into the status bar too: its first item.
+    const statusButtons = mount(Toolbar, { target: app.statusBar.buttons, props: { place: 'status-bar' } })
+    offs.push(() => void unmount(statusButtons))
     // The server was replaced by a newer build (the launcher does it after `npm run release`): this page
     // is from the old one and may ask for files that are gone. It saves what it has and loads the new one.
     offs.push(
@@ -764,7 +772,7 @@
 {:else}
 <div class="app">
   <!-- The strips show while they have buttons, and while something is dragged that could become one. -->
-  {#if (ribbons.current.left || drag.note || drag.panel) && look.current.ribbon}<Toolbar place="left-ribbon" vertical floating={!ribbons.current.left} />{/if}
+  {#if (ribbons.current.left || drag.note || drag.panel || drag.button) && look.current.ribbon}<Ribbon side="left" floating={!ribbons.current.left} />{/if}
   {#if floats.left}
     <!-- A thin strip along the edge of the window: the pointer on it brings the sidebar out over the note. -->
     <div class="edge left" role="presentation"></div>
@@ -911,7 +919,7 @@
   {#if floats.right}
     <div class="edge right" role="presentation"></div>
   {/if}
-  {#if (ribbons.current.right || drag.note || drag.panel) && look.current.ribbon}<Toolbar place="right-ribbon" vertical floating={!ribbons.current.right} />{/if}
+  {#if (ribbons.current.right || drag.note || drag.panel || drag.button) && look.current.ribbon}<Ribbon side="right" floating={!ribbons.current.right} />{/if}
 </div>
 {/if}
 

@@ -2,9 +2,10 @@
   import type { ToolbarPlace } from '../core/toolbars'
   import { app } from '../instance'
   import { drag } from './drag.svelte'
+  import { layout } from './layout.svelte'
   import { watch } from './reactive.svelte'
 
-  let { place, vertical = false, floating = false }: { place: ToolbarPlace; vertical?: boolean; /** Shown over the page, taking no room of its own: a strip that is there only to be dropped on. */ floating?: boolean } = $props()
+  let { place, vertical = false }: { place: ToolbarPlace; vertical?: boolean } = $props()
 
   // svelte-ignore state_referenced_locally (a toolbar keeps its place for life)
   const buttons = watch(app.toolbars, ['change'], () => app.toolbars.list(place))
@@ -22,37 +23,67 @@
     node.append(app.icons.draw(name))
   }
 
-  // A tab or a widget's icon dragged onto a strip along the edge becomes a button there.
-  const side = $derived(place === 'left-ribbon' ? 'left' : place === 'right-ribbon' ? 'right' : null)
-  let over = $state(false)
-  function dragOver(event: DragEvent) {
-    if (!side || (!drag.note && !drag.panel)) return
-    event.preventDefault()
-    over = true
+  // A tab or a widget's icon dragged onto a strip along the edge becomes a button there; a button dragged onto any strip moves there.
+  const side = $derived(place.startsWith('left-ribbon') ? 'left' : place.startsWith('right-ribbon') ? 'right' : null)
+  const takes = $derived(!!drag.button || (!!side && (!!drag.note || !!drag.panel)))
+  /** Where a dropped button would land: before this button, or (null) at the end. */
+  let landing = $state<string | null | undefined>(undefined)
+  let el = $state<HTMLElement>()
+
+  function landingAt(event: DragEvent): string | null {
+    for (const node of el?.querySelectorAll<HTMLElement>(':scope > button[data-id]') ?? []) {
+      if (node.dataset.id === drag.button) continue
+      const box = node.getBoundingClientRect()
+      if (vertical ? event.clientY < box.top + box.height / 2 : event.clientX < box.left + box.width / 2) return node.dataset.id!
+    }
+    return null
   }
-  function drop(event: DragEvent) {
-    over = false
-    if (!side || (!drag.note && !drag.panel)) return
+  function dragOver(event: DragEvent) {
+    if (!takes) return
     event.preventDefault()
     event.stopPropagation()
-    app.ribbonItems.add(drag.note ?? `view:panel-${drag.panel}`, side)
-    drag.note = drag.panel = null
+    landing = landingAt(event)
+  }
+  function drop(event: DragEvent) {
+    landing = undefined
+    if (!takes) return
+    const before = landingAt(event)
+    event.preventDefault()
+    event.stopPropagation()
+    if (drag.button) app.toolbars.move(drag.button, place, before)
+    else if (side) {
+      const id = app.ribbonItems.add(drag.note ?? `view:panel-${drag.panel}`, side)
+      if (app.toolbars.placeOf(id) !== place || before) app.toolbars.move(id, place, before)
+    }
+    drag.note = drag.panel = drag.button = null
+  }
+  // Chrome tells no element the pointer went to; leaving for a button of the strip is not leaving it.
+  function leave(event: DragEvent) {
+    const box = el?.getBoundingClientRect()
+    if (!box || event.clientX < box.left || event.clientX >= box.right || event.clientY < box.top || event.clientY >= box.bottom) landing = undefined
+  }
+  function dragStart(event: DragEvent, id: string) {
+    event.dataTransfer?.setData('text/plain', id)
+    if (event.dataTransfer) event.dataTransfer.effectAllowed = 'move'
+    // The strips change to show where the button can go; Chrome cancels a drag whose surroundings change while it is starting.
+    setTimeout(() => (drag.button = id))
   }
 </script>
 
-{#if buttons.current.length || vertical}
+{#if buttons.current.length || vertical || drag.button}
   <div
+    bind:this={el}
     class="toolbar"
     class:vertical
-    class:floating
-    class:receiving={!!side && (!!drag.note || !!drag.panel)}
-    class:over
+    class:receiving={takes}
+    class:over={landing !== undefined}
+    class:land-end={landing === null}
     data-place={place}
     role="toolbar"
     tabindex="-1"
     oncontextmenu={(event) => app.menus.show(event, 'toolbar', { place })}
     ondragover={dragOver}
-    ondragleave={() => (over = false)}
+    ondragleave={leave}
     ondrop={drop}
   >
     {#each buttons.current as button (button.id)}
@@ -60,8 +91,14 @@
         <button
           title={button.title}
           aria-label={button.title}
+          data-id={button.id}
           style:color={app.icons.css(button.color)}
           class:on={vertical && hosting.current === button.id}
+          class:land={landing === button.id}
+          class:lifted={drag.button === button.id}
+          draggable={!layout.mobile}
+          ondragstart={(event) => dragStart(event, button.id)}
+          ondragend={() => ((drag.button = null), (landing = undefined))}
           onclick={(event) => press(button, event)}
           oncontextmenu={(event) => app.menus.show(event, 'toolbar', { place, button: button.id })}
           use:icon={button.icon}
@@ -80,45 +117,24 @@
 
   .toolbar.vertical {
     flex-direction: column;
-    flex: none;
-    width: 44px;
     padding: 8px 0;
-    background: var(--bg-alt);
   }
 
-  .toolbar.vertical[data-place='left-ribbon'] {
-    border-right: 1px solid var(--border);
+  /* While a button is dragged, an empty strip still has room to take it. */
+  .toolbar:not(.vertical).receiving {
+    min-width: 28px;
+    min-height: 28px;
+    border-radius: var(--radius-m);
   }
 
-  .toolbar.vertical[data-place='right-ribbon'] {
-    border-left: 1px solid var(--border);
-  }
-
-  /* A strip with no buttons yet appears over the page while something is dragged, so nothing moves under the pointer. */
-  .toolbar.vertical.floating {
-    position: absolute;
-    top: 0;
-    bottom: 0;
-    z-index: 40;
-    opacity: 0.92;
-  }
-
-  .toolbar.vertical.floating[data-place='left-ribbon'] {
-    left: 0;
-  }
-
-  .toolbar.vertical.floating[data-place='right-ribbon'] {
-    right: 0;
-  }
-
-  /* While something is dragged that can become a button, the strip shows it is a place for it. */
-  .toolbar.vertical.receiving {
+  /* While something is dragged that can land here, the strip shows it is a place for it. */
+  .toolbar.receiving {
     outline: 2px dashed color-mix(in srgb, var(--accent) 55%, transparent);
-    outline-offset: -4px;
+    outline-offset: -3px;
   }
 
-  .toolbar.vertical.over {
-    background: color-mix(in srgb, var(--accent) 22%, var(--bg-alt));
+  .toolbar.over {
+    background: color-mix(in srgb, var(--accent) 18%, transparent);
   }
 
   button {
@@ -133,9 +149,41 @@
     font-size: 17px;
   }
 
+  /* A drop on an icon is not let through by Chrome: the button itself takes it. */
+  button > :global(*) {
+    pointer-events: none;
+  }
+
   button:hover {
     background: var(--bg-hover);
     filter: brightness(1.15);
+  }
+
+  button.lifted {
+    opacity: 0.4;
+  }
+
+  /* Where a dragged button would land: a line before a button, or after the last one. */
+  button.land {
+    box-shadow: -3px 0 0 -1px var(--accent);
+  }
+
+  .toolbar.vertical button.land {
+    box-shadow: 0 -3px 0 -1px var(--accent);
+  }
+
+  .toolbar.land-end::after {
+    content: '';
+    flex: none;
+    width: 2px;
+    height: 22px;
+    border-radius: 1px;
+    background: var(--accent);
+  }
+
+  .toolbar.vertical.land-end::after {
+    width: 22px;
+    height: 2px;
   }
 
   /* The button whose view is on screen: it is that view's tab. */
@@ -143,5 +191,15 @@
     background: color-mix(in srgb, var(--accent) 20%, transparent);
     box-shadow: inset 0 0 0 1px color-mix(in srgb, var(--accent) 55%, transparent);
     color: var(--text);
+  }
+
+  .toolbar[data-place='status-bar'] {
+    margin: -3px 0;
+  }
+
+  .toolbar[data-place='status-bar'] button {
+    width: 22px;
+    height: 22px;
+    font-size: 14px;
   }
 </style>

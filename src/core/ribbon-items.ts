@@ -53,13 +53,13 @@ export class RibbonItems {
     })
   }
 
-  /** Makes a button for a tab or a widget on the strip of `side`, and shows the thing in its place at once. */
-  add(path: string, side: Side, title?: string): void {
+  /** Makes a button for a tab or a widget on the strip of `side`, and shows the thing in its place at once. Returns the button's id. */
+  add(path: string, side: Side, title?: string): string {
     const { app } = this
     const leaf = app.workspace.leaves.find((one) => one.path === path)
     const panel = /^view:panel-(.+)$/.exec(path)?.[1]
     const name = title ?? leaf?.title ?? (panel ? app.panels.get(panel)?.title : undefined) ?? (path.startsWith('view:') ? path.slice(5) : extname(path) === 'md' ? stripExt(basename(path)) : basename(path))
-    let item = this.items.find((one) => one.path === path && one.side === side)
+    let item = this.items.find((one) => one.path === path)
     if (!item) {
       item = { id: `ribbon-item:${Date.now().toString(36)}${Math.random().toString(36).slice(2, 6)}`, side, path, title: name }
       this.items.push(item)
@@ -69,6 +69,7 @@ export class RibbonItems {
     // A plugin's tab that became a button does not stay a tab as well: it moves from the strip of tabs to the button.
     const made = item
     if (path.startsWith('view:')) app.workspace.withHost(made.id, () => this.activate(made))
+    return made.id
   }
 
   /** Puts a button for `path` on the strip of `side` if there is none for it on either strip; nothing is opened. */
@@ -88,6 +89,7 @@ export class RibbonItems {
     this.items = this.items.filter((item) => item.id !== id)
     this.offs.get(id)?.()
     this.offs.delete(id)
+    this.app.toolbars.forget(id)
     this.save()
   }
 

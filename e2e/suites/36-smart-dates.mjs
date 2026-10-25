@@ -6,7 +6,8 @@ const yearsAgo = (years, offset = 0) => {
   const d = new Date()
   d.setFullYear(d.getFullYear() - years)
   d.setDate(d.getDate() + offset)
-  return d.toISOString().slice(0, 10)
+  // The day where the app lives (the runner sets it), not in UTC: after midnight in Moscow UTC is still on the day before.
+  return `${d.getFullYear()}-${String(d.getMonth() + 1).padStart(2, '0')}-${String(d.getDate()).padStart(2, '0')}`
 }
 
 export const vault = {

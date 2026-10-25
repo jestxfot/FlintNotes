@@ -98,19 +98,3 @@
   display: inline-flex;
   vertical-align: middle;
 }
-
-/* Buttons in the status bar */
-.commander-status {
-  display: flex;
-  gap: 4px;
-}
-
-.commander-status button {
-  display: flex;
-  font-size: 14px;
-  color: var(--text-muted);
-}
-
-.commander-status button:hover {
-  color: var(--text);
-}
