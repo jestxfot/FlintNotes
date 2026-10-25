@@ -1,4 +1,5 @@
 import type { ExternalPluginInfo, RemoteEvent, VaultEntry, VaultInfo } from '../../shared/protocol'
+import { desktop } from './desktop'
 import { Events } from './events'
 import { join } from './path'
 
@@ -193,10 +194,13 @@ export class Vault extends Events<VaultEvents> {
 
   /** Whether the server starts by itself when the user signs in to the computer. */
   async autostart(): Promise<{ supported: boolean; enabled: boolean; file?: string; reason?: string }> {
+    // The desktop app starts with the system by the system's own list, which only the app reaches.
+    if (desktop) return { supported: true, ...(await desktop.autostart()) }
     return this.answer(await request('/api/autostart'))
   }
 
   async setAutostart(enabled: boolean): Promise<{ supported: boolean; enabled: boolean; file?: string }> {
+    if (desktop) return { supported: true, ...(await desktop.setAutostart(enabled)) }
     return this.answer(await request('/api/autostart', { method: 'POST', headers: { 'content-type': 'application/json' }, body: JSON.stringify({ enabled }) }))
   }
 
@@ -217,6 +221,7 @@ export class Vault extends Events<VaultEvents> {
 
   /** Stops the server, and with it the launcher that would start it again. */
   async quit(): Promise<void> {
+    if (desktop) return desktop.quit()
     await this.answer(await request('/api/quit', { method: 'POST' }))
   }
 

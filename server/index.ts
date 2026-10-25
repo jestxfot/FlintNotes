@@ -1,4 +1,4 @@
-import { serve } from '@hono/node-server'
+import { createAdaptorServer, serve } from '@hono/node-server'
 import chokidar from 'chokidar'
 import { Hono, type Context } from 'hono'
 import { HTTPException } from 'hono/http-exception'
@@ -6,7 +6,7 @@ import { stream, streamSSE } from 'hono/streaming'
 import { AsyncLocalStorage } from 'node:async_hooks'
 import { exec, execFile, spawn } from 'node:child_process'
 import { lookup } from 'node:dns/promises'
-import { existsSync, readFileSync, watch as fsWatch, type Stats } from 'node:fs'
+import { existsSync, readFileSync, rmSync, watch as fsWatch, type Stats } from 'node:fs'
 import fs from 'node:fs/promises'
 import type { Server } from 'node:http'
 import net from 'node:net'
@@ -61,6 +61,13 @@ chooseProxy(config.proxy ?? 'system')
 // FLINT_PORT (tests, development) wins over the port chosen in the settings; then that port can not be changed from the app.
 const fixedPort = process.env.FLINT_PORT ? Number(process.env.FLINT_PORT) : undefined
 let port = fixedPort ?? config.port ?? DEFAULT_PORT
+/**
+ * In the desktop app (server/desktop.ts) the server opens no port at all: it listens on a named pipe
+ * (a socket file elsewhere) that only the app's window process talks to. Everything else stays as it is.
+ */
+const PIPE = process.env.FLINT_PIPE
+/** Electron's channel to the desktop app, when the server runs as its utility process. */
+const parentPort = (process as unknown as { parentPort?: { on(event: 'message', listener: (message: { data: unknown }) => void): void; postMessage(message: unknown): void } }).parentPort
 // A vault named on the command line wins over the one used last time.
 let defaultRoot = path.resolve(process.argv[2] ?? process.env.FLINT_VAULT ?? config.current ?? 'vault')
 /**
@@ -436,6 +443,8 @@ api.post('/exec', async (c) => {
 // ---- starting with the computer: a small file where the system looks for programs to run at sign-in
 const AUTOSTART_DIR = process.env.FLINT_AUTOSTART_DIR
 function autostart(): { file: string; text: string; encoding: BufferEncoding } | { reason: string } {
+  // The desktop app starts with Windows by Windows' own means (server/desktop.ts), not by a script of the server's.
+  if (PIPE) return { reason: 'Приложение запускается вместе с Windows своими средствами' }
   const script = process.argv[1] ? path.resolve(process.argv[1]) : ''
   if (!script) return { reason: 'Не удалось определить, откуда запущен сервер' }
   // The same Node and the same program as now; the vault is the one opened last, so no folder is named.
@@ -493,7 +502,7 @@ api.post('/quit', (c) => {
 })
 
 // ---- the port: chosen in the settings, kept in the config with the vaults
-api.get('/port', (c) => c.json({ port, fixed: fixedPort !== undefined }))
+api.get('/port', (c) => c.json({ port, fixed: fixedPort !== undefined || !!PIPE }))
 
 const isFree = (wanted: number) =>
   new Promise<boolean>((resolve) => {
@@ -507,6 +516,7 @@ api.post('/port', async (c) => {
   if (!origin || new URL(origin).host !== c.req.header('host')) throw new HTTPException(403, { message: 'Только со страницы самого приложения' })
   const wanted = Number(((await c.req.json()) as { port?: unknown }).port)
   if (fixedPort !== undefined) throw new HTTPException(400, { message: `Порт задан при запуске (FLINT_PORT=${fixedPort}) и отсюда не меняется` })
+  if (PIPE) throw new HTTPException(400, { message: 'Приложению порт не нужен' })
   if (!validPort(wanted)) throw new HTTPException(400, { message: 'Порт — целое число от 1024 до 65535' })
   if (wanted !== port && !(await isFree(wanted))) throw new HTTPException(409, { message: `Порт ${wanted} занят другой программой` })
   config.port = wanted
@@ -769,7 +779,7 @@ api.get('/events', (c) => {
     listeners.add(send)
     stream.onAbort(() => void listeners.delete(send))
     // Which build answers: a page made by an older one reloads itself (see the launcher).
-    send({ type: 'hello', build: BUILD, updates: !!process.env.FLINT_LAUNCHER })
+    send({ type: 'hello', build: BUILD, updates: !!process.env.FLINT_LAUNCHER || process.env.FLINT_UPDATES === '1' })
     while (!stream.aborted && !stream.closed) {
       await stream.sleep(30_000)
       await stream.writeSSE({ event: 'ping', data: '' })
@@ -916,11 +926,21 @@ app.get('*', async (c) => {
   })
 })
 
-const server = serve({ fetch: app.fetch, port, hostname: '127.0.0.1' }, () => {
-  console.log(`FlintNotes: http://localhost:${port}`)
+const started = (where: string) => () => {
+  console.log(`FlintNotes: ${where}`)
   console.log(`Хранилище: ${defaultRoot}${needsPolling(defaultRoot) ? ' (опрос изменений)' : ''}`)
   if (!staticDir) console.log('Приложение не собрано: выполните `npm run build` или запустите `npm run dev`.')
-}) as Server
+  // The app sends the window's requests here from now on.
+  parentPort?.postMessage({ type: 'ready', build: BUILD })
+}
+
+let server: Server
+if (PIPE) {
+  // A socket file left by a server that fell over would keep the new one from listening (Windows pipes leave nothing).
+  if (process.platform !== 'win32') rmSync(PIPE, { force: true })
+  server = createAdaptorServer({ fetch: app.fetch }) as Server
+  server.listen(PIPE, started(`канал ${PIPE}`))
+} else server = serve({ fetch: app.fetch, port, hostname: '127.0.0.1' }, started(`http://localhost:${port}`)) as Server
 
 /** Moves the server to another port: the pages open now lose their connection and go to the new address themselves. */
 function listenOn(next: number): void {
@@ -932,7 +952,7 @@ function listenOn(next: number): void {
 // The port is taken: most likely FlintNotes is running already (started with the computer or a second
 // double-click). Then there is nothing to do; the one that runs serves the notes.
 server.on('error', (err: NodeJS.ErrnoException) => {
-  if (err.code !== 'EADDRINUSE') throw err
+  if (err.code !== 'EADDRINUSE' || PIPE) throw err
   const url = `http://localhost:${port}`
   void fetch(`${url}/api/autostart`, { signal: AbortSignal.timeout(3000) })
     .then((res) => res.json())
@@ -955,5 +975,7 @@ async function stop(): Promise<void> {
   process.exit(0)
 }
 process.on('message', (message) => message === 'stop' && void stop())
+// The same, from the desktop app when a new build replaces this server.
+parentPort?.on('message', (message) => message.data === 'stop' && void stop())
 // The launcher is gone (stopped, or the user signed out): the server goes with it instead of holding the port.
 process.on('disconnect', () => void stop())

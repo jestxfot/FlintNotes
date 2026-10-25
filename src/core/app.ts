@@ -27,6 +27,7 @@ import { VaultState } from './state'
 import { Settings, type SettingsSection } from './settings'
 import { StatusBar } from './status-bar'
 import type { SuggestOptions } from './suggest'
+import { desktop } from './desktop'
 import { connection, Vault, vaultAddress } from './vault'
 import { Workspace } from './workspace'
 
@@ -363,7 +364,9 @@ const buildSetting = (): SettingsSection['defs'][number] => ({
   group: 'Программа',
   section: 'Обновление',
   name: 'Сборка',
-  desc: 'После новой сборки (npm run release) программа запуска сама заменяет сервер, а открытые страницы перезагружаются сами, сохранив набранное: обновлять страницу вручную не нужно',
+  desc: desktop
+    ? 'После новой сборки (npm run release) приложение само заменяет сервер и перезагружает окно, сохранив набранное'
+    : 'После новой сборки (npm run release) программа запуска сама заменяет сервер, а открытые страницы перезагружаются сами, сохранив набранное: обновлять страницу вручную не нужно',
   type: 'custom',
   render: (el) => {
     const row = el.appendChild(document.createElement('div'))
@@ -379,7 +382,9 @@ const buildSetting = (): SettingsSection['defs'][number] => ({
             ? ''
             : server.updates
               ? 'Новые сборки подхватываются сами'
-              : 'Сервер запущен без программы запуска: новую сборку он не подхватит. Запускайте FlintNotes.vbs (или node release/launcher.mjs)',
+              : desktop
+                ? 'Приложение запущено без папки сборок: новую версию приносит новый установщик'
+                : 'Сервер запущен без программы запуска: новую сборку он не подхватит. Запускайте FlintNotes.vbs (или node release/launcher.mjs)',
         ]
           .filter(Boolean)
           .map((text) => Object.assign(document.createElement('small'), { textContent: text })),
@@ -399,7 +404,9 @@ const autostartSetting = (app: App): SettingsSection['defs'][number] => ({
   group: 'Программа',
   section: 'Запуск',
   name: 'Запускать вместе с компьютером',
-  desc: 'Сервер FlintNotes стартует при входе в систему, без окна, и все хранилища сразу доступны в браузере по своим адресам. Эта настройка одна на всю программу: она хранится на компьютере, а не в хранилище, и одинакова, какое бы хранилище ни было открыто',
+  desc: desktop
+    ? 'FlintNotes запускается при входе в Windows свёрнутым в область уведомлений: напоминания приходят, даже если окно ещё не открывали. Эта настройка одна на всю программу и одинакова, какое бы хранилище ни было открыто'
+    : 'Сервер FlintNotes стартует при входе в систему, без окна, и все хранилища сразу доступны в браузере по своим адресам. Эта настройка одна на всю программу: она хранится на компьютере, а не в хранилище, и одинакова, какое бы хранилище ни было открыто',
   type: 'custom',
   render: (el) => {
     const row = el.appendChild(document.createElement('label'))
@@ -412,7 +419,7 @@ const autostartSetting = (app: App): SettingsSection['defs'][number] => ({
     const show = (state: { supported: boolean; enabled: boolean; file?: string; reason?: string }) => {
       box.disabled = !state.supported
       box.checked = state.enabled
-      note.textContent = !state.supported ? (state.reason ?? 'Недоступно в этой системе') : state.enabled ? `Включено: ${state.file}` : 'Выключено'
+      note.textContent = !state.supported ? (state.reason ?? 'Недоступно в этой системе') : state.enabled ? (state.file ? `Включено: ${state.file}` : 'Включено') : 'Выключено'
     }
     const fail = (err: unknown) => (note.textContent = err instanceof Error ? err.message : String(err))
     void app.vault.autostart().then(show, fail)
@@ -478,7 +485,10 @@ export class App {
     this.panels.init()
     // Once only: the page may be set up again (a vault is switched), the list of settings is the same object.
     if (!coreSettings.defs.some((def) => def.key === 'panels')) coreSettings.defs.splice(coreSettings.defs.findIndex((def) => def.key === 'zoom'), 0, panelsSetting(this))
-    if (!coreSettings.defs.some((def) => def.key === 'autostart')) coreSettings.defs.push(autostartSetting(this), portSetting(this), proxySetting(this), buildSetting(), vaultsSetting(this))
+    if (!coreSettings.defs.some((def) => def.key === 'autostart')) coreSettings.defs.push(
+        // The desktop app has no port and no addresses to open in a browser.
+        ...(desktop ? [autostartSetting(this), proxySetting(this), buildSetting()] : [autostartSetting(this), portSetting(this), proxySetting(this), buildSetting(), vaultsSetting(this)]),
+      )
     this.settings.addSection(coreSettings)
     // One plain sign that the server is not answering, instead of an error from every part that asks it something.
     const down = this.statusBar.addItem()
@@ -565,14 +575,14 @@ export class App {
     })
     this.commands.add({
       id: 'core:quit',
-      name: 'Остановить FlintNotes',
+      name: desktop ? 'Выйти из FlintNotes' : 'Остановить FlintNotes',
       icon: 'power-off',
       // What is not saved yet goes to the server first, while it still listens.
       callback: () =>
         void Promise.all([this.workspace.flushAll(), this.state.flush()])
           .then(() => this.vault.quit())
           .then(
-            () => notice('FlintNotes остановлен. Запустить снова — FlintNotes.vbs', 10_000),
+            () => desktop || notice('FlintNotes остановлен. Запустить снова — FlintNotes.vbs', 10_000),
             (err) => notice(err instanceof Error ? err.message : String(err)),
           ),
     })

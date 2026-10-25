@@ -1,6 +1,7 @@
 <script lang="ts">
   import { mount, onMount, unmount } from 'svelte'
   import { formatHotkey, type Command } from '../core/commands'
+  import { cssColor, desktop } from '../core/desktop'
   import { errorMessage } from '../core/notice'
   import { connection } from '../core/vault'
   import { basename, dirname, extname, stripExt } from '../core/path'
@@ -121,7 +122,10 @@
   $effect(() => {
     if (theme.current === 'system') delete root.dataset.theme
     else root.dataset.theme = theme.current
+    paintTitleBar()
   })
+  /** In the desktop app the window's own buttons lie on the bar of tabs, in its colours. */
+  const paintTitleBar = () => desktop?.setTitleBarColors({ color: cssColor('var(--bg-alt)'), symbolColor: cssColor('var(--text)') })
   $effect(() => {
     root.style.setProperty('--editor-font-size', `${fontSize.current}px`)
   })
@@ -363,7 +367,8 @@
         event.preventDefault()
         return
       }
-      if (document.fullscreenElement && (event.ctrlKey || event.metaKey) && !event.altKey) {
+      // The desktop app has no browser around it to keep these keys: they are always the app's.
+      if ((document.fullscreenElement || desktop) && (event.ctrlKey || event.metaKey) && !event.altKey) {
         const id = LOCKED[`Mod+${event.shiftKey ? 'Shift+' : ''}${event.code === 'Tab' ? 'Tab' : event.code.replace(/^Key/, '')}`]
         if (id) {
           event.preventDefault()
@@ -381,7 +386,8 @@
       event.preventDefault()
       event.returnValue = ''
     }
-    window.addEventListener('beforeunload', onLeave)
+    // The desktop app has no such slip: Ctrl+W is the app's own, and it saves before it closes.
+    if (!desktop) window.addEventListener('beforeunload', onLeave)
     offs.push(() => window.removeEventListener('beforeunload', onLeave))
     // The server was replaced by a newer build (the launcher does it after `npm run release`): this page
     // is from the old one and may ask for files that are gone. It saves what it has and loads the new one.
@@ -403,6 +409,15 @@
       if (document.visibilityState !== 'hidden') return
       void workspace.flushAll(true)
       void app.state.flush(true)
+    }
+    if (desktop) {
+      // A theme set to «system» changes with the system's light and dark.
+      const scheme = matchMedia('(prefers-color-scheme: dark)')
+      scheme.addEventListener('change', paintTitleBar)
+      offs.push(() => scheme.removeEventListener('change', paintTitleBar))
+      // The app saves through the page before it quits or loads a new build; the tray menu runs commands.
+      desktop.onFlush(() => Promise.all([workspace.flushAll(), app.state.flush()]))
+      desktop.onCommand((id) => void app.commands.run(id))
     }
     offs.push(app.menus.on('show', (shown) => (menu = shown)))
     const closeMenu = () => (menu = null)

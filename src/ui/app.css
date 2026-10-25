@@ -803,3 +803,54 @@ input[type='checkbox']:disabled {
   font-size: inherit;
   font-weight: inherit;
 }
+
+/* ---- The desktop app (src/core/desktop.ts): the top row of the window is its title bar, as in Obsidian.
+   The window is moved by the empty places of the bar of tabs and of the sidebars' tops (a double click
+   maximises it); the system's own buttons lie over the right end of the row, where the page leaves room. */
+:root.desktop {
+  /* The width of the window's buttons: none in full screen, where they are gone. */
+  --window-controls: calc(100vw - env(titlebar-area-x, 0px) - env(titlebar-area-width, 100vw));
+}
+
+.desktop .tabbar,
+.desktop aside:not(.floating),
+.desktop aside:not(.floating) > section.group:first-of-type > .tabs {
+  -webkit-app-region: drag;
+  user-select: none;
+}
+
+/* What lies on those places is clicked, not dragged by. */
+.desktop .tabbar :is(button, .tab, a, input),
+.desktop aside:not(.floating) > *,
+.desktop aside:not(.floating) > section.group:first-of-type > .tabs > * {
+  -webkit-app-region: no-drag;
+}
+
+/* A sidebar's top row is as high as the bar of tabs; a sidebar with a lone widget (no row of its
+   tabs) gets an empty one, so the widget does not go up under the window's buttons. */
+.desktop aside:not(.floating) > section.group:first-of-type > .tabs {
+  min-height: 40px;
+  align-content: center;
+}
+
+.desktop aside:not(.floating):not(:has(> section.group:first-of-type > .tabs)) {
+  padding-top: 40px;
+}
+
+/* The right end of the row belongs to the window's buttons: in the right sidebar's top, or in the
+   bar of tabs when no right sidebar is there. */
+.desktop .app:not(:has(> aside.right:not(.floating))) .tabbar {
+  padding-right: calc(8px + var(--window-controls));
+}
+
+.desktop aside.right:not(.floating) > section.group:first-of-type > .tabs {
+  padding-right: calc(6px + var(--window-controls));
+}
+
+.desktop aside.right.floating {
+  top: 48px;
+}
+
+.desktop .toolbar.vertical[data-place='right-ribbon'] {
+  padding-top: 40px;
+}
