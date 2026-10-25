@@ -27,8 +27,8 @@ const ELECTRON = JSON.parse(fs.readFileSync(path.join(ROOT, 'node_modules', 'ele
 const build = JSON.parse(fs.readFileSync(path.join(RELEASE, 'build.json'), 'utf8')).id
 if (!fs.existsSync(path.join(RELEASE, 'desktop.mjs'))) throw new Error('Нет release/desktop.mjs: сначала npm run release')
 
-/** A path of WSL (/mnt/j/...) as Windows writes it (J:\...); elsewhere it stays as it is. */
-const windowsPath = (posix) => posix.replace(/^\/mnt\/([a-z])\//, (_, drive) => `${drive.toUpperCase()}:\\`).replace(/\//g, '\\')
+/** A path of WSL on a Windows drive (/mnt/j/...) as Windows writes it (J:\...); a folder Windows cannot see has none. */
+const windowsPath = (posix) => (/^\/mnt\/[a-z]\//.test(posix) ? posix.replace(/^\/mnt\/([a-z])\//, (_, drive) => `${drive.toUpperCase()}:\\`).replace(/\//g, '\\') : undefined)
 
 const sevenZip = (() => {
   const bin = path.join(ROOT, 'node_modules', '7zip-bin', 'linux', 'x64', '7za')

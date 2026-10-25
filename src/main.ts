@@ -26,6 +26,7 @@ try {
   // The shell registers its own parts (file list, core commands) when mounted.
   // Plugins load after that, so what they add comes second.
   flushSync()
+  document.getElementById('splash')?.remove()
   stage('shell')
   await app.plugins.init()
   stage('plugins')
@@ -39,6 +40,7 @@ try {
   // begins only now, so it cannot delay the notes the user is waiting to see.
   app.metadata.load()
 } catch (err) {
+  document.getElementById('splash')?.remove()
   target.innerHTML = '<div class="fatal"></div>'
   target.firstElementChild!.textContent = `Не удалось подключиться к серверу FlintNotes: ${errorMessage(err)}`
 }

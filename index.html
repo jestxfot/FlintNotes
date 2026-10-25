@@ -8,6 +8,24 @@
   </head>
   <body>
     <div id="app"></div>
+    <!-- While the vault loads: the logo, shown only if that takes more than a moment (src/main.ts removes it). -->
+    <div id="splash" aria-hidden="true"><img src="/favicon.svg" width="72" height="72" alt="" /></div>
+    <style>
+      #splash {
+        position: fixed;
+        inset: 0;
+        display: grid;
+        place-items: center;
+        opacity: 0;
+        pointer-events: none;
+        animation: splash-in 0.4s ease 0.25s forwards;
+      }
+      @keyframes splash-in {
+        to {
+          opacity: 0.85;
+        }
+      }
+    </style>
     <script type="module" src="/src/main.ts"></script>
   </body>
 </html>

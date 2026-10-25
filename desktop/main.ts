@@ -58,9 +58,9 @@ const note = (text: string) => logFile.write(`${new Date().toLocaleString('ru')}
 
 // A second start (a double click on the shortcut while the app runs) brings the window forward.
 // `--quit` is how the installer asks a running app to close before it replaces its files.
-const first = app.requestSingleInstanceLock()
-// Nothing to quit: the installer asks this whether or not the app is running.
-if (!first || process.argv.includes('--quit')) app.exit(0)
+// With `--quit` and no app running there is nothing to do: the installer asks it whether or not the app runs.
+const first = app.requestSingleInstanceLock() && !process.argv.includes('--quit')
+if (!first) app.exit(0)
 app.on('second-instance', (_event, argv) => (argv.includes('--quit') ? void quit() : showWindow()))
 
 protocol.registerSchemesAsPrivileged([{ scheme: 'flint', privileges: { standard: true, secure: true, supportFetchAPI: true, corsEnabled: true, stream: true, codeCache: true } }])
@@ -565,6 +565,7 @@ function checkShell(): void {
 let pending: { title: string; apply: () => void } | undefined
 function offer({ title, body, apply }: { title: string; body: string; apply: () => void }): void {
   pending = { title, apply }
+  note(`Предложено: ${title}`)
   buildTrayMenu()
   if (!Notification.isSupported()) return
   const shown = new Notification({ title, body, icon: icon(process.platform === 'win32' ? 'flintnotes.ico' : 'flintnotes.png') })
