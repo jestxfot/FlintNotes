@@ -387,9 +387,13 @@ export default class Templates extends Plugin {
       const hooks: Run['hooks'] = []
       const active = app.workspace.active?.path
       const folder = active && app.vault.get(active) ? paths.dirname(active) : ''
+      // Next to the open note, unless a plugin chooses another place for new notes.
+      const target = await app.creation.place({ origin: 'template', name: 'Без названия', folder, explicit: false })
+      // The user backed out of the question of where.
+      if (!target) return
       const made = await this.run(await app.vault.read(template), {
         template,
-        target: app.vault.uniquePath(folder, 'Без названия', 'md'),
+        target,
         mode: 'CreateNewFromTemplate',
         hooks,
       })

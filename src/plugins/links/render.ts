@@ -33,7 +33,15 @@ export async function follow(app: App, link: string, source: string): Promise<vo
     const name = path.normalize(day && !days ? path.join(path.dirname(source), expanded) : expanded)
     if (!name) return
     try {
-      dest = days ? await days.ensure('daily', day!) : ((await app.creation.create(path.extname(name) ? name : `${name}.md`))?.path ?? null)
+      if (days) dest = await days.ensure('daily', day!)
+      else {
+        // The folder a link names (`[[Folder/Note]]`) is the user's word; without one, where notes made from links go is a plugin's to say.
+        const file = path.extname(name) ? name : `${name}.md`
+        const base = path.basename(file)
+        const stem = path.stripExt(base)
+        const made = await app.creation.place({ origin: 'link', name: stem, ext: base.slice(stem.length + 1), folder: path.dirname(file), explicit: file.includes('/'), source })
+        dest = made ? ((await app.creation.create(made))?.path ?? null) : null
+      }
       if (!dest) return
     } catch (err) {
       app.notice(`Не удалось создать «${name}»: ${errorMessage(err)}`)

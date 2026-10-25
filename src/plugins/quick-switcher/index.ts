@@ -67,7 +67,9 @@ export default class QuickSwitcher extends Plugin {
           createLabel: (name) => `Создать заметку «${name}»`,
           onCreate: async (name) => {
             try {
-              const entry = await app.creation.create(`${path.normalize(name)}.md`)
+              const file = `${path.normalize(name)}.md`
+              const made = await app.creation.place({ origin: 'switcher', name: path.stripExt(path.basename(file)), folder: path.dirname(file), explicit: file.includes('/') })
+              const entry = made ? await app.creation.create(made) : null
               if (entry) app.workspace.openFile(entry.path)
             } catch (err) {
               app.notice(`Не удалось создать заметку: ${errorMessage(err)}`)

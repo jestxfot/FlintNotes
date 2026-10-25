@@ -58,7 +58,10 @@ export async function createRecord(app: App, filters: (FilterNode | undefined)[]
   if (defaults.tags.length) data.tags = defaults.tags
   const text = Object.keys(data).length ? `---\n${stringify(data)}---\n\n` : ''
   try {
-    const entry = await app.vault.create(app.vault.uniquePath(defaults.folder, 'Без названия', 'md'), text)
+    // The folder the base's filters ask for is the base's word; a plugin may still choose where new notes go.
+    const path = await app.creation.place({ origin: 'base', name: 'Без названия', folder: defaults.folder, explicit: !!defaults.folder })
+    if (!path) return
+    const entry = await app.vault.create(path, text)
     app.workspace.openFile(entry.path)
   } catch (err) {
     app.notice(`Не удалось создать запись: ${errorMessage(err)}`)

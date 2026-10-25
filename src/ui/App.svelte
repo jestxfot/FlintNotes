@@ -200,21 +200,19 @@
   }
 
   /** The folder new notes go to, as chosen in the settings. */
-  function newNoteFolder(): string {
-    const where = settings.get<string>('core', 'newNoteLocation')
-    const active = workspace.active?.path
-    if (where === 'current' && active && !active.startsWith('view:')) return dirname(active)
-    return where === 'folder' ? settings.get<string>('core', 'newNoteFolder').trim().replace(/^\/+|\/+$/g, '') : ''
-  }
 
   /** Makes a note and opens it. `inNewTab` is for the tab strip's "+", which always opens a tab of its own. */
   async function newNote(inNewTab = false) {
     // The "+" of the tabs may open a home page instead of a new note, if a plugin provides one.
     if (inNewTab && workspace.newTabPage?.()) return
     try {
-      const folder = newNoteFolder()
+      // Where it goes is the main settings' word, or a plugin's (the note-place plugin chooses for every way of making notes).
+      const path = await app.creation.place({ origin: 'new', name: 'Без названия', folder: app.creation.defaultFolder(), explicit: false })
+      // The user backed out of the question of where.
+      if (!path) return
+      const folder = dirname(path)
       if (folder && !app.vault.get(folder)) await app.vault.createFolder(folder)
-      const entry = await app.creation.create(app.vault.uniquePath(folder, 'Без названия', 'md'))
+      const entry = await app.creation.create(path)
       // No template was chosen, or one was not filled in to the end: there is no note.
       if (!entry) return
       workspace.openFile(entry.path, inNewTab || settings.get<string>('core', 'newNoteTab') === 'new' ? { newTab: true } : {})

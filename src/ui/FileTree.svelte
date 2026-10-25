@@ -154,10 +154,10 @@
 
   async function create(kind: VaultEntry['kind'], folder: string) {
     try {
-      const entry =
-        kind === 'file'
-          ? await app.creation.create(vault.uniquePath(folder, 'Без названия', 'md'))
-          : await vault.createFolder(vault.uniquePath(folder, 'Новая папка'))
+      // The folder was chosen by clicking on it; a plugin may still have a say in where notes go.
+      const path = kind === 'file' ? await app.creation.place({ origin: 'tree', name: 'Без названия', folder, explicit: true }) : null
+      if (kind === 'file' && !path) return
+      const entry = kind === 'file' ? await app.creation.create(path!) : await vault.createFolder(vault.uniquePath(folder, 'Новая папка'))
       if (!entry) return
       if (folder) expanded.add(folder)
       // The name field keeps the focus so the new item can be named right away.
