@@ -27,13 +27,13 @@ export async function follow(app: App, link: string, source: string): Promise<vo
     // `[[{{date+1d:YYYY-MM-DD}}]]` in a daily note names the next day's note, also when that is yet to be made.
     const expanded = app.metadata.expandTarget(file, source).trim()
     const day = expanded !== file.trim() ? moment(expanded) : null
-    // A neighbouring day belongs with the days: the calendar plugin, if it is on, makes
+    // A neighbouring day belongs with the days: the daily notes plugin, if it is on, makes
     // the note where daily notes go and from their template; otherwise it goes next to this one.
-    const days = day?.isValid() ? app.services.get<{ ensure(period: 'daily', date: Moment): Promise<string | null> }>('periodic-notes') : undefined
+    const days = day?.isValid() ? app.services.get<{ ensure(date: Moment): Promise<string | null> }>('daily-notes') : undefined
     const name = path.normalize(day && !days ? path.join(path.dirname(source), expanded) : expanded)
     if (!name) return
     try {
-      if (days) dest = await days.ensure('daily', day!)
+      if (days) dest = await days.ensure(day!)
       else {
         // The folder a link names (`[[Folder/Note]]`) is the user's word; without one, where notes made from links go is a plugin's to say.
         const file = path.extname(name) ? name : `${name}.md`

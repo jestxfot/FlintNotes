@@ -15,7 +15,7 @@ const cmdr = {
 export const viewport = { width: 1400, height: 900 }
 export const vault = {
   plugins: ['commander', 'graph', 'calendar', 'word-count', 'buttons', 'widgets', 'tasks'],
-  settings: { calendar: { openOnStart: false }, tasks: { remindDue: false } },
+  settings: { 'daily-notes': { openOnStart: false }, tasks: { remindDue: false } },
   files: {
     '.obsidian/app.json': '{}',
     '.obsidian/plugins/cmdr/data.json': JSON.stringify(cmdr),
@@ -33,7 +33,7 @@ export async function run(t) {
   ok('buttons of Commander appear, those of unknown commands are left out', (await ribbon.locator('button').count()) === 2 && (await ribbon.locator('button').first().getAttribute('title')) === 'Daily', await ribbon.locator('button').count())
   ok('a button keeps its colour and icon', (await ribbon.locator('button').first().evaluate((b) => b.style.color)) === 'rgb(98, 184, 249)' && (await ribbon.locator('button svg').count()) === 2)
   const saved = () => JSON.parse(read('.flint/commander.json'))
-  ok("the setup is stored in Commander's format with this app's command ids", saved().leftRibbon.map((p) => p.id).join() === 'calendar:today,graph:open' && saved().pageHeader[0].id === 'buttons:web-viewer' && saved().fileMenu.map((p) => p.id).join() === 'graph:open', JSON.stringify(saved()))
+  ok("the setup is stored in Commander's format with this app's command ids", saved().leftRibbon.map((p) => p.id).join() === 'daily-notes:today,graph:open' && saved().pageHeader[0].id === 'buttons:web-viewer' && saved().fileMenu.map((p) => p.id).join() === 'graph:open', JSON.stringify(saved()))
   await ribbon.locator('button[title="Graph"]').click()
   await wait(600)
   // The button is the tab of the view it opens: the graph is on screen, and the strip of tabs has no tab for it.
@@ -83,7 +83,7 @@ export async function run(t) {
   await ribbon.locator('button').nth(2).click({ button: 'right' })
   await page.locator('.menu button', { hasText: 'Сдвинуть к началу' }).click()
   await wait(600)
-  ok('a button can be moved', saved().leftRibbon.map((p) => p.id).join() === 'calendar:today,widgets:insert-clock,graph:open')
+  ok('a button can be moved', saved().leftRibbon.map((p) => p.id).join() === 'daily-notes:today,widgets:insert-clock,graph:open')
   await ribbon.locator('button').nth(1).click({ button: 'right' })
   await page.locator('.menu button', { hasText: 'Убрать кнопку' }).click()
   await wait(600)

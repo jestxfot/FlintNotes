@@ -88,7 +88,7 @@ try {
   }
 
   // ---- today's note, where plans and reminders live
-  const daily = await page.evaluate(() => app.services.get('periodic-notes')?.find('daily', window.moment ? window.moment() : null) ?? null).catch(() => null)
+  const daily = await page.evaluate(() => (window.moment && app.services.get('daily-notes')?.find(window.moment())) || null).catch(() => null)
   results.dailyNote = daily ? 'found' : 'none'
 
   // ---- bases

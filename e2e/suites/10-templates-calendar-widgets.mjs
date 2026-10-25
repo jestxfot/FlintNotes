@@ -105,10 +105,11 @@ export async function run(t) {
   const saved = settings()
   ok('template settings taken from Templater', saved.templates.folder === 'life/template' && saved.templates.scripts === 'life/scripts', JSON.stringify(saved.templates))
   ok('folder rules imported, deeper folder first', saved.templates.rules === 'life/Projects = life/template/Project.md\n/ = life/template/Note.md', saved.templates.rules)
-  ok('daily note settings taken from Obsidian', saved.calendar.dailyFormat === 'YYYY-MM/YYYY-MM-DD' && saved.calendar.dailyFolder === 'life/Calendar' && saved.calendar.dailyTemplate === 'life/template/Daily', JSON.stringify(saved.calendar))
+  const dailySettings = saved['daily-notes'] ?? {}
+  ok('daily note settings taken from Obsidian by their own plugin, switched on with the calendar', dailySettings.format === 'YYYY-MM/YYYY-MM-DD' && dailySettings.folder === 'life/Calendar' && dailySettings.template === 'life/template/Daily' && saved.core.enabledPlugins.includes('daily-notes'), JSON.stringify(saved))
 
   // ---- calendar widget ----
-  ok('the daily note is created and opened at start, as the Obsidian setting asks', saved.calendar.openOnStart === true && exists(`life/Calendar/${month}/${today}.md`) && (await t.activeTab()) === today, await t.activeTab().catch(() => 'no tab'))
+  ok('the daily note is created and opened at start, as the Obsidian setting asks', dailySettings.openOnStart === true && exists(`life/Calendar/${month}/${today}.md`) && (await t.activeTab()) === today, await t.activeTab().catch(() => 'no tab'))
   ok('calendar is a widget in the right sidebar', (await right.locator('.calendar').count()) === 1 && (await cell(today).getAttribute('class')).includes('today'))
   const dots = await cell(day(-1)).evaluate((el) => ({ filled: el.querySelectorAll('.dots i:not(.hollow)').length, hollow: el.querySelectorAll('.dots i.hollow').length }))
   ok('dots show how much is written and open tasks', dots.filled === 3 && dots.hollow === 1, JSON.stringify(dots))

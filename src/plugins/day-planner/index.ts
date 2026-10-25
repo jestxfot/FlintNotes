@@ -61,11 +61,11 @@ export default class DayPlanner extends Plugin {
     ])
     await this.importFromObsidian(false)
     const get = <T>(key: string) => this.getSetting<T>(key)
-    const periodic = () => app.services.get<{ find(period: 'daily', date: Moment): string | null; ensure(period: 'daily', date: Moment): Promise<string | null> }>('periodic-notes')
+    const daily = () => app.services.get<{ find(date: Moment): string | null; ensure(date: Moment): Promise<string | null> }>('daily-notes')
 
-    /** The note of a day: the one the calendar plugin knows, or any note named by the date. */
+    /** The note of a day: the one the daily notes plugin knows, or any note named by the date. */
     const noteOf = (day: Moment): string | null => {
-      const known = periodic()?.find('daily', day)
+      const known = daily()?.find(day)
       if (known) return known
       const name = `${day.format('YYYY-MM-DD')}.md`
       return app.vault.files().find((file) => paths.basename(file.path) === name)?.path ?? null
@@ -152,8 +152,8 @@ export default class DayPlanner extends Plugin {
       return end
     }
     const dayNote = async (day: Moment): Promise<string | null> => {
-      const file = noteOf(day) ?? (await periodic()?.ensure('daily', day)) ?? null
-      if (!file) app.notice('Нет заметки этого дня. Включите плагин «Календарь» или создайте заметку с датой в названии')
+      const file = noteOf(day) ?? (await daily()?.ensure(day)) ?? null
+      if (!file) app.notice('Нет заметки этого дня. Включите плагин «Ежедневные заметки» или создайте заметку с датой в названии')
       return file
     }
     /** Adds a block to the day's note under the plan's heading, making the note and the heading if need be. */

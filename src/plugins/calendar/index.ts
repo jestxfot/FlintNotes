@@ -9,15 +9,9 @@ const PANEL = 'calendar'
 export default class Calendar extends Plugin {
   async onload() {
     const { app } = this
-    const periodSettings = PERIODS.flatMap(({ period, label, format }): SettingDef[] => [
-      {
-        key: `${period}Format`,
-        name: `${label} заметка: имя`,
-        desc: period === 'daily' ? 'Дата в формате moment.js; может включать папки, например YYYY-MM/YYYY-MM-DD' : undefined,
-        type: 'text',
-        default: '',
-        placeholder: format,
-      },
+    // The daily note's are the «Ежедневные заметки» plugin's.
+    const periodSettings = PERIODS.filter(({ period }) => period !== 'daily').flatMap(({ period, label, format }): SettingDef[] => [
+      { key: `${period}Format`, name: `${label} заметка: имя`, type: 'text', default: '', placeholder: format },
       { key: `${period}Folder`, name: `${label} заметка: папка`, type: 'text', default: '' },
       { key: `${period}Template`, name: `${label} заметка: шаблон`, type: 'text', default: '' },
     ])
@@ -43,13 +37,6 @@ export default class Calendar extends Plugin {
         min: 1,
         max: 5000,
       },
-      {
-        key: 'openOnStart',
-        name: 'Открывать заметку дня при запуске',
-        desc: 'Если заметки на сегодня ещё нет, она создаётся по шаблону. Если приложение осталось открытым за полночь, заметка нового дня тоже создаётся сама',
-        type: 'toggle',
-        default: false,
-      },
       { key: 'boardField', section: 'Календарь во вкладке', name: 'На какой день ставить задачу', type: 'select', default: 'happens', options: [{ value: 'happens', label: 'Срок, иначе план, иначе начало' }, { value: 'due', label: 'Срок 📅' }, { value: 'scheduled', label: 'Запланировано ⏳' }, { value: 'start', label: 'Начало 🛫' }] },
       { key: 'boardTasks', section: 'Календарь во вкладке', name: 'Показывать задачи с датой из всех заметок', desc: 'Нужен плагин «Задачи»', type: 'toggle', default: true },
       { key: 'boardNote', section: 'Календарь во вкладке', name: 'Показывать задачи из заметки дня', type: 'toggle', default: true },
@@ -58,6 +45,7 @@ export default class Calendar extends Plugin {
       { key: 'boardLines', section: 'Календарь во вкладке', name: 'Строк в клетке месяца', type: 'number', default: 4, min: 1, max: 20 },
       ...periodSettings,
     ])
+    await this.moveDailyNotes()
     await this.importFromObsidian(false)
 
     const notes = new PeriodicNotes(this)
@@ -76,49 +64,46 @@ export default class Calendar extends Plugin {
       },
     })
 
-    const open = (period: Period, shift = 0) => void notes.open(period, moment().add(shift, period === 'daily' ? 'day' : period.replace('ly', '')))
-    this.addCommand({ id: 'today', name: 'Открыть заметку дня', hotkey: 'Alt+D', callback: () => open('daily') })
-    this.addCommand({ id: 'tomorrow', name: 'Открыть заметку на завтра', callback: () => open('daily', 1) })
-    this.addCommand({ id: 'yesterday', name: 'Открыть вчерашнюю заметку', callback: () => open('daily', -1) })
+    // The day's own commands (Alt+D and the like) are the «Ежедневные заметки» plugin's.
+    const open = (period: Period) => void notes.open(period, moment())
     this.addCommand({ id: 'week', name: 'Открыть заметку недели', callback: () => open('weekly') })
     this.addCommand({ id: 'month', name: 'Открыть заметку месяца', callback: () => open('monthly') })
     this.addCommand({ id: 'year', name: 'Открыть заметку года', callback: () => open('yearly') })
     this.addCommand({ id: 'show', name: 'Показать календарь', callback: () => app.panels.reveal(PANEL) })
-
-    // From a daily note, step to the day before or after it.
-    const step = (days: number) => {
-      const active = app.workspace.active?.path
-      const date = (active && notes.dateOf('daily', active)) || moment()
-      void notes.open('daily', date.add(days, 'day'))
-    }
-    this.addCommand({ id: 'next-day', name: 'Следующий день', hotkey: 'Mod+Alt+ArrowRight', callback: () => step(1) })
-    this.addCommand({ id: 'previous-day', name: 'Предыдущий день', hotkey: 'Mod+Alt+ArrowLeft', callback: () => step(-1) })
     this.addCommand({ id: 'import', name: 'Взять настройки календаря из Obsidian', callback: () => void this.importFromObsidian(true) })
-
-    if (this.getSetting<boolean>('openOnStart')) {
-      // Asked for in the settings, so today's note is created without a question.
-      // Plugins load before tabs are restored; the daily note opens after them, on top.
-      setTimeout(async () => {
-        const today = await notes.ensure('daily', moment())
-        if (today) app.workspace.openFile(today, { newTab: true })
-      })
-      // Obsidian only does this at launch. A tab left open overnight gets the new
-      // day's note too, without being switched away from what is on screen.
-      let day = moment().format('YYYY-MM-DD')
-      const timer = setInterval(async () => {
-        const now = moment().format('YYYY-MM-DD')
-        if (now === day || !this.getSetting<boolean>('openOnStart')) return
-        day = now
-        if (!notes.find('daily', moment()) && (await notes.ensure('daily', moment()))) app.notice(`Создана заметка дня ${now}`)
-      }, 60_000)
-      this.register(() => clearInterval(timer))
-    }
   }
 
   /**
-   * Copies the daily and periodic note settings of Obsidian (its Daily notes,
-   * Periodic Notes and Calendar plugins) from the vault, so both apps create
-   * the same notes in the same places. Done once by itself on first use.
+   * The daily note had its settings here until it got a plugin of its own,
+   * «Ежедневные заметки». Once, they move there, and that plugin is switched on
+   * beside the calendar, so the days stay where they were and Alt+D still works.
+   */
+  private async moveDailyNotes(): Promise<void> {
+    const { settings, plugins } = this.app
+    if (this.getSetting<boolean>('dailyMoved')) return
+    this.setSetting('dailyMoved', true)
+    const keys = { dailyFormat: 'format', dailyFolder: 'folder', dailyTemplate: 'template', openOnStart: 'openOnStart' }
+    for (const [old, key] of Object.entries(keys)) {
+      const value = this.getSetting(old)
+      if (value === undefined) continue
+      settings.set('daily-notes', key, value)
+      this.setSetting(old, undefined)
+    }
+    // Obsidian's daily note settings were taken already; they are not to be taken again over the user's own.
+    if (this.getSetting<boolean>('imported')) settings.set('daily-notes', 'imported', true)
+    // Stored first and enabled without storing: the list stored when this plugin is
+    // switched on must not be written while the other one is still loading.
+    const enabled = settings.get<string[] | undefined>('core', 'enabledPlugins') ?? []
+    if (enabled.includes('daily-notes')) return
+    settings.set('core', 'enabledPlugins', [...enabled, 'daily-notes'])
+    await plugins.enable('daily-notes', false)
+  }
+
+  /**
+   * Copies the periodic note settings of Obsidian (its Periodic Notes and
+   * Calendar plugins) from the vault, so both apps create the same notes in the
+   * same places. Done once by itself on first use. The daily note's are taken
+   * by the «Ежедневные заметки» plugin.
    */
   private async importFromObsidian(asked: boolean): Promise<void> {
     const { app } = this
@@ -132,12 +117,10 @@ export default class Calendar extends Plugin {
         return null
       }
     }
-    const daily = config ? await read('daily-notes.json') : null
     const periodic = config ? await read('plugins/periodic-notes/data.json') : null
     const calendar = config ? await read('plugins/calendar/data.json') : null
-    const core = config ? await read('app.json') : null
-    if (!daily && !periodic && !calendar) {
-      if (asked) app.notice('В хранилище не найдены настройки ежедневных заметок Obsidian')
+    if (!periodic && !calendar) {
+      if (asked) app.notice('В хранилище не найдены настройки календаря и периодических заметок Obsidian')
       return
     }
     const set = (period: Period, source: any) => {
@@ -146,8 +129,7 @@ export default class Calendar extends Plugin {
         if (source[key]) this.setSetting(`${period}${name}`, String(source[key]).replace(/\.md$/, ''))
       }
     }
-    set('daily', daily)
-    for (const { period } of PERIODS) set(period, periodic?.[period])
+    for (const { period } of PERIODS) if (period !== 'daily') set(period, periodic?.[period])
     if (calendar) {
       set('weekly', { format: calendar.weeklyNoteFormat, folder: calendar.weeklyNoteFolder, template: calendar.weeklyNoteTemplate })
       if (calendar.weekStart === 'sunday' || calendar.weekStart === 'monday') this.setSetting('weekStart', calendar.weekStart)
@@ -155,7 +137,6 @@ export default class Calendar extends Plugin {
       if (typeof calendar.wordsPerDot === 'number') this.setSetting('wordsPerDot', calendar.wordsPerDot)
       if (typeof calendar.showWeeklyNote === 'boolean') this.setSetting('weekNumbers', calendar.showWeeklyNote)
     }
-    if (core?.openBehavior === 'daily') this.setSetting('openOnStart', true)
     app.notice(`Настройки календаря взяты из Obsidian (${config})`)
   }
 }

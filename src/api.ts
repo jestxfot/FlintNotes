@@ -16,6 +16,7 @@ import * as view from '@codemirror/view'
 
 export type { App } from './core/app'
 export type { Command } from './core/commands'
+export { DatedNotes, type DatedNoteRule } from './core/dated-notes'
 export type {
   CodeBlockContext,
   CodeBlockInstance,

@@ -38,10 +38,10 @@ export const emptyData = (): CommanderData => ({ ...Object.fromEntries(PLACES.ma
 
 /** Commands of Obsidian and its plugins that have a twin here, for taking over a Commander setup. */
 const TWINS: Record<string, string> = {
-  'daily-notes': 'calendar:today',
-  'daily-notes:goto-next': 'calendar:next-day',
-  'daily-notes:goto-prev': 'calendar:previous-day',
-  'periodic-notes:open-daily-note': 'calendar:today',
+  'daily-notes': 'daily-notes:today',
+  'daily-notes:goto-next': 'daily-notes:next-day',
+  'daily-notes:goto-prev': 'daily-notes:previous-day',
+  'periodic-notes:open-daily-note': 'daily-notes:today',
   'periodic-notes:open-weekly-note': 'calendar:week',
   'periodic-notes:open-monthly-note': 'calendar:month',
   'graph:open': 'graph:open',
@@ -83,6 +83,33 @@ export function dropBuiltIn(data: CommanderData): boolean {
     const kept = data[place].filter((pair) => !ids.includes(pair.id))
     changed ||= kept.length !== data[place].length
     data[place] = kept
+  }
+  return changed
+}
+
+/** Commands that moved to another plugin, under their old ids. */
+const MOVED: Record<string, string> = {
+  'calendar:today': 'daily-notes:today',
+  'calendar:tomorrow': 'daily-notes:tomorrow',
+  'calendar:yesterday': 'daily-notes:yesterday',
+  'calendar:next-day': 'daily-notes:next-day',
+  'calendar:previous-day': 'daily-notes:previous-day',
+}
+
+/** Points buttons and macro steps made for a command that moved at its new id. Returns whether anything was changed. */
+export function renameMoved(data: CommanderData): boolean {
+  let changed = false
+  for (const place of PLACES) {
+    for (const pair of data[place]) {
+      if (!Object.hasOwn(MOVED, pair.id)) continue
+      pair.id = MOVED[pair.id]
+      changed = true
+    }
+  }
+  for (const step of data.macros.flatMap((macro) => macro.macro)) {
+    if (step.action !== 0 || !Object.hasOwn(MOVED, step.commandId)) continue
+    step.commandId = MOVED[step.commandId]
+    changed = true
   }
   return changed
 }

@@ -1,5 +1,5 @@
 import { errorMessage, pickLook, Plugin, type MenuItem, type ToolbarPlace, type VaultEntry } from '../../api'
-import { dropBuiltIn, emptyData, importData, PLACE_NAMES, PLACES, type CommanderData, type Macro, type Pair, type Place } from './data'
+import { dropBuiltIn, emptyData, importData, PLACE_NAMES, PLACES, renameMoved, type CommanderData, type Macro, type Pair, type Place } from './data'
 import './style.css'
 
 const FILE = '.flint/commander.json'
@@ -65,8 +65,9 @@ export default class Commander extends Plugin {
       const text = await this.app.vault.readOptional(FILE)
       if (text) {
         this.data = { ...emptyData(), ...JSON.parse(text) }
-        // A setup taken over earlier may still carry an item the menu has of its own.
-        if (dropBuiltIn(this.data)) await this.save()
+        // A setup taken over earlier may still carry an item the menu has of its own, or a command under an id it had before.
+        const dropped = dropBuiltIn(this.data)
+        if (renameMoved(this.data) || dropped) await this.save()
       } else await this.importFromObsidian(false)
     } catch (err) {
       this.app.notice(`Быстрые кнопки: не удалось прочитать ${FILE}: ${errorMessage(err)}`)
@@ -87,7 +88,7 @@ export default class Commander extends Plugin {
       this.data.leftRibbon = [
         { id: 'quick-switcher:open', icon: 'lucide-file-search', name: 'Быстрый переход', mode: 'any' },
         { id: 'graph:open', icon: 'lucide-git-fork', name: 'Граф связей', mode: 'any' },
-        { id: 'calendar:today', icon: 'lucide-calendar-days', name: 'Заметка дня', mode: 'any' },
+        { id: 'daily-notes:today', icon: 'lucide-calendar-days', name: 'Заметка дня', mode: 'any' },
         { id: 'templates:insert', icon: 'lucide-files', name: 'Вставить шаблон', mode: 'any' },
         { id: 'core:command-palette', icon: 'lucide-terminal', name: 'Палитра команд', mode: 'any' },
       ]
