@@ -10,7 +10,7 @@
     "build": "vite build",
     "start": "tsx server/index.ts",
     "release": "node scripts/release.mjs",
-    "installer": "node scripts/release.mjs && node scripts/installer.mjs",
+    "installer": "node scripts/publish-build.mjs",
     "check": "svelte-check --tsconfig ./tsconfig.json",
     "test": "vite build && node e2e/run.mjs"
   },

@@ -4,7 +4,7 @@
 //   publish/latest.json                            the version, and each system's file with its checksum
 // Both go to a release of the project on GitHub (tag v<version>); installed apps look for the newest
 // release's latest.json and update themselves from it (desktop/main.ts). A new release needs a new
-// `version` in package.json. Run `npm run release` before (`npm run installer` does both).
+// `version` in package.json. Run it as `npm run installer`, which builds from the last commit (scripts/publish-build.mjs).
 //
 // There is only this one, public installer: the app inside it runs its own copy of the build and nothing
 // of this computer's. The build fails if anything of this computer (its paths, its user) got into it.
@@ -71,7 +71,8 @@ const gitConfig = (key) => {
     return ''
   }
 }
-const personal = [ROOT, os.homedir(), gitConfig('user.name'), gitConfig('user.email')].filter((mark) => mark.length > 3)
+// Built from a copy of the commit (scripts/publish-build.mjs), the project's own folder is looked for too.
+const personal = [ROOT, process.env.FLINT_PROJECT ?? '', os.homedir(), gitConfig('user.name'), gitConfig('user.email')].filter((mark) => mark.length > 3)
 const walk = (dir) => fs.readdirSync(dir, { withFileTypes: true }).flatMap((entry) => (entry.isDirectory() ? walk(path.join(dir, entry.name)) : [path.join(dir, entry.name)]))
 
 /** What the app runs (resources/app): the stub and its own copy of the build, checked to carry nothing personal. */
