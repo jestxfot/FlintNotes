@@ -1,3 +1,5 @@
+// Before anything reads the time: dates in the app are Moscow time, not the computer's zone.
+import './core/timezone'
 import { flushSync, mount } from 'svelte'
 import * as api from './api'
 import { moment } from './core/moment'

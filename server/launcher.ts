@@ -22,7 +22,7 @@ const selfText = fs.readFileSync(self, 'utf8')
 // The log keeps about the last runs: one grown long is begun anew.
 if ((fs.statSync(LOG, { throwIfNoEntry: false })?.size ?? 0) > 1_000_000) fs.rmSync(LOG, { force: true })
 const log = fs.openSync(LOG, 'a')
-const note = (text: string) => fs.writeSync(log, `${new Date().toLocaleString('ru')}  ${text}\n`)
+const note = (text: string) => fs.writeSync(log, `${new Date().toLocaleString('ru', { timeZone: 'Europe/Moscow' })}  ${text}\n`)
 
 const buildId = (): string => {
   try {

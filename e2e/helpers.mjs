@@ -9,11 +9,11 @@ export const fixture = (name) => fs.readFileSync(path.join(ROOT, 'e2e/fixtures',
 
 const pad = (n) => String(n).padStart(2, '0')
 
-/** Today's date shifted by `offset` days, as `YYYY-MM-DD`. */
+/** Today's date in Moscow (the app's own time) shifted by `offset` days, as `YYYY-MM-DD`; the same on any computer. */
 export function day(offset = 0) {
-  const d = new Date()
-  d.setDate(d.getDate() + offset)
-  return `${d.getFullYear()}-${pad(d.getMonth() + 1)}-${pad(d.getDate())}`
+  const d = new Date(Date.now() + 3 * 3_600_000)
+  d.setUTCDate(d.getUTCDate() + offset)
+  return `${d.getUTCFullYear()}-${pad(d.getUTCMonth() + 1)}-${pad(d.getUTCDate())}`
 }
 
 /** A vault plugin that draws ```counter blocks as a number with a +1 button. */

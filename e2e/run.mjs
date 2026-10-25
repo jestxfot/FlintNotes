@@ -10,6 +10,11 @@ import { pathToFileURL } from 'node:url'
 import { chromium } from 'playwright'
 import { buildVault, ROOT, tools } from './helpers.mjs'
 
+// The app lives in Moscow time (src/core/timezone.ts). The suites work out dates themselves, so they run in it too,
+// while the browser is put in another zone on purpose (see `timezoneId` below): the app must not follow it.
+process.env.TZ = 'Europe/Moscow'
+const BROWSER_ZONE = process.env.FLINT_E2E_BROWSER_TZ || 'America/New_York'
+
 const filters = process.argv.slice(2)
 const LIMIT = 150_000
 const suites = fs
@@ -56,7 +61,7 @@ for (const [index, file] of suites.entries()) {
   else fs.rmSync(vault, { recursive: true })
   const port = 4710 + index
   const server = await startServer(vault, port)
-  const page = await browser.newPage({ viewport: suite.viewport ?? { width: 1300, height: 1000 } })
+  const page = await browser.newPage({ viewport: suite.viewport ?? { width: 1300, height: 1000 }, timezoneId: BROWSER_ZONE })
   const errors = []
   // A suite that cuts the connection on purpose says so, and the browser's own report of that is not a failure.
   page.on('console', (message) => message.type() === 'error' && !(suite.expectsNetworkErrors && (suite.expectsNetworkErrors instanceof RegExp ? suite.expectsNetworkErrors : /net::ERR_FAILED/).test(message.text())) && errors.push(message.text()))
