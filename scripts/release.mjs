@@ -33,6 +33,9 @@ for (const name of fs.existsSync(assets) ? fs.readdirSync(assets) : []) {
 
 const common = {
   bundle: true,
+  // node_modules may be a link (a build from a copy of a commit, scripts/publish-build.mjs): paths stay as seen from
+  // here, not where the link leads, which would write this computer's folders into the files.
+  preserveSymlinks: true,
   platform: 'node',
   target: 'node20',
   format: 'esm',
