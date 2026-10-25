@@ -22,6 +22,9 @@ if (location.protocol === 'flint:') {
     setAutostart: (enabled: boolean) => ipcRenderer.invoke('set-autostart', !!enabled),
     quit: () => ipcRenderer.send('quit'),
     show: () => ipcRenderer.send('show'),
+    updates: () => ipcRenderer.invoke('updates'),
+    setUpdates: (enabled: boolean) => ipcRenderer.invoke('set-updates', !!enabled),
+    checkUpdates: () => ipcRenderer.invoke('check-updates'),
     onFlush: (handler: () => Promise<unknown>) => void (save = handler),
     onCommand: (handler: (id: string) => void) => void (run = handler),
   })

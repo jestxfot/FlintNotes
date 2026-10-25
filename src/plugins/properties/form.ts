@@ -38,6 +38,8 @@ function convert(value: unknown, kind: Kind): unknown {
 }
 
 /** A value that is nothing but a link: `[[Note]]`, `[text](address)` or a web address. */
+/** The highest a list of suggestions grows (about nine rows): it must not cover the note being written. */
+const SUGGEST_HEIGHT = 330
 const LINKISH = /^(\[\[[^\]]+\]\]|\[[^\]]+\]\([^)]+\)|https?:\/\/\S+)$/
 
 const el = <K extends keyof HTMLElementTagNameMap>(tag: K, className = '', text = '') => {
@@ -269,7 +271,7 @@ export function propertiesForm(source: string, root: HTMLElement, ctx: CodeBlock
       popup.style.left = `${box.left}px`
       popup.style.top = `${box.bottom + 4}px`
       popup.style.minWidth = `${Math.max(260, box.width)}px`
-      popup.style.maxHeight = `${Math.max(120, window.innerHeight - box.bottom - 16)}px`
+      popup.style.maxHeight = `${Math.max(120, Math.min(SUGGEST_HEIGHT, window.innerHeight - box.bottom - 16))}px`
       for (const [name, { kind }] of names) {
         const row = popup.appendChild(el('button', 'props-suggest-row'))
         const look = ctx.app.icons.look('property', name)
@@ -327,7 +329,20 @@ export function propertiesForm(source: string, root: HTMLElement, ctx: CodeBlock
         }
       }
       const typed = input.value.trim().toLowerCase()
-      const values = [...counts].filter(([value]) => !typed || value.toLowerCase().includes(typed)).sort((a, b) => b[1] - a[1] || a[0].localeCompare(b[0])).slice(0, 40)
+      // The notes opened lately come first: those are the ones usually written into. Then the most used.
+      const recent = new Map(ctx.app.positions.recent().map((path, i) => [path, i]))
+      const lately = (value: string) => {
+        const link = /^\[\[([^\]|#]+)/.exec(value)
+        const dest = link ? ctx.app.metadata.resolve(link[1], ctx.path) : null
+        return (dest ? recent.get(dest) : undefined) ?? Infinity
+      }
+      const values = [...counts]
+        .filter(([value]) => !typed || value.toLowerCase().includes(typed))
+        .map(([value, count]) => ({ value, count, lately: lately(value) }))
+        .sort((a, b) => a.lately - b.lately || b.count - a.count || a.value.localeCompare(b.value))
+        // Before anything is typed, only a few: the list must not cover the note being written.
+        .slice(0, typed ? 40 : 7)
+        .map(({ value }) => [value])
       close()
       if (!values.length) return
       popup = document.body.appendChild(el('div', 'props-suggest'))
@@ -335,7 +350,7 @@ export function propertiesForm(source: string, root: HTMLElement, ctx: CodeBlock
       popup.style.left = `${box.left}px`
       popup.style.top = `${box.bottom + 4}px`
       popup.style.minWidth = `${Math.max(260, box.width)}px`
-      popup.style.maxHeight = `${Math.max(120, window.innerHeight - box.bottom - 16)}px`
+      popup.style.maxHeight = `${Math.max(120, Math.min(SUGGEST_HEIGHT, window.innerHeight - box.bottom - 16))}px`
       for (const [value] of values) {
         const link = /^\[\[([^\]|]+)(?:\|([^\]]+))?\]\]$/.exec(value)
         const row = popup.appendChild(el('button', 'props-suggest-row'))

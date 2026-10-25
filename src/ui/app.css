@@ -456,8 +456,9 @@ input[type='checkbox']:disabled {
   vertical-align: -0.12em;
 }
 
-/* The switch of "start with the computer" and the port in the settings, drawn by the core itself. */
+/* The switches of "start with the computer" and of the app's updates, and the port, in the settings, drawn by the core itself. */
 .autostart,
+.app-updates,
 .port-setting {
   display: flex;
   align-items: center;
@@ -487,13 +488,15 @@ input[type='checkbox']:disabled {
 }
 
 .autostart small,
+.app-updates small,
 .proxy-setting small,
 .port-setting small {
   color: var(--text-muted);
   overflow-wrap: anywhere;
 }
 
-.autostart-switch {
+.autostart-switch,
+.app-updates-switch {
   appearance: none;
   position: relative;
   flex: 0 0 38px;
@@ -505,7 +508,8 @@ input[type='checkbox']:disabled {
   transition: background 0.15s;
 }
 
-.autostart-switch::after {
+.autostart-switch::after,
+.app-updates-switch::after {
   content: '';
   position: absolute;
   top: 3px;
@@ -517,15 +521,18 @@ input[type='checkbox']:disabled {
   transition: transform 0.15s;
 }
 
-.autostart-switch:checked {
+.autostart-switch:checked,
+.app-updates-switch:checked {
   background: var(--accent);
 }
 
-.autostart-switch:checked::after {
+.autostart-switch:checked::after,
+.app-updates-switch:checked::after {
   transform: translateX(16px);
 }
 
-.autostart-switch:disabled {
+.autostart-switch:disabled,
+.app-updates-switch:disabled {
   opacity: 0.5;
   cursor: default;
 }

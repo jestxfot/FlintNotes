@@ -1,0 +1,5 @@
+{
+  "core": {
+    "enabledPlugins": ["properties", "links", "backlinks", "outline", "tags", "search", "quick-switcher", "graph", "tasks", "tables", "mermaid", "calendar", "word-count"]
+  }
+}

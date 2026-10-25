@@ -13,10 +13,24 @@ export interface DesktopBridge {
   quit(): void
   /** Brings the window out of the tray. */
   show(): void
+  /** The installed app's own updates (from the project's releases): whether they come by themselves, which version is waiting. */
+  updates(): Promise<DesktopUpdates>
+  setUpdates(enabled: boolean): Promise<DesktopUpdates>
+  /** Looks for a newer version now, whatever the setting; `result` says what was found. */
+  checkUpdates(): Promise<DesktopUpdates & { result: string }>
   /** The app asks the page to save what it has before it quits or loads a new build. */
   onFlush(save: () => Promise<unknown>): void
   /** A command chosen outside the page (the tray menu). */
   onCommand(run: (id: string) => void): void
+}
+
+export interface DesktopUpdates {
+  /** Only the installed app updates itself; a run from the sources does not. */
+  supported: boolean
+  enabled: boolean
+  version?: string
+  /** A newer version downloaded and waiting for «Обновить» or the next start. */
+  ready?: string
 }
 
 export const desktop: DesktopBridge | undefined = (window as Window & { flintDesktop?: DesktopBridge }).flintDesktop

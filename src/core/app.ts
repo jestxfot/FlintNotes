@@ -27,7 +27,7 @@ import { VaultState } from './state'
 import { Settings, type SettingsSection } from './settings'
 import { StatusBar } from './status-bar'
 import type { SuggestOptions } from './suggest'
-import { desktop } from './desktop'
+import { desktop, type DesktopUpdates } from './desktop'
 import { connection, Vault, vaultAddress } from './vault'
 import { Workspace } from './workspace'
 
@@ -399,6 +399,42 @@ const buildSetting = (): SettingsSection['defs'][number] => ({
   },
 })
 
+/** The installed desktop app's updates from the project's releases: by themselves, or only when asked. */
+const appUpdatesSetting = (): SettingsSection['defs'][number] => ({
+  key: 'appUpdates',
+  group: 'Программа',
+  section: 'Обновление',
+  name: 'Обновлять автоматически',
+  desc: 'FlintNotes сам смотрит новые версии на GitHub — при запуске и раз в 3 часа, загружает их в фоне и спрашивает, обновиться ли сейчас; если отложить, новая версия установится при следующем запуске. Выключено — ничего само не загружается и не ставится, проверить можно кнопкой',
+  type: 'custom',
+  render: (el) => {
+    const row = el.appendChild(document.createElement('div'))
+    row.className = 'app-updates'
+    const label = row.appendChild(document.createElement('label'))
+    const box = label.appendChild(document.createElement('input'))
+    box.type = 'checkbox'
+    box.className = 'switch app-updates-switch'
+    box.disabled = true
+    const check = row.appendChild(document.createElement('button'))
+    check.textContent = 'Проверить сейчас'
+    const note = row.appendChild(document.createElement('small'))
+    const show = (info: DesktopUpdates, result?: string) => {
+      box.disabled = check.disabled = !info.supported
+      box.checked = info.enabled
+      note.textContent = result || (!info.supported ? 'Обновления приходят только установленному приложению' : info.ready ? `Загружена версия ${info.ready}: она установится при следующем запуске` : `Версия ${info.version}`)
+    }
+    const fail = (err: unknown) => (note.textContent = err instanceof Error ? err.message : String(err))
+    void desktop?.updates().then((info) => show(info), fail)
+    box.onchange = () => void desktop?.setUpdates(box.checked).then((info) => show(info), fail)
+    check.onclick = () => {
+      check.disabled = true
+      note.textContent = 'Проверяю…'
+      void desktop?.checkUpdates().then((info) => show(info, info.result), fail)
+    }
+    return () => row.remove()
+  },
+})
+
 const autostartSetting = (app: App): SettingsSection['defs'][number] => ({
   key: 'autostart',
   group: 'Программа',
@@ -487,7 +523,7 @@ export class App {
     if (!coreSettings.defs.some((def) => def.key === 'panels')) coreSettings.defs.splice(coreSettings.defs.findIndex((def) => def.key === 'zoom'), 0, panelsSetting(this))
     if (!coreSettings.defs.some((def) => def.key === 'autostart')) coreSettings.defs.push(
         // The desktop app has no port and no addresses to open in a browser.
-        ...(desktop ? [autostartSetting(this), proxySetting(this), buildSetting()] : [autostartSetting(this), portSetting(this), proxySetting(this), buildSetting(), vaultsSetting(this)]),
+        ...(desktop ? [autostartSetting(this), proxySetting(this), appUpdatesSetting(), buildSetting()] : [autostartSetting(this), portSetting(this), proxySetting(this), buildSetting(), vaultsSetting(this)]),
       )
     this.settings.addSection(coreSettings)
     // One plain sign that the server is not answering, instead of an error from every part that asks it something.
@@ -573,6 +609,13 @@ export class App {
             (err) => notice(err instanceof Error ? err.message : String(err)),
           ),
     })
+    if (desktop)
+      this.commands.add({
+        id: 'core:check-updates',
+        name: 'Проверить обновления FlintNotes',
+        icon: 'refresh-cw',
+        callback: () => void desktop?.checkUpdates().then((info) => notice(info.result || 'Проверено'), (err) => notice(err instanceof Error ? err.message : String(err))),
+      })
     this.commands.add({
       id: 'core:quit',
       name: desktop ? 'Выйти из FlintNotes' : 'Остановить FlintNotes',

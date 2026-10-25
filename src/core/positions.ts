@@ -46,6 +46,11 @@ export class NotePositions {
     return this.all().get(path)
   }
 
+  /** The notes opened lately, the latest first (as many as places are kept). */
+  recent(): string[] {
+    return [...this.all().keys()].reverse()
+  }
+
   put(path: string, place: NotePosition): void {
     const all = this.all()
     // The latest goes last: the order is the order of use, and the oldest are dropped first.

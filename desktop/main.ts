@@ -12,7 +12,7 @@
  * - It starts with Windows by Windows' own list (hidden, in the tray), and takes over from the old
  *   background server of the browser version (release/launcher.mjs) where that one is still running.
  */
-import { app, BrowserWindow, clipboard, dialog, ipcMain, Menu, nativeImage, net, protocol, screen, session, shell, Tray, utilityProcess, type IpcMainEvent, type IpcMainInvokeEvent, type MenuItemConstructorOptions, type UtilityProcess } from 'electron'
+import { app, BrowserWindow, clipboard, dialog, ipcMain, Menu, nativeImage, net, Notification, protocol, screen, session, shell, Tray, utilityProcess, type IpcMainEvent, type IpcMainInvokeEvent, type MenuItemConstructorOptions, type UtilityProcess } from 'electron'
 import { spawn } from 'node:child_process'
 import { createHash } from 'node:crypto'
 import fs from 'node:fs'
@@ -54,7 +54,8 @@ const LOG = path.join(app.getPath('userData'), 'flintnotes.log')
 fs.mkdirSync(path.dirname(LOG), { recursive: true })
 if ((fs.statSync(LOG, { throwIfNoEntry: false })?.size ?? 0) > 1_000_000) fs.rmSync(LOG, { force: true })
 const logFile = fs.createWriteStream(LOG, { flags: 'a' })
-const note = (text: string) => logFile.write(`${new Date().toLocaleString('ru')}  ${text}\n`)
+// Written at once: the last words before the app exits (an update being put in) must not stay in a buffer.
+const note = (text: string) => fs.appendFileSync(LOG, `${new Date().toLocaleString('ru')}  ${text}\n`)
 
 // A second start (a double click on the shortcut while the app runs) brings the window forward.
 // `--quit` is how the installer asks a running app to close before it replaces its files.
@@ -87,8 +88,8 @@ function startServer(): Promise<Server> {
   const child = utilityProcess.fork(SERVER, [], {
     // The default vault (`vault`) lies next to the build, as for the launcher.
     cwd: BUNDLED ? os.homedir() : path.dirname(here),
-    // A copy installed on its own (no project's folder) starts its first vault among the user's documents.
-    env: { ...process.env, FLINT_PIPE: pipe, FLINT_UPDATES: BUNDLED ? '0' : '1', ...(BUNDLED ? { FLINT_FIRST_VAULT: path.join(app.getPath('documents'), 'FlintNotes') } : {}) },
+    // Until the user opens a vault of their own, the sandbox is the one opened.
+    env: { ...process.env, FLINT_PIPE: pipe, FLINT_UPDATES: BUNDLED ? '0' : '1', ...(fs.existsSync(SANDBOX) ? { FLINT_FIRST_VAULT: SANDBOX } : {}) },
     stdio: 'pipe',
     serviceName: 'FlintNotes server',
   })
@@ -207,8 +208,12 @@ interface WindowState {
   maximized?: boolean
   /** The bar's colours, for the next start to open in them without a flash. */
   colors?: { color: string; symbolColor: string }
-  /** The newest version an update was tried for: it is not tried again. */
+  /** The newest version an update was tried for: it is not tried again by itself. */
   updateTried?: string
+  /** Updates are looked for, downloaded and put in by themselves (Программа → Обновление); on unless switched off. */
+  autoUpdate?: boolean
+  /** A newer version downloaded and checked, waiting for the user's word or the next start. */
+  ready?: { setup: string; version: string; sha256: string }
 }
 const STATE = path.join(app.getPath('userData'), 'window.json')
 const state: WindowState = (() => {
@@ -346,7 +351,8 @@ function setAutostart(enabled: boolean): boolean {
     if (!enabled) fs.rmSync(LINUX_AUTOSTART, { force: true })
     else {
       fs.mkdirSync(path.dirname(LINUX_AUTOSTART), { recursive: true })
-      const command = [process.execPath, ...process.argv.slice(1).filter((arg) => !arg.startsWith('--')), ...loginArgs].map((part) => `"${part.replace(/(["\\$`])/g, '\\$1')}"`).join(' ')
+      // An AppImage runs from a new place each time: what starts it is the AppImage's own file.
+      const command = [...(process.env.APPIMAGE ? [process.env.APPIMAGE] : [process.execPath, ...process.argv.slice(1).filter((arg) => !arg.startsWith('--'))]), ...loginArgs].map((part) => `"${part.replace(/(["\\$`])/g, '\\$1')}"`).join(' ')
       fs.writeFileSync(LINUX_AUTOSTART, `[Desktop Entry]\nType=Application\nName=FlintNotes\nExec=${command}\nTerminal=false\n`)
     }
   } else {
@@ -356,6 +362,18 @@ function setAutostart(enabled: boolean): boolean {
   }
   buildTrayMenu()
   return autostart()
+}
+
+// ---- the sandbox: a vault of examples to try anything in, as Obsidian has. It is made anew from its template
+// (release/sandbox, from desktop/sandbox) at every start, so nothing done in it lasts.
+const SANDBOX = path.join(app.getPath('userData'), 'Песочница')
+function freshSandbox(): void {
+  const template = path.join(here, 'sandbox')
+  if (!fs.existsSync(template)) return
+  // Only a folder the app made itself is emptied: it carries the template's mark.
+  if (fs.existsSync(SANDBOX) && !fs.existsSync(path.join(SANDBOX, '.flint', 'sandbox'))) return void note(`${SANDBOX} — не песочница приложения, не трогаю`)
+  fs.rmSync(SANDBOX, { recursive: true, force: true })
+  fs.cpSync(template, SANDBOX, { recursive: true })
 }
 
 // ---- the browser version's background server (release/launcher.mjs): the app takes its place
@@ -415,6 +433,7 @@ app.on('login', (event, _webContents, _details, authInfo, callback) => {
 function buildTrayMenu(): void {
   if (!tray) return
   const items: MenuItemConstructorOptions[] = [
+    ...(state.ready ? [{ label: `Обновить до версии ${state.ready.version}`, click: () => (showWindow(), void askToUpdate()) }, { type: 'separator' as const }] : []),
     { label: 'Открыть FlintNotes', click: showWindow },
     { label: 'Новая заметка', click: () => (showWindow(), win?.webContents.send('command', 'core:new-note')) },
     { label: 'Палитра команд', click: () => (showWindow(), win?.webContents.send('command', 'core:command-palette')) },
@@ -486,6 +505,15 @@ ipcMain.handle('autostart', (event) => (trusted(event) ? { enabled: autostart() 
 ipcMain.handle('set-autostart', (event, enabled: unknown) => (trusted(event) ? { enabled: setAutostart(!!enabled) } : null))
 ipcMain.on('quit', (event) => trusted(event) && void quit())
 ipcMain.on('show', (event) => trusted(event) && showWindow())
+ipcMain.handle('updates', (event) => (trusted(event) ? updateInfo() : null))
+ipcMain.handle('set-updates', (event, enabled: unknown) => {
+  if (!trusted(event)) return null
+  state.autoUpdate = !!enabled
+  saveStateNow()
+  if (enabled) void checkForUpdate()
+  return updateInfo()
+})
+ipcMain.handle('check-updates', async (event) => (trusted(event) ? { ...updateInfo(), result: await checkForUpdate(true) } : null))
 
 // ---- new builds: the server is replaced; a new app (this file, the preload) means starting again
 const buildId = () => {
@@ -515,13 +543,24 @@ function restart(): void {
 }
 
 // ---- updates of the installed app: the newest release of the project on GitHub (scripts/installer.mjs makes
-// its installer and latest.json). The app looks at start and every few hours; a newer version is downloaded,
-// checked against its checksum and installed silently, and the app starts again the way it was.
-interface Latest {
-  version: string
+// its installer and latest.json). The app looks soon after start and every few hours; a newer version is
+// downloaded and checked against its checksum, and the user is asked: one click on «Обновить» saves what is
+// typed, installs it silently and starts the app again the way it was.
+interface Asset {
   file: string
   sha256: string
 }
+/** The newest release: its version and, for each system, the file that brings it. */
+interface Latest {
+  version: string
+  windows?: Asset
+  linux?: Asset
+}
+/**
+ * What a new version comes as here: on Windows an installer (run silently), on Linux the AppImage itself,
+ * which takes the place of the one running (its path is in APPIMAGE). Elsewhere nothing updates itself.
+ */
+const SYSTEM = process.platform === 'win32' ? ({ key: 'windows', file: /^FlintNotes-Setup-[\w.-]+\.exe$/ } as const) : process.platform === 'linux' && process.env.APPIMAGE ? ({ key: 'linux', file: /^FlintNotes-[\w.-]+\.AppImage$/ } as const) : undefined
 const FEED = process.env.FLINT_UPDATE_FEED ?? 'https://github.com/jestxfot/FlintNotes/releases/latest/download/latest.json'
 /** The installed app's version (desktop/stub.cjs says where it is written); a run from the sources has none and updates nothing. */
 const ownVersion = (() => {
@@ -537,41 +576,135 @@ const isNewer = (version: string, than: string) => {
   return false
 }
 
+/** Where downloaded installers wait to be put in: the app's own folder, which the system does not clean as it does temp. */
+const DOWNLOADS = path.join(app.getPath('userData'), 'updates')
+const sha256Of = (file: string) => createHash('sha256').update(fs.readFileSync(file)).digest('hex')
+const autoUpdates = () => state.autoUpdate !== false
+const saveStateNow = () => fs.writeFileSync(STATE, JSON.stringify(state, null, 2))
+
+/** What the settings show about updates. */
+const updateInfo = () => ({ supported: !!ownVersion && !!SYSTEM, enabled: autoUpdates(), version: ownVersion, ready: state.ready?.version })
+
 let checking = false
-async function checkForUpdate(): Promise<void> {
-  if (!ownVersion || checking || quitting) return
+/**
+ * Looks for a newer release and downloads it (once). The app's own looks happen only with updates on;
+ * the user's «Проверить» always. The answer is for the settings: what was found.
+ */
+async function checkForUpdate(manual = false): Promise<string> {
+  if (!ownVersion || !SYSTEM) return 'Обновления приходят только установленному приложению'
+  if ((!manual && !autoUpdates()) || checking || quitting) return ''
   checking = true
   try {
     // Through the app's own session: the same proxy as the window's.
     const answer = await net.fetch(FEED, { cache: 'no-store' })
-    // No release yet (404) is not worth a word.
-    if (!answer.ok) return void (answer.status !== 404 && note(`Обновления: ${FEED} ответил ${answer.status}`))
+    if (answer.status === 404) return 'Опубликованных версий пока нет'
+    if (!answer.ok) throw new Error(`${FEED} ответил ${answer.status}`)
     const latest = (await answer.json()) as Latest
-    if (typeof latest?.version !== 'string' || !isNewer(latest.version, ownVersion)) return
+    if (typeof latest?.version !== 'string' || !isNewer(latest.version, ownVersion)) return `Установлена последняя версия (${ownVersion})`
     // A version that was installed and did not take (the app is still the old one) is not tried again and again.
-    if (state.updateTried === latest.version) return void note(`Версия ${latest.version} уже ставилась и не встала: работаю на ${ownVersion}`)
-    if (!/^FlintNotes-Setup-[\w.-]+\.exe$/.test(latest.file) || !/^[0-9a-f]{64}$/.test(latest.sha256)) return void note(`Обновления: непонятный latest.json ${JSON.stringify(latest)}`)
-    note(`Загружаю обновление ${ownVersion} → ${latest.version}`)
-    const download = await net.fetch(new URL(latest.file, FEED).href)
-    if (!download.ok) throw new Error(`установщик не загрузился (${download.status})`)
-    const bytes = Buffer.from(await download.arrayBuffer())
-    if (createHash('sha256').update(bytes).digest('hex') !== latest.sha256) throw new Error('контрольная сумма установщика не сошлась')
-    const setup = path.join(app.getPath('temp'), latest.file)
-    fs.writeFileSync(setup, bytes, { mode: 0o755 })
-    install(setup, latest.version)
+    if (state.updateTried === latest.version && !manual) return void note(`Версия ${latest.version} уже ставилась и не встала: работаю на ${ownVersion}`), ''
+    const asset = latest[SYSTEM.key]
+    if (!asset) return `Версия ${latest.version} вышла без сборки для этой системы`
+    if (!SYSTEM.file.test(asset.file) || !/^[0-9a-f]{64}$/.test(asset.sha256)) throw new Error(`непонятный latest.json ${JSON.stringify(latest)}`)
+    // Downloaded once: a «later» is asked again from the same file, and the next start puts it in.
+    const setup = path.join(DOWNLOADS, asset.file)
+    if (state.ready?.version !== latest.version || !fs.existsSync(setup) || sha256Of(setup) !== asset.sha256) {
+      note(`Загружаю обновление ${ownVersion} → ${latest.version}`)
+      const download = await net.fetch(new URL(asset.file, FEED).href)
+      if (!download.ok) throw new Error(`новая версия не загрузилась (${download.status})`)
+      const bytes = Buffer.from(await download.arrayBuffer())
+      if (createHash('sha256').update(bytes).digest('hex') !== asset.sha256) throw new Error('контрольная сумма новой версии не сошлась')
+      fs.rmSync(DOWNLOADS, { recursive: true, force: true })
+      fs.mkdirSync(DOWNLOADS, { recursive: true })
+      fs.writeFileSync(setup, bytes, { mode: 0o755 })
+      state.ready = { setup, version: latest.version, sha256: asset.sha256 }
+      saveStateNow()
+      buildTrayMenu()
+    }
+    offerUpdate()
+    return `Загружена версия ${latest.version}`
   } catch (err) {
     note(`Обновление не удалось: ${(err as Error).message}`)
+    return `Не удалось: ${(err as Error).message}`
   } finally {
     checking = false
   }
 }
 
-/** Runs the installer silently; it closes this app (which saves first) and starts the new one, the way this one was. */
-function install(setup: string, version: string): void {
+/**
+ * At start, before anything else: a newer version downloaded earlier and not taken then («Позже», or the
+ * computer was turned off) is put in now, with no question; the app comes back the way it was started.
+ */
+function installWaiting(): boolean {
+  const waiting = state.ready
+  if (!waiting || !ownVersion || !SYSTEM) return false
+  const usable = isNewer(waiting.version, ownVersion) && fs.existsSync(waiting.setup) && sha256Of(waiting.setup) === waiting.sha256
+  if (!usable) {
+    // Put in already (this is the new version), or spoilt: it goes.
+    delete state.ready
+    saveStateNow()
+    fs.rmSync(DOWNLOADS, { recursive: true, force: true })
+    return false
+  }
+  if (!autoUpdates() || state.updateTried === waiting.version) return false
+  install(waiting.setup, waiting.version, process.argv.includes('--hidden'))
+  return true
+}
+
+let asking = false
+
+/** With the window open the user is asked at once; in the tray, a notification asks to open the question. */
+function offerUpdate(): void {
+  const waiting = state.ready
+  if (!waiting || asking || quitting) return
+  if (win?.isVisible()) return void askToUpdate()
+  note(`Обновление ${waiting.version} ждёт ответа или следующего запуска`)
+  if (!Notification.isSupported()) return
+  const shown = new Notification({ title: `Доступна новая версия FlintNotes ${waiting.version}`, body: 'Щёлкните, чтобы обновить сейчас. Иначе она установится при следующем запуске', icon: icon(process.platform === 'win32' ? 'flintnotes.ico' : 'flintnotes.png') })
+  shown.on('click', () => (showWindow(), askToUpdate()))
+  shown.show()
+}
+
+async function askToUpdate(): Promise<void> {
+  const waiting = state.ready
+  if (!waiting || asking || quitting) return
+  asking = true
+  const options = {
+    type: 'info' as const,
+    title: 'Обновление FlintNotes',
+    message: `Доступна новая версия FlintNotes ${waiting.version}`,
+    detail: `Сейчас у вас ${ownVersion}. Новая версия уже загружена и проверена: FlintNotes сохранит набранное, установит её и откроется снова. Если отложить, она установится сама при следующем запуске.`,
+    buttons: ['Обновить', 'Позже'],
+    defaultId: 0,
+    cancelId: 1,
+    noLink: true,
+  }
+  const { response } = await (win ? dialog.showMessageBox(win, options) : dialog.showMessageBox(options))
+  asking = false
+  if (response === 0 && state.ready?.version === waiting.version) return install(waiting.setup, waiting.version, !win?.isVisible())
+  note(`Обновление ${waiting.version} отложено до следующего запуска`)
+}
+
+/**
+ * Puts the new version in and starts it the way this one was (with its window, or in the tray). On Windows the
+ * installer does it, silently, closing this app (which saves first); on Linux the new AppImage takes the old one's place.
+ */
+function install(setup: string, version: string, hidden: boolean): void {
   note(`Ставлю обновление ${version}`)
   state.updateTried = version
-  fs.writeFileSync(STATE, JSON.stringify(state, null, 2))
-  spawn(setup, ['/S', '--run', ...(win?.isVisible() ? [] : ['--hidden'])], { detached: true, stdio: 'ignore' }).unref()
+  saveStateNow()
+  const appImage = process.env.APPIMAGE
+  if (process.platform === 'linux' && appImage) {
+    try {
+      // Beside it first, then in its place at once: a half-written AppImage would not start.
+      fs.copyFileSync(setup, `${appImage}.new`)
+      fs.chmodSync(`${appImage}.new`, 0o755)
+      fs.renameSync(`${appImage}.new`, appImage)
+    } catch (err) {
+      return void note(`Обновление не встало: ${(err as Error).message}`)
+    }
+    app.relaunch({ execPath: appImage, args: hidden ? ['--hidden'] : [] })
+  } else spawn(setup, ['/S', '--run', ...(hidden ? ['--hidden'] : [])], { detached: true, stdio: 'ignore' }).unref()
   void quit()
 }
 
@@ -601,9 +734,16 @@ void app.whenReady().then(async () => {
   if (!first) return
   note(`Запуск: ${process.execPath} ${process.argv.slice(1).join(' ')} (сборка ${build || 'для разработки'}${BUNDLED ? ', своя копия' : `, из ${here}`})`)
   Menu.setApplicationMenu(null)
+  // A version downloaded before is put in before anything else starts; the app then comes back as the new one.
+  if (installWaiting()) return
   markShortcut()
   await takeOver().catch((err) => note(`Не удалось сменить прежний сервер: ${err.message}`))
   if (legacyLogin().length) note(`Запуск вместе с Windows записан заново: ${setAutostart(true) ? 'включён' : 'не включился'}`)
+  try {
+    freshSandbox()
+  } catch (err) {
+    note(`Песочница не обновилась: ${(err as Error).message}`)
+  }
   current = startServer()
   current.catch(failed)
   applyProxy()
@@ -618,7 +758,8 @@ void app.whenReady().then(async () => {
     return url.pathname.startsWith('/api/') ? forward(request, url) : staticFile(url.pathname)
   })
   createTray()
-  void checkForUpdate()
+  // A few seconds after start, not to compete with opening the vault; then every few hours.
+  setTimeout(() => void checkForUpdate(), Number(process.env.FLINT_UPDATE_DELAY ?? 5000))
   setInterval(() => void checkForUpdate(), 3 * 3_600_000)
   win = createWindow()
 })

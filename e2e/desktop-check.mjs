@@ -160,26 +160,76 @@ try {
   spawn(electron, ['--no-sandbox', path.join(out, 'desktop.mjs'), '--quit'], { env, stdio: 'ignore' })
   await until(() => readLog().split('Запуск:').at(-1).includes('остановился'))
 
-  // The installed app's update of itself: a newer release (a local server here, in GitHub's place) is
-  // downloaded, checked against its checksum and installed silently, the app stepping aside; and only once.
-  const ran = path.join(dir, 'installer-ran')
-  const setupText = `#!/bin/sh\necho "$@" >> '${ran}'\n`
-  const latest = { version: '9.9.9', file: 'FlintNotes-Setup-9.9.9.exe', sha256: createHash('sha256').update(setupText).digest('hex') }
+  // The installed app's update of itself: a newer release (a local server here, in GitHub's place) is downloaded
+  // and checked, and the user is asked. «Позже» leaves the app as it is; «Обновить» puts the new version in and
+  // starts it (here, on Linux: the new AppImage takes the old one's place and is started; on Windows the installer
+  // runs silently); a version that did not take is not offered again. The «AppImage» here only notes how it was started.
+  const ran = path.join(dir, 'new-version-ran')
+  const appImage = path.join(dir, 'FlintNotes.AppImage')
+  fs.writeFileSync(appImage, 'the old version', { mode: 0o755 })
+  const newText = `#!/bin/sh\necho "ran:$*" >> '${ran}'\n`
+  const linux = { file: 'FlintNotes-9.9.9-x86_64.AppImage', sha256: createHash('sha256').update(newText).digest('hex') }
+  const latest = { version: '9.9.9', windows: { file: 'FlintNotes-Setup-9.9.9.exe', sha256: '0'.repeat(64) }, linux }
   feed = http.createServer((req, res) => {
     if (req.url.endsWith('/latest.json')) return res.end(JSON.stringify(latest))
-    if (req.url.endsWith(`/${latest.file}`)) return res.end(setupText)
+    if (req.url.endsWith(`/${linux.file}`)) return res.end(newText)
     res.statusCode = 404
     res.end()
   })
   await new Promise((resume) => feed.listen(0, '127.0.0.1', resume))
   fs.writeFileSync(path.join(dir, 'shell.json'), JSON.stringify({ version: '0.1.0' }))
-  const installed = { FLINT_UPDATE_FEED: `http://127.0.0.1:${feed.address().port}/releases/latest/download/latest.json`, FLINT_SHELL: path.join(dir, 'shell.json') }
-  const updating = spawn(electron, ['--no-sandbox', path.join(out, 'desktop.mjs'), '--hidden'], { env: { ...env, ...installed }, stdio: 'ignore' })
-  const quitForUpdate = await Promise.race([exited(updating).then(() => true), new Promise((resume) => setTimeout(() => resume(false), 30000))])
-  ok('a newer release is downloaded, checked and installed silently, the app stepping aside', quitForUpdate && (await until(() => fs.existsSync(ran) && fs.readFileSync(ran, 'utf8').trim() === '/S --run --hidden')), (fs.existsSync(ran) ? fs.readFileSync(ran, 'utf8') : 'not run') + readLog().slice(-300))
-  app = await launch(installed)
-  await (await app.firstWindow()).waitForSelector('.tabbar', { timeout: 30000 })
-  ok('a version that did not take is not installed again: the app keeps working', (await until(() => readLog().includes('уже ставилась и не встала'))) && fs.readFileSync(ran, 'utf8').trim().split('\n').length === 1, readLog().slice(-300))
+  const installed = { FLINT_UPDATE_FEED: `http://127.0.0.1:${feed.address().port}/releases/latest/download/latest.json`, FLINT_SHELL: path.join(dir, 'shell.json'), FLINT_UPDATE_DELAY: '4000', APPIMAGE: appImage }
+  /** Starts the installed app, answering its question about the update with the given button. */
+  const answering = async (button) => {
+    const started = await launch(installed)
+    await started.evaluate(({ dialog }, button) => {
+      dialog.showMessageBox = async (...args) => ((globalThis.asked = args.at(-1)), { response: button, checkboxChecked: false })
+    }, button)
+    await (await started.firstWindow()).waitForSelector('.tabbar', { timeout: 30000 })
+    return started
+  }
+  app = await answering(1)
+  const later = await until(() => readLog().includes('Обновление 9.9.9 отложено'), 20000)
+  const asked = await app.evaluate(() => globalThis.asked)
+  ok('a newer release is downloaded, checked and offered in a window with «Обновить» and «Позже»', later && asked?.message?.includes('9.9.9') && asked.buttons?.[0] === 'Обновить', JSON.stringify(asked) + readLog().slice(-300))
+  ok('«Позже» leaves the app running and installs nothing', !fs.existsSync(ran) && app.windows().length === 1)
+  await app.evaluate(({ app }) => app.exit(0))
+  await exited(app.process())
+  // The next start (after the computer was restarted, say) puts the waiting version in by itself, with no question.
+  const next = spawn(electron, ['--no-sandbox', path.join(out, 'desktop.mjs')], { env: { ...env, ...installed }, stdio: 'ignore' })
+  const updated = await Promise.race([exited(next).then(() => true), new Promise((resume) => setTimeout(() => resume(false), 30000))])
+  ok('at the next start the waiting version is put in silently, with no question, and started with its window', updated && (await until(() => fs.existsSync(ran) && fs.readFileSync(ran, 'utf8').trim() === 'ran:')) && fs.readFileSync(appImage, 'utf8') === newText && readLog().split('Запуск:').at(-1).includes('Ставлю обновление 9.9.9'), (fs.existsSync(ran) ? fs.readFileSync(ran, 'utf8') : 'not run') + readLog().slice(-300))
+  app = await answering(1)
+  ok('a version that did not take is not installed again: the app keeps working', (await until(() => readLog().includes('уже ставилась и не встала'), 20000)) && fs.readFileSync(ran, 'utf8').trim().split('\n').length === 1, readLog().slice(-300))
+  const page2 = await app.firstWindow()
+  const off = await page2.evaluate(() => window.flintDesktop.setUpdates(false))
+  const checked = await page2.evaluate(() => window.flintDesktop.checkUpdates())
+  await page2.evaluate(() => app.commands.run('core:settings'))
+  await page2.locator('nav button', { hasText: 'Программа' }).first().click()
+  const shown = await page2.locator('.app-updates-switch').isChecked({ timeout: 10000 }).catch(() => null)
+  ok('updates can be switched off in the settings, and «Проверить сейчас» still looks', off.enabled === false && shown === false && /9\.9\.9/.test(checked.result), JSON.stringify({ off, checked, shown }))
+
+  // The sandbox: with no vault of one's own the app opens a vault of examples, and it is made anew at every start.
+  await app.evaluate(({ app }) => app.exit(0))
+  await exited(app.process())
+  const sandbox = path.join(userData, 'Песочница')
+  const withoutVault = Object.fromEntries(Object.entries({ ...env, FLINT_CONFIG: path.join(dir, 'fresh-config.json') }).filter(([key]) => key !== 'FLINT_VAULT'))
+  const startFresh = async () => {
+    const started = await _electron.launch({ executablePath: electron, args: [path.join(out, 'desktop.mjs')], env: withoutVault })
+    const shown = await started.firstWindow()
+    await shown.waitForSelector('.tabbar', { timeout: 30000 })
+    return [started, shown]
+  }
+  let [fresh, freshPage] = await startFresh()
+  app = fresh
+  ok('with no vault of its own, the app opens the sandbox of examples', (await freshPage.getByText('Добро пожаловать', { exact: true }).count()) > 0 && fs.existsSync(path.join(sandbox, 'Задачи.md')), freshPage.url())
+  fs.writeFileSync(path.join(sandbox, 'Моя проба.md'), 'x')
+  fs.rmSync(path.join(sandbox, 'Задачи.md'))
+  await fresh.evaluate(({ app }) => app.exit(0))
+  await exited(fresh.process())
+  ;[fresh, freshPage] = await startFresh()
+  app = fresh
+  ok('what was done in the sandbox is gone at the next start', !fs.existsSync(path.join(sandbox, 'Моя проба.md')) && fs.existsSync(path.join(sandbox, 'Задачи.md')))
 } catch (err) {
   ok('the checks ran to the end', false, err.stack)
 } finally {

@@ -46,6 +46,9 @@ await bundle({ ...common, entryPoints: ['server/launcher.ts'], outfile: `${OUT}/
 await bundle({ ...common, entryPoints: ['desktop/main.ts'], outfile: `${OUT}/desktop.mjs`, external: ['electron'] })
 await bundle({ ...common, banner: {}, format: 'cjs', entryPoints: ['desktop/preload.ts'], outfile: `${OUT}/preload.cjs`, external: ['electron'] })
 fs.cpSync('desktop/icons', path.join(OUT, 'icons'), { recursive: true })
+// The desktop app's sandbox: a vault of examples, made anew from this at every start.
+fs.rmSync(path.join(OUT, 'sandbox'), { recursive: true, force: true })
+fs.cpSync('desktop/sandbox', path.join(OUT, 'sandbox'), { recursive: true })
 fs.writeFileSync(path.join(OUT, 'build.json'), JSON.stringify({ id, files }, null, 2))
 
 console.log('Готово: release/ (приложение FlintNotes подхватит сборку само; в браузере — node release/launcher.mjs)')
