@@ -13,9 +13,9 @@ export interface ToolbarButton {
 
 /**
  * Where buttons can be put: the strips along the left and right edges, the
- * tab strip, the header above a note, the header of the file list.
+ * tab strip, the header above a note, the header of the file list, the bar over a phone's keyboard.
  */
-export type ToolbarPlace = 'left-ribbon' | 'right-ribbon' | 'tab-bar' | 'page-header' | 'explorer'
+export type ToolbarPlace = 'left-ribbon' | 'right-ribbon' | 'tab-bar' | 'page-header' | 'explorer' | 'keyboard'
 
 /**
  * Buttons that plugins put into the app's frame. The core only shows them and

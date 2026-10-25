@@ -88,6 +88,8 @@ export class Workspace extends Events<WorkspaceEvents> {
   readonly containerEl = document.createElement('div')
   leaves: Leaf[] = []
   active: Leaf | null = null
+  /** A phone's frame: a note opened or switched to is not focused, so the keyboard does not come up until it is tapped. */
+  touch = false
 
   /** The tab whose content is on screen; lags behind `active` while that one loads. */
   private shown: Leaf | null = null
@@ -278,7 +280,7 @@ export class Workspace extends Events<WorkspaceEvents> {
     // A tab brought back from the last session is loaded when it is first looked at.
     if (leaf && !leaf.mounts) void this.mount(leaf, true)
     this.show()
-    leaf?.view?.focus?.()
+    if (!this.touch) leaf?.view?.focus?.()
     this.changed()
     this.trigger('active-change', leaf)
   }
@@ -398,7 +400,7 @@ export class Workspace extends Events<WorkspaceEvents> {
       this.show()
       kept.view.resume?.()
       if (leaf === this.active) {
-        if (focus) kept.view.focus?.()
+        if (focus && !this.touch) kept.view.focus?.()
         this.trigger('active-change', leaf)
       }
       return
@@ -436,7 +438,7 @@ export class Workspace extends Events<WorkspaceEvents> {
     leaf.view = view
     leaf.viewPath = path
     if (leaf === this.active) {
-      if (focus) view.focus?.()
+      if (focus && !this.touch) view.focus?.()
       this.trigger('active-change', leaf)
     }
   }

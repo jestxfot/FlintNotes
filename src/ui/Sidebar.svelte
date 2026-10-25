@@ -5,7 +5,7 @@
   import { drag } from './drag.svelte'
   import { watch } from './reactive.svelte'
 
-  let { side, footer, floating = false, onmenu }: { side: Side; footer?: Snippet; floating?: boolean; onmenu?: (event: MouseEvent) => void } = $props()
+  let { side, footer, floating = false, drawer = false, onmenu }: { side: Side; footer?: Snippet; floating?: boolean; /** A phone's drawer: as wide as the drawer, with no edge to drag. */ drawer?: boolean; onmenu?: (event: MouseEvent) => void } = $props()
   let resizing = $state(false)
 
   const MIN = 180
@@ -78,8 +78,9 @@
   class={side}
   class:dragging={!!drag.panel || !!drag.note}
   class:floating
+  class:drawer
   class:resizing
-  style:flex-basis="{width}px"
+  style:flex-basis={drawer ? null : `${width}px`}
   style:width={floating ? `${width}px` : null}
   ondragleave={() => (target = null)}
   oncontextmenu={(event) => onmenu?.(event)}
@@ -112,7 +113,7 @@
               class:active={def.id === group.active}
               title={def.title}
               aria-label={def.title}
-              draggable="true"
+              draggable={drawer ? 'false' : 'true'}
               onclick={() => app.panels.reveal(def.id)}
               oncontextmenu={(event) => app.menus.show(event, 'panel', def.id)}
               ondragstart={(event) => {
@@ -165,7 +166,7 @@
   {/each}
 
   {@render footer?.()}
-  <div class="resize" role="separator" aria-orientation="vertical" onpointerdown={resize}></div>
+  {#if !drawer}<div class="resize" role="separator" aria-orientation="vertical" onpointerdown={resize}></div>{/if}
 </aside>
 
 <style>
@@ -210,6 +211,33 @@
 
   .left {
     border-right: 1px solid var(--border);
+  }
+
+  /* In a phone's drawer the sidebar fills it, and its tabs are big enough for a finger. */
+  .drawer {
+    flex: 1 1 auto;
+    height: 100%;
+    border: none;
+  }
+
+  .drawer .tabs {
+    gap: 4px;
+    padding: 10px 10px 4px;
+  }
+
+  .drawer .widget-tab {
+    width: 42px;
+    height: 36px;
+    border-radius: 10px;
+  }
+
+  .drawer svg {
+    width: 19px;
+    height: 19px;
+  }
+
+  .right {
+    border-left: 1px solid var(--border);
   }
 
   .group {

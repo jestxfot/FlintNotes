@@ -7,6 +7,7 @@
   import { onMount } from 'svelte'
   import type { SuggestOptions } from '../core/suggest'
   import { app } from '../instance'
+  import { layout } from './layout.svelte'
 
   let { options, onclose }: { options: SuggestOptions<T>; onclose: () => void } = $props()
 
@@ -81,15 +82,19 @@
     onclose()
   }}
   {onkeydown}
-  class:stacked={options.stacked}
+  class:stacked={options.stacked || layout.mobile}
+  class:phone={layout.mobile}
   onclick={(event) => event.target === dialog && dialog.close()}>
-  <input
-    placeholder={options.placeholder}
-    aria-label={options.placeholder}
-    bind:this={field}
-    bind:value={query}
-    oninput={() => (index = 0)}
-  />
+  <div class="field">
+    <input
+      placeholder={options.placeholder}
+      aria-label={options.placeholder}
+      bind:this={field}
+      bind:value={query}
+      oninput={() => (index = 0)}
+    />
+    {#if layout.mobile}<button class="cancel" onclick={() => dialog.close()}>Отмена</button>{/if}
+  </div>
   <div class="list" role="listbox">
     {#each results as item, i (i)}
       {@const detail = options.detail?.(item)}
@@ -149,10 +154,40 @@
     background: rgb(0 0 0 / 0.25);
   }
 
+  .field {
+    display: flex;
+    flex: none;
+    align-items: center;
+    border-bottom: 1px solid var(--border);
+  }
+
+  .cancel {
+    padding: 0 16px 0 4px;
+    color: var(--accent);
+    font-size: 16px;
+  }
+
+  /* On a phone the list has the whole screen and every row is a finger high. */
+  .phone input {
+    font-size: 16px;
+  }
+
+  .phone .list button {
+    min-height: 50px;
+    padding: 6px 12px;
+    border-radius: 12px;
+    font-size: 16px;
+  }
+
+  .phone .list button.selected:not(:active) {
+    background: none;
+  }
+
   input {
+    flex: 1;
+    min-width: 0;
     padding: 13px 16px;
     border: none;
-    border-bottom: 1px solid var(--border);
     background: none;
     font-size: 15px;
     outline: none;

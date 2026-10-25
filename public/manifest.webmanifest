@@ -1,0 +1,12 @@
+{
+  "name": "FlintNotes",
+  "short_name": "FlintNotes",
+  "description": "Заметки в Markdown",
+  "lang": "ru",
+  "start_url": "/",
+  "scope": "/",
+  "display": "standalone",
+  "background_color": "#ffffff",
+  "theme_color": "#ffffff",
+  "icons": [{ "src": "/favicon.svg", "sizes": "any", "type": "image/svg+xml", "purpose": "any" }]
+}

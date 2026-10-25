@@ -12,6 +12,24 @@ import AppView from './ui/App.svelte'
 // `moment` is global as in Obsidian: templates and task queries written for it call it directly.
 Object.assign(globalThis, { flint: api, app, moment })
 
+// A phone opens FlintNotes over plain http from the computer (Настройки → Программа → Телефон), and a page that is
+// not secure gets no clipboard: copying goes the old way there, and reading it finds nothing.
+if (!navigator.clipboard)
+  Object.defineProperty(navigator, 'clipboard', {
+    value: {
+      writeText: async (text: string) => {
+        const area = document.body.appendChild(document.createElement('textarea'))
+        area.value = text
+        area.style.cssText = 'position:fixed;opacity:0'
+        area.select()
+        const done = document.execCommand('copy')
+        area.remove()
+        if (!done) throw new Error('Не удалось скопировать')
+      },
+      readText: async () => '',
+    },
+  })
+
 const target = document.getElementById('app')!
 
 // The stages of starting up, for the timing that `core:startup-timing` shows.

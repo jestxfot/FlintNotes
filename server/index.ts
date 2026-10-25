@@ -5,6 +5,7 @@ import { HTTPException } from 'hono/http-exception'
 import { stream, streamSSE } from 'hono/streaming'
 import { AsyncLocalStorage } from 'node:async_hooks'
 import { exec, execFile, spawn } from 'node:child_process'
+import crypto from 'node:crypto'
 import { lookup } from 'node:dns/promises'
 import { existsSync, readFileSync, rmSync, watch as fsWatch, type Stats } from 'node:fs'
 import fs from 'node:fs/promises'
@@ -30,6 +31,8 @@ interface Config {
   proxy?: string
   /** Programs that templates of a vault may run, by vault folder; see `/system-commands`. */
   systemCommands?: Record<string, SystemCommands>
+  /** FlintNotes for the phones of the home network; see «a phone on the home network». */
+  phone?: { on?: boolean; port?: number; key?: string }
 }
 
 interface SystemCommands {
@@ -48,6 +51,7 @@ async function readConfig(): Promise<Config> {
       port: validPort(data.port) ? data.port : undefined,
       proxy: typeof data.proxy === 'string' ? data.proxy : undefined,
       systemCommands: data.systemCommands && typeof data.systemCommands === 'object' ? data.systemCommands : undefined,
+      phone: data.phone && typeof data.phone === 'object' ? { on: data.phone.on === true, port: validPort(data.phone.port) ? data.phone.port : undefined, key: typeof data.phone.key === 'string' && data.phone.key.length >= 16 ? data.phone.key : undefined } : undefined,
     }
   } catch {
     return { vaults: [] }
@@ -101,6 +105,7 @@ const MIME: Record<string, string> = {
   ico: 'image/x-icon',
   woff2: 'font/woff2',
   map: 'application/json',
+  webmanifest: 'application/manifest+json',
 }
 
 const toRel = (abs: string, base = root()) => path.relative(base, abs).split(path.sep).join('/')
@@ -211,9 +216,12 @@ function vaultName(dir: string): string {
 const vaultByName = (name: string) => config.vaults.find((dir) => vaultName(dir) === name)
 
 api.use(async (c, next) => {
-  if (!isLocal(`http://${c.req.header('host') ?? ''}`)) throw new HTTPException(403, { message: 'Forbidden host' })
+  // A phone of the home network has shown its key already (see `phoneFetch`); its page comes from its own address.
+  const phone = fromPhone(c)
+  if (!phone && !isLocal(`http://${c.req.header('host') ?? ''}`)) throw new HTTPException(403, { message: 'Forbidden host' })
   const origin = c.req.header('origin')
-  if (origin && !isLocal(origin)) throw new HTTPException(403, { message: 'Forbidden origin' })
+  if (origin && (phone ? hostOf(origin) !== c.req.header('host') : !isLocal(origin))) throw new HTTPException(403, { message: 'Forbidden origin' })
+  if (phone && c.req.method !== 'GET' && COMPUTER_ONLY.test(c.req.path)) throw new HTTPException(403, { message: 'Это делается только на компьютере' })
   // Which vault the request is about: named in a header (requests of the app) or in the address
   // (pictures, the stream of changes). None named: the vault opened last.
   // A page that is only finding out which vault its address means names none yet.
@@ -273,6 +281,7 @@ api.post('/vaults/open', async (c) => {
     throw new HTTPException(400, { message: 'Укажите полный путь к папке, например D:\\Заметки' })
   }
   const dir = path.resolve(body.path.trim())
+  if (fromPhone(c) && !config.vaults.includes(dir)) throw new HTTPException(403, { message: 'С телефона открываются только хранилища, уже открытые на компьютере' })
   const stat = await fs.stat(dir).catch(() => null)
   if (stat && !stat.isDirectory()) throw new HTTPException(400, { message: 'Это файл, а нужна папка' })
   if (!stat && !body.create) throw new HTTPException(404, { message: 'Такой папки нет' })
@@ -531,6 +540,113 @@ api.post('/port', async (c) => {
   // The answer leaves first; then the server moves, and the page follows it to the new address.
   if (wanted !== port) setTimeout(() => listenOn(wanted), 200)
   return c.json({ port: wanted })
+})
+
+// ---- a phone on the home network
+//
+// The server listens to this computer only. Turned on in the settings, it listens to the home network as well,
+// on a port of its own, and a phone (a tablet, another computer) opens FlintNotes there. Such a request comes
+// from another machine, so it must show it may: the address the settings give, as a link or a QR code, carries
+// a key, and the page it opens keeps the key as a cookie. Without it there is only a page saying where to get it.
+// A new key in the settings shuts out every phone let in before. What belongs to the computer itself (stopping
+// the server, its port and proxy, starting with the system, programs, the explorer) stays the computer's.
+const PHONE_PORT = 4620
+const PHONE_COOKIE = 'flint-key'
+const COMPUTER_ONLY = /^\/api\/(quit|port|proxy|autostart|reveal|exec|phone|vaults\/forget)(\/|$)/
+let phoneServer: Server | null = null
+let phoneError: string | null = null
+const phoneOn = () => !!config.phone?.on && !!config.phone.key
+const phonePort = () => config.phone?.port ?? PHONE_PORT
+const fromPhone = (c: Context) => (c.env as { phone?: unknown } | undefined)?.phone === true
+const hostOf = (url: string) => {
+  try {
+    return new URL(url).host
+  } catch {
+    return ''
+  }
+}
+const sameKey = (given: string, key: string) => given.length === key.length && crypto.timingSafeEqual(Buffer.from(given), Buffer.from(key))
+
+/** The addresses of this computer in the home network: the usual home ranges first, the virtual adapters of WSL, VPNs and virtual machines last. */
+function homeAddresses(): string[] {
+  const VIRTUAL = /vEthernet|WSL|Hyper-V|VirtualBox|VMware|docker|br-|veth|tun|tap|wg|zt|Tailscale|VPN/i
+  const rank = (name: string, ip: string) => (VIRTUAL.test(name) ? 10 : 0) + (ip.startsWith('192.168.') ? 0 : ip.startsWith('10.') ? 1 : ip.startsWith('172.') ? 2 : 3)
+  return Object.entries(os.networkInterfaces())
+    .flatMap(([name, list]) => (list ?? []).filter((one) => one.family === 'IPv4' && !one.internal && !one.address.startsWith('169.254.')).map((one) => ({ ip: one.address, rank: rank(name, one.address) })))
+    .sort((a, b) => a.rank - b.rank)
+    .map((one) => one.ip)
+}
+
+const LOCKED_PAGE = `<!doctype html><html lang="ru"><meta charset="utf-8"><meta name="viewport" content="width=device-width, initial-scale=1"><title>FlintNotes</title>
+<body style="margin:0;display:grid;place-items:center;min-height:100vh;font:16px/1.5 system-ui,sans-serif;color:#333;background:#fafafa;text-align:center">
+<div style="max-width:340px;padding:24px">
+<h1 style="font-size:22px;margin:0 0 12px">Нужен ключ</h1>
+<p>Откройте FlintNotes на компьютере: Настройки → Программа → «Телефон», и наведите камеру телефона на QR-код или откройте ссылку оттуда.</p></div></body></html>`
+
+/** What a phone's request goes through before the app's own handling: the key, from the address or the cookie. */
+function phoneFetch(req: Request, env: object): Response | Promise<Response> {
+  const key = config.phone?.key
+  if (!phoneOn() || !key) return new Response('FlintNotes: доступ с телефона выключен', { status: 503 })
+  const url = new URL(req.url)
+  const given = url.searchParams.get('key')
+  if (given !== null) {
+    if (!sameKey(given, key)) return new Response(LOCKED_PAGE, { status: 401, headers: { 'content-type': 'text/html; charset=utf-8' } })
+    // The key leaves the address (and the history of the phone's browser) for a cookie.
+    url.searchParams.delete('key')
+    return new Response(null, { status: 302, headers: { location: url.pathname + url.search, 'set-cookie': `${PHONE_COOKIE}=${key}; Path=/; Max-Age=34560000; HttpOnly; SameSite=Strict`, 'cache-control': 'no-store' } })
+  }
+  const cookie = new RegExp(`(?:^|;\\s*)${PHONE_COOKIE}=([^;]*)`).exec(req.headers.get('cookie') ?? '')?.[1] ?? ''
+  if (!sameKey(cookie, key)) return new Response(LOCKED_PAGE, { status: 401, headers: { 'content-type': 'text/html; charset=utf-8' } })
+  return app.fetch(req, { ...env, phone: true })
+}
+
+/** Starts, moves or stops the phones' listener as the settings say; done once it listens or has failed. */
+async function listenPhone(): Promise<void> {
+  const old = phoneServer
+  phoneServer = null
+  phoneError = null
+  if (old) await new Promise<void>((done) => (old.close(() => done()), old.closeAllConnections()))
+  if (!phoneOn()) return
+  const wanted = phonePort()
+  await new Promise<void>((done) => {
+    const server = serve({ fetch: phoneFetch, port: wanted, hostname: '0.0.0.0' }, () => {
+      console.log(`Для телефона: ${homeAddresses().map((ip) => `http://${ip}:${wanted}`).join(', ') || `порт ${wanted}`}`)
+      done()
+    }) as Server
+    server.on('error', (err: NodeJS.ErrnoException) => {
+      phoneError = err.code === 'EADDRINUSE' ? `Порт ${wanted} занят другой программой` : err.message
+      console.error(`Доступ с телефона: ${phoneError}`)
+      if (phoneServer === server) phoneServer = null
+      done()
+    })
+    phoneServer = server
+  })
+}
+
+const phoneInfo = () => ({ on: phoneOn(), port: phonePort(), error: phoneError, key: config.phone?.key ?? null, addresses: homeAddresses().map((ip) => `http://${ip}:${phonePort()}`) })
+
+api.get('/phone', (c) => {
+  if (fromPhone(c)) throw new HTTPException(403, { message: 'Это делается только на компьютере' })
+  return c.json(phoneInfo())
+})
+
+api.post('/phone', async (c) => {
+  const origin = c.req.header('origin')
+  if (!origin || hostOf(origin) !== c.req.header('host')) throw new HTTPException(403, { message: 'Только со страницы самого приложения' })
+  const body = (await c.req.json()) as { on?: unknown; port?: unknown; newKey?: unknown }
+  const next = { ...config.phone }
+  if (body.port !== undefined) {
+    const wanted = Number(body.port)
+    if (!validPort(wanted)) throw new HTTPException(400, { message: 'Порт — целое число от 1024 до 65535' })
+    if (wanted === port && !PIPE) throw new HTTPException(400, { message: 'Этот порт у FlintNotes на компьютере; для телефона нужен другой' })
+    next.port = wanted
+  }
+  if (typeof body.on === 'boolean') next.on = body.on
+  if (body.newKey === true || !next.key) next.key = crypto.randomBytes(18).toString('base64url')
+  config.phone = next
+  await remember()
+  await listenPhone()
+  return c.json(phoneInfo())
 })
 
 // ---- the way to the web: the computer's proxy, none, or one given here; kept in the config with the vaults
@@ -948,6 +1064,7 @@ if (PIPE) {
   server = createAdaptorServer({ fetch: app.fetch }) as Server
   server.listen(PIPE, started(`канал ${PIPE}`))
 } else server = serve({ fetch: app.fetch, port, hostname: '127.0.0.1' }, started(`http://localhost:${port}`)) as Server
+void listenPhone()
 
 /** Moves the server to another port: the pages open now lose their connection and go to the new address themselves. */
 function listenOn(next: number): void {
@@ -977,6 +1094,7 @@ server.on('error', (err: NodeJS.ErrnoException) => {
 // ---- stepping aside: the launcher (release/launcher.mjs) asks for it when a new build is ready
 async function stop(): Promise<void> {
   server.close()
+  phoneServer?.close()
   // Saves that have begun are let finish: a note cut off mid-write would be lost.
   for (const until = Date.now() + 5000; writes > 0 && Date.now() < until; ) await new Promise((resume) => setTimeout(resume, 50))
   // The lists of files as they are now, for the next start.

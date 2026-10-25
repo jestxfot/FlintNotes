@@ -3,6 +3,7 @@
   import { eventHotkey, formatHotkey, type Command } from '../core/commands'
   import type { SettingDef } from '../core/settings'
   import { app } from '../instance'
+  import { layout } from './layout.svelte'
   import { watch } from './reactive.svelte'
 
   let { onclose }: { onclose: () => void } = $props()
@@ -84,10 +85,14 @@
     return { destroy: () => off?.() }
   }
 
+  /** On a phone the list of pages and a page take the screen in turn. */
+  let opened = $state(false)
+
   function go(next: string) {
     tab = next
     query = ''
     recording = null
+    opened = true
   }
 
   // ---- shortcuts
@@ -122,8 +127,14 @@
   {onclose}
   onclick={(event) => event.target === dialog && dialog.close()}
   aria-label="Настройки"
+  class:phone={layout.mobile}
+  class:at-page={opened}
+  class:searching={!!query.trim()}
 >
   <nav>
+    {#if layout.mobile}
+      <div class="phone-head"><span>Настройки</span><button class="phone-done" onclick={() => dialog.close()}>Готово</button></div>
+    {/if}
     <input class="search" type="search" placeholder="Поиск настроек…" aria-label="Поиск настроек" bind:value={query} />
     <div class="nav-title">Настройки</div>
     {#each corePages as [name, glyph] (name)}
@@ -140,7 +151,14 @@
   </nav>
 
   <div class="body">
-    <button class="close" aria-label="Закрыть" onclick={() => dialog.close()}>×</button>
+    {#if layout.mobile}
+      <div class="phone-head">
+        <button class="phone-back" onclick={() => (opened = false)}>‹ Настройки</button>
+        <button class="phone-done" onclick={() => dialog.close()}>Готово</button>
+      </div>
+    {:else}
+      <button class="close" aria-label="Закрыть" onclick={() => dialog.close()}>×</button>
+    {/if}
 
     {#if page === 'cards' || page === 'search'}
       {#each cards as card, i (card.scope + card.title + card.heading)}
@@ -332,6 +350,87 @@
 
   .close:hover {
     background: var(--bg-hover);
+  }
+
+  /* ---- a phone: the list of pages, then the page chosen, each on the whole screen */
+  .phone[open] {
+    flex-direction: column;
+    font-size: 15px;
+  }
+
+  .phone nav {
+    flex: 1;
+    gap: 2px;
+    padding: 0 12px 16px;
+    border-right: none;
+  }
+
+  .phone nav button {
+    gap: 14px;
+    min-height: 46px;
+    padding: 0 12px;
+    border-radius: 12px;
+    font-size: 16px;
+  }
+
+  .phone .nav-icon {
+    font-size: 20px;
+  }
+
+  .phone .search {
+    padding: 10px 14px;
+    border-radius: 12px;
+    font-size: 16px;
+  }
+
+  .phone .body {
+    padding: 0 16px 32px;
+  }
+
+  .phone.at-page nav,
+  .phone:not(.at-page):not(.searching) .body,
+  .phone:not(.at-page) .body .phone-head {
+    display: none;
+  }
+
+  /* Searching from the list of pages: the field stays, the results take the place of the list. */
+  .phone.searching:not(.at-page) nav {
+    flex: none;
+    padding-bottom: 4px;
+  }
+
+  .phone.searching:not(.at-page) nav > :not(.search, .phone-head) {
+    display: none;
+  }
+
+  .phone-head {
+    position: sticky;
+    top: 0;
+    z-index: 2;
+    display: flex;
+    align-items: center;
+    justify-content: space-between;
+    min-height: 52px;
+    margin: 0 -4px 4px;
+    background: inherit;
+    font-size: 18px;
+    font-weight: 650;
+  }
+
+  nav .phone-head {
+    background: var(--bg-alt);
+  }
+
+  .body .phone-head {
+    background: var(--bg);
+  }
+
+  .phone-head button {
+    min-height: 0 !important;
+    padding: 8px 4px !important;
+    color: var(--accent) !important;
+    font-size: 16px !important;
+    font-weight: 500;
   }
 
   h2 {

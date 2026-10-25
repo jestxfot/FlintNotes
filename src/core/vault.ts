@@ -31,6 +31,17 @@ const named = () => (vaultInAddress ? `&vault=${encodeURIComponent(vaultInAddres
 const url = (route: string, path: string) => `/api/${route}?path=${encodeURIComponent(path)}${named()}`
 
 /** The address of a vault's own page. */
+/** FlintNotes for the phones of the home network, as the server has it. */
+export interface PhoneAccess {
+  on: boolean
+  port: number
+  /** Why it does not listen, if it was to. */
+  error: string | null
+  key: string | null
+  /** `http://address:port` of this computer, the likeliest first. */
+  addresses: string[]
+}
+
 export const vaultAddress = (name: string) => `/${encodeURIComponent(name)}/`
 
 const json = (body: unknown): RequestInit => ({
@@ -125,7 +136,8 @@ export class Vault extends Events<VaultEvents> {
         connection.server = { build: event.build, updates: !!event.updates }
         connection.trigger('build', event.build)
       }
-      else if (event.type === 'upsert') this.upsert(event.entry)
+      // The watcher's late word about a path this app has just moved away from would bring a ghost of the file back.
+      else if (event.type === 'upsert') !this.leftJustNow(event.entry.path) && this.upsert(event.entry)
       else if (event.type === 'resync') void this.sync()
       else this.remove(event.path)
     }
@@ -229,6 +241,16 @@ export class Vault extends Events<VaultEvents> {
     await this.answer(await request('/api/quit', { method: 'POST' }))
   }
 
+  /** Whether phones of the home network may open FlintNotes, on which port, with which key, at which addresses of this computer. */
+  async phone(): Promise<PhoneAccess> {
+    return this.answer(await request('/api/phone'))
+  }
+
+  /** Turns the phones' access on or off, moves it to another port, or makes a new key that shuts out the phones let in before. */
+  async setPhone(change: { on?: boolean; port?: number; newKey?: boolean }): Promise<PhoneAccess> {
+    return this.answer(await request('/api/phone', json(change)))
+  }
+
   /** Moves the server to another port; it is remembered for the next starts too. */
   async setPort(port: number): Promise<{ port: number }> {
     return this.answer(await request('/api/port', json({ port })))
@@ -329,6 +351,8 @@ export class Vault extends Events<VaultEvents> {
     data: string | ArrayBuffer,
     options: { create?: boolean; keepalive?: boolean } = {},
   ): Promise<VaultEntry> {
+    // Written here anew, the path is a file again.
+    this.left.delete(path)
     this.writing.set(path, (this.writing.get(path) ?? 0) + 1)
     let entry: VaultEntry
     try {
@@ -365,6 +389,7 @@ export class Vault extends Events<VaultEvents> {
   }
 
   async createFolder(path: string): Promise<VaultEntry> {
+    this.left.delete(path)
     const entry: VaultEntry = await (await request(url('folder', path), { method: 'POST' })).json()
     this.upsert(entry)
     return entry
@@ -381,9 +406,21 @@ export class Vault extends Events<VaultEvents> {
   // Rename and trash update the local state before the server answers. The file
   // watcher may report the change first, and applying it late would look like an
   // unrelated delete to listeners (closing the open tab, for instance).
+  /** Paths this app moved files away from a moment ago, and when. */
+  private left = new Map<string, number>()
+  private leftJustNow(path: string): boolean {
+    const at = this.left.get(path)
+    if (at === undefined) return false
+    if (Date.now() - at < 4000) return true
+    this.left.delete(path)
+    return false
+  }
+
   async rename(from: string, to: string): Promise<void> {
     for (const entry of this.within(from)) {
       const moved = { ...entry, path: to + entry.path.slice(from.length) }
+      this.left.set(entry.path, Date.now())
+      this.left.delete(moved.path)
       this.entries.delete(entry.path)
       this.entries.set(moved.path, moved)
       this.trigger('rename', moved, entry.path)

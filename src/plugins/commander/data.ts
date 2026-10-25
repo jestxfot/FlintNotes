@@ -17,7 +17,7 @@ export interface Macro {
   macro: Step[]
 }
 
-export const PLACES = ['leftRibbon', 'rightRibbon', 'titleBar', 'pageHeader', 'explorer', 'statusBar', 'fileMenu', 'editorMenu'] as const
+export const PLACES = ['leftRibbon', 'rightRibbon', 'titleBar', 'pageHeader', 'explorer', 'statusBar', 'fileMenu', 'editorMenu', 'keyboardBar'] as const
 export type Place = (typeof PLACES)[number]
 
 export const PLACE_NAMES: Record<Place, string> = {
@@ -29,6 +29,7 @@ export const PLACE_NAMES: Record<Place, string> = {
   statusBar: 'Строка состояния',
   fileMenu: 'Меню файла',
   editorMenu: 'Меню редактора',
+  keyboardBar: 'Над клавиатурой телефона',
 }
 
 /** The contents of the data file, laid out as Commander's `data.json`; fields not used here are kept. */

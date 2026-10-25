@@ -496,7 +496,8 @@ input[type='checkbox']:disabled {
 }
 
 .autostart-switch,
-.app-updates-switch {
+.app-updates-switch,
+.phone-switch {
   appearance: none;
   position: relative;
   flex: 0 0 38px;
@@ -509,7 +510,8 @@ input[type='checkbox']:disabled {
 }
 
 .autostart-switch::after,
-.app-updates-switch::after {
+.app-updates-switch::after,
+.phone-switch::after {
   content: '';
   position: absolute;
   top: 3px;
@@ -522,17 +524,20 @@ input[type='checkbox']:disabled {
 }
 
 .autostart-switch:checked,
-.app-updates-switch:checked {
+.app-updates-switch:checked,
+.phone-switch:checked {
   background: var(--accent);
 }
 
 .autostart-switch:checked::after,
-.app-updates-switch:checked::after {
+.app-updates-switch:checked::after,
+.phone-switch:checked::after {
   transform: translateX(16px);
 }
 
 .autostart-switch:disabled,
-.app-updates-switch:disabled {
+.app-updates-switch:disabled,
+.phone-switch:disabled {
   opacity: 0.5;
   cursor: default;
 }
@@ -860,4 +865,116 @@ input[type='checkbox']:disabled {
 
 .desktop .toolbar.vertical[data-place='right-ribbon'] {
   padding-top: 40px;
+}
+
+/* ---- a phone (see src/ui/layout.svelte.ts): bigger letters, room for a finger, nothing that needs a pointer */
+html.mobile body {
+  font-size: 15px;
+  -webkit-tap-highlight-color: transparent;
+  overscroll-behavior: none;
+}
+
+html.mobile .cm-content {
+  padding: 18px 18px 45vh !important;
+}
+
+html.mobile .notices {
+  inset: auto 12px calc(76px + env(safe-area-inset-bottom)) 12px;
+  align-items: center;
+}
+
+html.mobile .notice {
+  max-width: 100%;
+  border-radius: 14px;
+  font-size: 14.5px;
+}
+
+/* Dialogs take the whole screen of a phone. */
+html.mobile dialog[open] {
+  width: 100vw;
+  max-width: 100vw;
+  height: var(--visible-height, 100dvh);
+  max-height: none;
+  margin: 0;
+  inset: 0;
+  border: none;
+  border-top: env(safe-area-inset-top, 0px) solid transparent;
+  border-bottom: env(safe-area-inset-bottom, 0px) solid transparent;
+  border-radius: 0;
+}
+
+html.mobile .cm-tooltip.cm-tooltip-autocomplete > ul {
+  max-height: 40vh;
+  min-width: min(360px, 92vw);
+}
+
+/* Access from a phone, in the settings: the switch, then the QR code beside the steps, the link and the port. */
+.phone-setting {
+  display: flex;
+  flex-direction: column;
+  gap: 14px;
+}
+
+.phone-switch-row {
+  display: flex;
+  align-items: center;
+  gap: 12px;
+}
+
+.phone-body:empty {
+  display: none;
+}
+
+.phone-body {
+  display: flex;
+  flex-wrap: wrap;
+  gap: 18px;
+}
+
+.phone-qr {
+  flex: none;
+  width: 196px;
+  height: 196px;
+  padding: 6px;
+  border-radius: var(--radius-l);
+  background: #fff;
+  color: #000;
+}
+
+.phone-qr svg {
+  display: block;
+  width: 100%;
+  height: 100%;
+}
+
+.phone-steps {
+  display: flex;
+  flex: 1 1 260px;
+  flex-direction: column;
+  gap: 10px;
+  min-width: 0;
+}
+
+.phone-steps ol {
+  margin: 0;
+  padding-left: 1.3em;
+}
+
+.phone-link-row,
+.phone-row {
+  display: flex;
+  flex-wrap: wrap;
+  align-items: center;
+  gap: 8px;
+}
+
+.phone-link {
+  min-width: 0;
+  overflow-wrap: anywhere;
+  font-family: var(--font-mono);
+  font-size: 12px;
+}
+
+.phone-row input {
+  width: 7em;
 }

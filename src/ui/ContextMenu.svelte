@@ -2,9 +2,12 @@
   import type { MenuItem } from '../core/menu'
   import { app } from '../instance'
   import ContextMenu from './ContextMenu.svelte'
+  import { layout } from './layout.svelte'
+  import Sheet from './Sheet.svelte'
 
   let { x, y, items, onclose, nested = false, parentLeft = x }: { x: number; y: number; items: MenuItem[]; onclose: () => void; nested?: boolean; /** The left edge of the row a submenu belongs to. */ parentLeft?: number } = $props()
 
+  // svelte-ignore non_reactive_update (bound once, in whichever form the menu takes)
   let el: HTMLElement
   // Where the menu really goes: moved up or left if it would not fit on the screen.
   // svelte-ignore state_referenced_locally
@@ -12,6 +15,7 @@
   let sub = $state<{ index: number; x: number; y: number; left: number } | null>(null)
 
   $effect(() => {
+    if (sheet) return
     const box = el.getBoundingClientRect()
     const margin = 6
     let left = x
@@ -38,7 +42,40 @@
     onclose()
     item.onClick?.()
   }
+
+  // On a phone the menu is a sheet from the bottom, and a submenu takes its place, with a way back.
+  // svelte-ignore state_referenced_locally (a menu keeps its form while it is open)
+  const sheet = layout.mobile && !nested
+  let trail = $state<MenuItem[]>([])
+  const shown = $derived(trail.length ? (trail[trail.length - 1].submenu ?? []) : items)
+  function tap(item: MenuItem) {
+    if (item.disabled) return
+    if (item.submenu) trail = [...trail, item]
+    else choose(item)
+  }
 </script>
+
+{#if sheet}
+  <Sheet label="Меню" {onclose}>
+    {#snippet header()}
+      {#if trail.length}
+        <button class="sheet-back" onclick={() => (trail = trail.slice(0, -1))}><span class="sheet-arrow">‹</span>{trail[trail.length - 1].title}</button>
+      {/if}
+    {/snippet}
+    <div class="sheet-menu" role="menu" tabindex="-1" oncontextmenu={(event) => event.preventDefault()}>
+      {#each shown as item, i (i)}
+        {#if i > 0 && (item.section ?? 'action') !== (shown[i - 1].section ?? 'action')}
+          <hr />
+        {/if}
+        <button role="menuitem" class:danger={item.danger} disabled={item.disabled} onclick={() => tap(item)}>
+          <span class="menu-icon" use:icon={item.icon}></span>
+          <span class="menu-title">{item.title}</span>
+          {#if item.submenu}<span class="menu-arrow">›</span>{/if}
+        </button>
+      {/each}
+    </div>
+  </Sheet>
+{:else}
 
 <div
   class="menu"
@@ -67,6 +104,7 @@
   {#key sub.index}
     <ContextMenu x={sub.x} y={sub.y} items={items[sub.index].submenu ?? []} {onclose} nested parentLeft={sub.left} />
   {/key}
+{/if}
 {/if}
 
 <style>
@@ -141,6 +179,54 @@
 
   .menu-arrow {
     color: var(--text-faint);
+  }
+
+  .sheet-menu {
+    display: flex;
+    flex-direction: column;
+    font-size: 16px;
+  }
+
+  .sheet-menu button {
+    gap: 14px;
+    min-height: 48px;
+    padding: 0 14px;
+    border-radius: 12px;
+  }
+
+  .sheet-menu button:hover:not(:disabled) {
+    background: none;
+  }
+
+  .sheet-menu button:active:not(:disabled) {
+    background: var(--bg-hover);
+  }
+
+  .sheet-menu .menu-icon {
+    width: 20px;
+    height: 20px;
+    font-size: 20px;
+  }
+
+  .sheet-menu hr {
+    width: auto;
+    margin: 4px 12px;
+  }
+
+  .sheet-back {
+    display: flex;
+    align-items: center;
+    gap: 8px;
+    margin: 0 8px 6px;
+    padding: 8px 10px;
+    color: var(--accent);
+    font-size: 16px;
+    font-weight: 600;
+  }
+
+  .sheet-arrow {
+    font-size: 24px;
+    line-height: 16px;
   }
 
   hr {

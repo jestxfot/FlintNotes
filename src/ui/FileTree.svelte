@@ -6,6 +6,7 @@
   import type { MenuItem } from '../core/menu'
   import type { VaultEntry } from '../core/vault'
   import { app } from '../instance'
+  import { layout } from './layout.svelte'
   import { watch } from './reactive.svelte'
   import Toolbar from './Toolbar.svelte'
 
@@ -303,7 +304,7 @@
         class:active={entry.path === activePath.current}
         class:drop-target={isFolder && dropTarget === entry.path}
         style:padding-left="{8 + depth * 14}px"
-        draggable="true"
+        draggable={layout.mobile ? 'false' : 'true'}
         ondragstart={(event) => {
           dragged = entry.path
           event.dataTransfer?.setData('text/plain', entry.path)
@@ -401,6 +402,28 @@
   .row:hover {
     background: var(--bg-hover);
     color: var(--text);
+  }
+
+  /* On a phone a row is as high as a finger is wide. */
+  :global(html.mobile) .row {
+    min-height: 42px;
+    padding: 6px 10px;
+    border-radius: 10px;
+    font-size: 15.5px;
+  }
+
+  :global(html.mobile) .row:hover:not(.active) {
+    background: none;
+  }
+
+  :global(html.mobile) .header button {
+    width: 38px;
+    height: 38px;
+  }
+
+  :global(html.mobile) .header svg {
+    width: 19px;
+    height: 19px;
   }
 
   .row.drop-target,

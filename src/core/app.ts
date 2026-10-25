@@ -17,6 +17,8 @@ import type { Extension } from '@codemirror/state'
 import { EditorView } from '@codemirror/view'
 import { DockedNotes } from './docked'
 import { openFind } from './editor/find-bar'
+import { FORMAT_COMMANDS } from './editor/format'
+import { phoneSetting } from './phone-setting'
 import { autoPairs } from './editor/pairs'
 import { Icons } from './icons'
 import { Menus } from './menu'
@@ -525,7 +527,7 @@ export class App {
     if (!coreSettings.defs.some((def) => def.key === 'panels')) coreSettings.defs.splice(coreSettings.defs.findIndex((def) => def.key === 'zoom'), 0, panelsSetting(this))
     if (!coreSettings.defs.some((def) => def.key === 'autostart')) coreSettings.defs.push(
         // The desktop app has no port and no addresses to open in a browser.
-        ...(desktop ? [autostartSetting(this), proxySetting(this), appUpdatesSetting(), buildSetting()] : [autostartSetting(this), portSetting(this), proxySetting(this), buildSetting(), vaultsSetting(this)]),
+        ...(desktop ? [autostartSetting(this), proxySetting(this), phoneSetting(this), appUpdatesSetting(), buildSetting()] : [autostartSetting(this), portSetting(this), proxySetting(this), phoneSetting(this), buildSetting(), vaultsSetting(this)]),
       )
     this.settings.addSection(coreSettings)
     // One plain sign that the server is not answering, instead of an error from every part that asks it something.
@@ -594,6 +596,20 @@ export class App {
     })
     this.commands.add({ id: 'core:find', name: 'Найти в заметке', icon: 'search', scope: 'note', callback: inNote(false) })
     this.commands.add({ id: 'core:replace', name: 'Найти и заменить в заметке', icon: 'replace', scope: 'note', callback: inNote(true) })
+    // Small edits of the note: the bar over a phone's keyboard runs them, and anyone may put them on a button.
+    for (const format of FORMAT_COMMANDS)
+      this.commands.add({
+        id: format.id,
+        name: format.name,
+        icon: format.icon,
+        callback: () => {
+          const editor = this.workspace.activeEditor
+          if (!editor) return notice('Откройте заметку')
+          if (editor.state.readOnly) return notice('Заметка открыта для чтения')
+          format.run(editor)
+          if (!editor.hasFocus) editor.focus()
+        },
+      })
     this.commands.add({
       id: 'core:toggle-autostart',
       name: 'Включить или выключить запуск вместе с компьютером',

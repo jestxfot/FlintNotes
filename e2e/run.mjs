@@ -74,7 +74,8 @@ for (const [index, file] of suites.entries()) {
   else fs.rmSync(vault, { recursive: true })
   const port = 4710 + index
   const server = await startServer(vault, port)
-  const page = await browser.newPage({ viewport: suite.viewport ?? { width: 1300, height: 1000 }, timezoneId: BROWSER_ZONE })
+  // A suite of the phone's frame gets a phone: a finger instead of a mouse, a narrow screen.
+  const page = await browser.newPage({ viewport: suite.viewport ?? { width: 1300, height: 1000 }, timezoneId: BROWSER_ZONE, ...(suite.phone ? { isMobile: true, hasTouch: true, deviceScaleFactor: 2 } : {}) })
   const errors = []
   // The files of the build the page loads: the suite depends on them, and on no others.
   const loaded = new Set(['index.html'])

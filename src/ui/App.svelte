@@ -17,6 +17,9 @@
   import SettingsModal from './SettingsModal.svelte'
   import Sidebar from './Sidebar.svelte'
   import SuggestModal from './SuggestModal.svelte'
+  import KeyboardBar from './KeyboardBar.svelte'
+  import { layout, toggleLayout } from './layout.svelte'
+  import Sheet from './Sheet.svelte'
   import type { SuggestOptions } from '../core/suggest'
   import type { MenuItem } from '../core/menu'
 
@@ -124,7 +127,7 @@
     settings.set('core', 'floatingRight', both)
   }
   fromCommonSetting()
-  const toggleSide = (side: 'left' | 'right') => (floats[side] ? pin(side) : side === 'left' ? (leftOpen = !leftOpen) : (rightOpen = !rightOpen))
+  const toggleSide = (side: 'left' | 'right') => (layout.mobile ? (drawer = drawer === side ? null : side) : floats[side] ? pin(side) : side === 'left' ? (leftOpen = !leftOpen) : (rightOpen = !rightOpen))
   function hideSide(side: 'left' | 'right') {
     if (floats[side]) {
       clearTimeout(peekTimers[side])
@@ -177,6 +180,9 @@
     root.classList.toggle('wide', !readableWidth.current)
   })
   $effect(() => {
+    workspace.touch = layout.mobile
+  })
+  $effect(() => {
     root.classList.toggle('no-inline-title', !inlineTitle.current)
   })
   $effect(() => {
@@ -190,6 +196,10 @@
   const ribbons = watch(app.toolbars, ['change'], () => ({ left: app.toolbars.list('left-ribbon').length > 0, right: app.toolbars.list('right-ribbon').length > 0 }))
   const looks = watch(app.icons, ['change'], () => ({}))
   const tabLook = (path: string) => (looks.current && !path.startsWith('view:') ? app.icons.look('file', path) : undefined)
+  /** An icon of the app's set inside a button of the phone's frame. */
+  function iconOf(node: HTMLElement, name: string) {
+    node.append(app.icons.draw(name))
+  }
   function drawIcon(node: HTMLElement, [icon, path, plain]: [string | undefined, string, boolean?]) {
     // On a pinned tab the icon is the whole tab: a click on it must open the tab, not the choice of icons.
     if (icon) node.append(plain ? app.icons.draw(icon) : app.icons.clickable(app.icons.draw(icon), 'file', path))
@@ -271,6 +281,17 @@
     }
   }
 
+  /** The open tabs as a list to choose from (on a phone, a sheet of its own). */
+  function openTabList() {
+    app.suggest<(typeof workspace.leaves)[number]>({
+      placeholder: 'Вкладка…',
+      items: (query) => workspace.leaves.filter((leaf) => !leaf.host && (leaf.title ?? leaf.path).toLowerCase().includes(query.toLowerCase())),
+      label: (leaf) => leaf.title ?? title(leaf.path),
+      detail: (leaf) => (leaf.path.startsWith('view:') ? '' : dirname(leaf.path)),
+      onChoose: (leaf) => workspace.setActive(leaf),
+    })
+  }
+
   function openPalette() {
     const commands = app.commands.list().sort((a, b) => a.name.localeCompare(b.name))
     app.suggest<Command>({
@@ -291,8 +312,127 @@
   /** Places an element owned by the core inside this component's markup. */
   function host(node: HTMLElement, child: HTMLElement) {
     node.append(child)
-    return { destroy: () => child.remove() }
+    // The frame changed (the phone's and the computer's): the other one may have taken the element already.
+    return { destroy: () => child.parentNode === node && child.remove() }
   }
+
+  // ---- the phone's frame (see layout.svelte.ts)
+  /** The sidebar pulled out as a drawer over the note. */
+  let drawer = $state<'left' | 'right' | null>(null)
+  /** The sheet up from the bottom: the open tabs, or more actions. */
+  let sheet = $state<'tabs' | 'more' | null>(null)
+  /** A note is being typed in: the bar over the keyboard replaces the bar of buttons. */
+  let typing = $state(false)
+  /** Some field has the keyboard up: the bar of buttons steps aside. */
+  let keyboardUp = $state(false)
+  const DRAWER_WIDTH = () => Math.min(innerWidth * 0.86, 360)
+  /** A drawer being pulled by a finger: how far out it is. */
+  let pull = $state<{ side: 'left' | 'right'; px: number } | null>(null)
+  let swipe: { x: number; y: number; side: 'left' | 'right' | null; closing: boolean; on: boolean } | null = null
+  const ribbonButtons = watch(app.toolbars, ['change'], () => [...app.toolbars.list('left-ribbon'), ...app.toolbars.list('right-ribbon'), ...app.toolbars.list('tab-bar'), ...app.toolbars.list('page-header')])
+
+  function onFocusChange() {
+    // Focus moves in two steps (out of one thing, into another): what has it is read once both are done.
+    setTimeout(() => {
+      const focused = document.activeElement
+      const inNote = !!focused && workspace.containerEl.contains(focused)
+      typing = inNote && !!focused.closest('.cm-content')
+      keyboardUp = !!focused?.matches('input:not([type=checkbox]):not([type=radio]):not([type=button]), textarea, [contenteditable=""], [contenteditable="true"]')
+    })
+  }
+
+  /** Whether something under the finger scrolls sideways itself (a wide table, a long line of code). */
+  function scrollsSideways(target: Element | null): boolean {
+    for (let el = target; el && el !== document.body; el = el.parentElement) {
+      if (el.scrollWidth > el.clientWidth + 2 && /(auto|scroll)/.test(getComputedStyle(el).overflowX)) return true
+    }
+    return false
+  }
+
+  // A finger drawn sideways across the note pulls out a drawer: from the left the files, from the right the
+  // right sidebar; drawn back across an open drawer, it sends it away.
+  function touchStart(event: TouchEvent) {
+    swipe = null
+    if (!layout.mobile || event.touches.length !== 1 || sheet || menu || suggest || settingsOpen || vaultsOpen || helpOpen) return
+    const touch = event.touches[0]
+    const target = event.target as Element
+    if (!drawer) {
+      if (!target.closest?.('.content') || scrollsSideways(target)) return
+      // Picking text: its handles are dragged sideways too.
+      if (target.closest('.cm-content') && !(window.getSelection()?.isCollapsed ?? true)) return
+    }
+    swipe = { x: touch.clientX, y: touch.clientY, side: drawer, closing: !!drawer, on: false }
+  }
+  function touchMove(event: TouchEvent) {
+    if (!swipe) return
+    const touch = event.touches[0]
+    let dx = touch.clientX - swipe.x
+    const dy = touch.clientY - swipe.y
+    if (!swipe.on) {
+      if (Math.abs(dx) < 12) return
+      if (Math.abs(dx) < Math.abs(dy) * 1.5) return void (swipe = null)
+      const side = swipe.closing ? swipe.side! : dx > 0 ? 'left' : 'right'
+      const towards = side === 'left' ? dx > 0 : dx < 0
+      if (swipe.closing === towards || (side === 'right' && !hasRightPanels.current)) return void (swipe = null)
+      swipe = { ...swipe, x: touch.clientX, side, on: true }
+      dx = 0
+    }
+    event.preventDefault()
+    const width = DRAWER_WIDTH()
+    const out = swipe.side === 'left' ? dx : -dx
+    pull = { side: swipe.side!, px: Math.min(width, Math.max(0, swipe.closing ? width + out : out)) }
+  }
+  function touchEnd() {
+    if (swipe?.on && pull) {
+      const out = pull.px > DRAWER_WIDTH() * (swipe.closing ? 0.6 : 0.35)
+      drawer = out ? pull.side : null
+      if (out) (document.activeElement as HTMLElement | null)?.blur?.()
+    }
+    swipe = null
+    pull = null
+  }
+  /** Where a drawer is drawn: out, in, or where the finger holds it. */
+  const drawerShift = (side: 'left' | 'right') => {
+    if (pull?.side === side) return `${(side === 'left' ? -1 : 1) * (DRAWER_WIDTH() - pull.px)}px 0`
+    return drawer === side ? '0 0' : `${side === 'left' ? -100 : 100}% 0`
+  }
+  const shade = $derived(pull ? pull.px / DRAWER_WIDTH() : drawer ? 1 : 0)
+
+  /** Finding a note by its name: the quick switcher when it is on, a plain list of notes when not. */
+  function findNote() {
+    if (app.commands.get('quick-switcher:open')) return void app.commands.run('quick-switcher:open')
+    const notes = app.vault.files().filter((file) => extname(file.path) === 'md')
+    app.suggest<(typeof notes)[number]>({
+      placeholder: 'Имя заметки…',
+      items: (query) => {
+        const words = query.toLowerCase().split(/\s+/).filter(Boolean)
+        return notes.filter((file) => words.every((word) => file.path.toLowerCase().includes(word))).slice(0, 200)
+      },
+      label: (file) => title(file.path),
+      detail: (file) => dirname(file.path),
+      onChoose: (file) => workspace.openFile(file.path),
+    })
+  }
+
+  const runTile = (action: () => unknown) => () => {
+    sheet = null
+    void action()
+  }
+  /** What the sheet of more actions offers, in that order; a command missing (its plugin off) leaves no tile. */
+  const tiles = $derived.by(() => {
+    void sheet
+    const list: { icon: string; title: string; run: () => unknown }[] = [
+      { icon: 'search', title: 'Поиск по заметкам', run: () => (app.commands.get('search:open') ? app.commands.run('search:open') : findNote()) },
+      { icon: 'terminal', title: 'Команды', run: openPalette },
+      ...(hasRightPanels.current ? [{ icon: 'panel-right', title: 'Правая панель', run: () => (drawer = 'right') }] : []),
+      { icon: 'settings', title: 'Настройки', run: () => (settingsOpen = true) },
+      { icon: 'vault', title: 'Хранилища', run: () => (vaultsOpen = true) },
+      { icon: 'sun-moon', title: 'Тема', run: () => app.commands.run('core:toggle-theme') },
+      { icon: 'monitor', title: 'Вид компьютера', run: toggleLayout },
+    ]
+    return list
+  })
+
 
   onMount(() => {
     const offs = [
@@ -351,6 +491,10 @@
       app.commands.add({ id: 'core:float-left-sidebar', name: 'Левая панель: плавающая или прикреплённая', icon: 'panel-left-dashed', callback: () => setFloating('left', !floats.left) }),
       app.commands.add({ id: 'core:float-right-sidebar', name: 'Правая панель: плавающая или прикреплённая', icon: 'panel-right-dashed', callback: () => setFloating('right', !floats.right) }),
       app.commands.add({ id: 'core:new-note', name: 'Новая заметка', hotkey: 'Alt+N', callback: () => void newNote() }),
+      app.commands.add({ id: 'core:show-tabs', name: 'Открытые вкладки списком', icon: 'layers', callback: () => (layout.mobile ? (sheet = 'tabs') : openTabList()) }),
+      app.commands.add({ id: 'core:toggle-mobile-layout', name: 'Вид телефона или компьютера на этом устройстве', icon: 'monitor-smartphone', callback: toggleLayout }),
+      // Opening a note from a drawer puts the note on screen: the drawer goes.
+      workspace.on('active-change', () => layout.mobile && drawer && (drawer = null)),
       app.commands.add({
         id: 'core:close-tab',
         name: 'Закрыть вкладку',
@@ -483,6 +627,20 @@
     offs.push(() => window.removeEventListener('mousemove', trackPointer))
     window.addEventListener('wheel', onWheel, { passive: false })
     document.addEventListener('visibilitychange', onHide)
+    document.addEventListener('focusin', onFocusChange)
+    document.addEventListener('focusout', onFocusChange)
+    window.addEventListener('touchstart', touchStart, { passive: true })
+    window.addEventListener('touchmove', touchMove, { passive: false })
+    window.addEventListener('touchend', touchEnd)
+    window.addEventListener('touchcancel', touchEnd)
+    offs.push(() => {
+      document.removeEventListener('focusin', onFocusChange)
+      document.removeEventListener('focusout', onFocusChange)
+      window.removeEventListener('touchstart', touchStart)
+      window.removeEventListener('touchmove', touchMove)
+      window.removeEventListener('touchend', touchEnd)
+      window.removeEventListener('touchcancel', touchEnd)
+    })
     return () => {
       offs.forEach((off) => off())
       window.removeEventListener('keydown', onKey, true)
@@ -492,6 +650,118 @@
   })
 </script>
 
+{#if layout.mobile}
+  <!-- The phone's frame: a bar on top, the note, a bar of buttons below (the bar over the keyboard while typing),
+       the sidebars as drawers pulled out from the sides. -->
+  <div class="app phone">
+    <header class="phone-top">
+      <button class="phone-button" aria-label="Файлы" title="Файлы" onclick={() => (drawer = 'left')} use:iconOf={'menu'}></button>
+      <div class="phone-title">
+        {#if crumbs.current.length}
+          <span class="phone-name">{crumbs.current[crumbs.current.length - 1].text}</span>
+          {#if crumbs.current.length > 1}<span class="phone-folder">{crumbs.current.slice(0, -1).map((part) => part.text).join(' / ')}</span>{/if}
+        {:else}
+          <span class="phone-name">{app.vault.name}</span>
+        {/if}
+      </div>
+      {#if readable.current !== null}
+        <button
+          class="phone-button reading-toggle"
+          class:on={readable.current}
+          aria-label={readable.current ? 'Чтение — нажмите, чтобы править' : 'Правка — нажмите, чтобы только читать'}
+          aria-pressed={readable.current}
+          onclick={() => app.commands.run('core:toggle-reading')}
+        >
+          {#key readable.current}<span class="phone-icon" use:iconOf={readable.current ? 'book-open' : 'square-pen'}></span>{/key}
+        </button>
+      {/if}
+      {#if crumbs.current.length}
+        <button class="phone-button" aria-label="Действия с заметкой" title="Действия с заметкой" onclick={(event) => (event.stopPropagation(), noteMenu(event))} use:iconOf={'ellipsis-vertical'}></button>
+      {/if}
+    </header>
+
+    <div class="content" use:host={workspace.containerEl}>
+      {#if !tabs.current.length}
+        <div class="empty phone-empty">
+          <img src="/favicon.svg" width="56" height="56" alt="" />
+          <button class="phone-wide accent" onclick={() => newNote()}><span use:iconOf={'plus'}></span>Новая заметка</button>
+          <button class="phone-wide" onclick={findNote}><span use:iconOf={'search'}></span>Найти заметку</button>
+          <button class="phone-wide" onclick={() => (drawer = 'left')}><span use:iconOf={'folder-open'}></span>Все файлы</button>
+        </div>
+      {/if}
+    </div>
+
+    {#if typing}
+      <KeyboardBar />
+    {:else if !keyboardUp}
+      <nav class="phone-nav" aria-label="Главное">
+        <button aria-label="Назад" onclick={() => history.back()}><span use:iconOf={'arrow-left'}></span></button>
+        <button aria-label="Найти заметку" onclick={findNote}><span use:iconOf={'search'}></span></button>
+        <button class="phone-new" aria-label="Новая заметка" onclick={() => newNote()}><span use:iconOf={'plus'}></span></button>
+        <button aria-label="Вкладки" onclick={() => (sheet = 'tabs')}>
+          <span class="phone-count">{tabs.current.length}</span>
+        </button>
+        <button aria-label="Ещё" onclick={() => (sheet = 'more')}><span use:iconOf={'layout-grid'}></span></button>
+      </nav>
+    {/if}
+
+    <!-- svelte-ignore a11y_click_events_have_key_events, a11y_no_static_element_interactions (a swipe or the back button closes it too) -->
+    <div class="drawer-shade" style:opacity={shade} style:pointer-events={drawer ? 'auto' : 'none'} onclick={() => (drawer = null)}></div>
+    <div class="drawer left" class:held={pull?.side === 'left'} style:translate={drawerShift('left')} inert={drawer !== 'left' && pull?.side !== 'left'}>
+      <Sidebar side="left" drawer>
+        {#snippet footer()}
+          <MainMenu onvaults={() => (vaultsOpen = true)} onhelp={() => (helpOpen = true)} onsettings={() => (settingsOpen = true)} />
+        {/snippet}
+      </Sidebar>
+    </div>
+    {#if hasRightPanels.current}
+      <div class="drawer right" class:held={pull?.side === 'right'} style:translate={drawerShift('right')} inert={drawer !== 'right' && pull?.side !== 'right'}>
+        <Sidebar side="right" drawer />
+      </div>
+    {/if}
+  </div>
+
+  {#if sheet === 'tabs'}
+    <Sheet label="Вкладки" onclose={() => (sheet = null)}>
+      {#snippet header()}
+        <div class="sheet-head">
+          <span class="sheet-title">Вкладки <span class="sheet-muted">{tabs.current.length}</span></span>
+          {#if tabs.current.length > 1}<button class="sheet-link" onclick={runTile(() => app.commands.run('core:close-all-tabs'))}>Закрыть все</button>{/if}
+          <button class="sheet-link" onclick={runTile(() => newNote(true))}>Новая</button>
+        </div>
+      {/snippet}
+      <div class="tab-list">
+        {#each tabs.current as tab (tab.id)}
+          <div class="tab-row" class:active={tab.id === activeId.current}>
+            <button class="tab-open" onclick={runTile(() => workspace.setActive(leafById(tab.id)))}>
+              <span class="tab-row-name">{#if tab.pinned}📌 {/if}{tab.title ?? title(tab.path)}</span>
+              {#if !tab.path.startsWith('view:') && dirname(tab.path)}<span class="tab-row-folder">{dirname(tab.path)}</span>{/if}
+            </button>
+            <button class="tab-row-close" aria-label="Закрыть вкладку" onclick={() => workspace.close(leafById(tab.id))} use:iconOf={'x'}></button>
+          </div>
+        {:else}
+          <p class="sheet-empty">Открытых вкладок нет</p>
+        {/each}
+      </div>
+    </Sheet>
+  {:else if sheet === 'more'}
+    <Sheet label="Ещё" onclose={() => (sheet = null)}>
+      <div class="tiles">
+        {#each tiles as tile (tile.title)}
+          <button class="tile" onclick={runTile(tile.run)}><span class="tile-icon" use:iconOf={tile.icon}></span>{tile.title}</button>
+        {/each}
+      </div>
+      {#if ribbonButtons.current.length}
+        <div class="tiles-title">Кнопки</div>
+        <div class="tiles">
+          {#each ribbonButtons.current as button (button.id)}
+            <button class="tile" onclick={(event) => ((sheet = null), button.onClick(event))}><span class="tile-icon" style:color={button.color ? app.icons.css(button.color) : null} use:iconOf={button.icon}></span>{button.title}</button>
+          {/each}
+        </div>
+      {/if}
+    </Sheet>
+  {/if}
+{:else}
 <div class="app">
   <!-- The strips show while they have buttons, and while something is dragged that could become one. -->
   {#if (ribbons.current.left || drag.note || drag.panel) && look.current.ribbon}<Toolbar place="left-ribbon" vertical floating={!ribbons.current.left} />{/if}
@@ -643,6 +913,7 @@
   {/if}
   {#if (ribbons.current.right || drag.note || drag.panel) && look.current.ribbon}<Toolbar place="right-ribbon" vertical floating={!ribbons.current.right} />{/if}
 </div>
+{/if}
 
 {#if settingsOpen}
   <SettingsModal onclose={() => (settingsOpen = false)} />
@@ -945,6 +1216,340 @@
 
   .empty button {
     color: var(--accent);
+  }
+
+  /* ---- the phone's frame */
+  .phone {
+    flex-direction: column;
+    height: var(--visible-height, 100%);
+    padding-top: env(safe-area-inset-top);
+    overflow: hidden;
+    background: var(--bg);
+  }
+
+  .phone-top {
+    display: flex;
+    flex: none;
+    align-items: center;
+    gap: 2px;
+    height: 52px;
+    padding: 0 6px;
+    border-bottom: 1px solid color-mix(in srgb, var(--border) 60%, transparent);
+  }
+
+  .phone-button {
+    display: flex;
+    flex: none;
+    align-items: center;
+    justify-content: center;
+    width: 44px;
+    height: 44px;
+    border-radius: 12px;
+    color: var(--text-muted);
+    font-size: 21px;
+  }
+
+  .phone-button:active {
+    background: var(--bg-hover);
+  }
+
+  .phone-button.on {
+    color: var(--accent);
+  }
+
+  .phone-icon {
+    display: flex;
+  }
+
+  .phone-title {
+    display: flex;
+    flex: 1;
+    flex-direction: column;
+    justify-content: center;
+    min-width: 0;
+    padding: 0 6px;
+    line-height: 1.2;
+  }
+
+  .phone-name {
+    overflow: hidden;
+    font-size: 16.5px;
+    font-weight: 600;
+    text-overflow: ellipsis;
+    white-space: nowrap;
+  }
+
+  .phone-folder {
+    overflow: hidden;
+    color: var(--text-faint);
+    font-size: 12.5px;
+    text-overflow: ellipsis;
+    white-space: nowrap;
+  }
+
+  .phone .content {
+    flex: 1;
+  }
+
+  .phone-nav {
+    display: grid;
+    flex: none;
+    grid-template-columns: repeat(5, 1fr);
+    align-items: center;
+    height: calc(60px + env(safe-area-inset-bottom));
+    padding: 0 8px env(safe-area-inset-bottom);
+    border-top: 1px solid color-mix(in srgb, var(--border) 60%, transparent);
+    background: var(--bg-alt);
+  }
+
+  .phone-nav button {
+    display: flex;
+    align-items: center;
+    justify-content: center;
+    justify-self: center;
+    width: 52px;
+    height: 44px;
+    border-radius: 14px;
+    color: var(--text-muted);
+    font-size: 22px;
+  }
+
+  .phone-nav button:active {
+    background: var(--bg-hover);
+    color: var(--text);
+  }
+
+  .phone-nav span {
+    display: flex;
+  }
+
+  .phone-nav .phone-new {
+    width: 50px;
+    height: 50px;
+    border-radius: 50%;
+    background: var(--accent);
+    color: #fff;
+    box-shadow: 0 4px 14px color-mix(in srgb, var(--accent) 45%, transparent);
+    font-size: 24px;
+  }
+
+  .phone-nav .phone-new:active {
+    background: var(--accent);
+    color: #fff;
+    scale: 0.94;
+  }
+
+  /* The open tabs: their number in a rounded square, as in a phone's browser. */
+  .phone-count {
+    align-items: center;
+    justify-content: center;
+    min-width: 23px;
+    height: 23px;
+    padding: 0 4px;
+    border: 2px solid currentColor;
+    border-radius: 7px;
+    font-size: 12px;
+    font-weight: 700;
+    line-height: 1;
+  }
+
+  .phone-empty {
+    gap: 12px;
+  }
+
+  .phone-empty img {
+    margin-bottom: 10px;
+    opacity: 0.8;
+  }
+
+  .phone-wide {
+    display: flex;
+    align-items: center;
+    gap: 12px;
+    width: min(300px, 80vw);
+    height: 50px;
+    padding: 0 18px;
+    border-radius: 14px;
+    background: var(--bg-alt);
+    color: var(--text) !important;
+    font-size: 16px;
+  }
+
+  .phone-wide span {
+    display: flex;
+    color: var(--text-muted);
+    font-size: 20px;
+  }
+
+  .phone-wide.accent {
+    background: var(--accent);
+    color: #fff !important;
+  }
+
+  .phone-wide.accent span {
+    color: inherit;
+  }
+
+  .drawer-shade {
+    position: fixed;
+    inset: 0;
+    z-index: 40;
+    background: rgb(0 0 0 / 0.42);
+    transition: opacity 0.26s ease;
+  }
+
+  .drawer {
+    position: fixed;
+    top: 0;
+    bottom: 0;
+    z-index: 41;
+    display: flex;
+    width: min(86vw, 360px);
+    padding: env(safe-area-inset-top) 0 env(safe-area-inset-bottom);
+    overflow: hidden;
+    background: var(--bg-alt);
+    transition: translate 0.28s cubic-bezier(0.2, 0.9, 0.3, 1);
+  }
+
+  .drawer.left {
+    left: 0;
+    border-radius: 0 20px 20px 0;
+  }
+
+  .drawer.right {
+    right: 0;
+    border-radius: 20px 0 0 20px;
+  }
+
+  .drawer:not([inert]) {
+    box-shadow: 0 0 40px rgb(0 0 0 / 0.25);
+  }
+
+  .drawer.held {
+    transition: none;
+  }
+
+  .sheet-head {
+    display: flex;
+    align-items: center;
+    gap: 14px;
+    padding: 0 18px 10px;
+  }
+
+  .sheet-title {
+    flex: 1;
+    font-size: 18px;
+    font-weight: 650;
+  }
+
+  .sheet-muted {
+    margin-left: 4px;
+    color: var(--text-faint);
+    font-weight: 500;
+  }
+
+  .sheet-link {
+    color: var(--accent);
+    font-size: 15px;
+  }
+
+  .sheet-empty {
+    padding: 24px;
+    color: var(--text-muted);
+    text-align: center;
+  }
+
+  .tab-list {
+    display: flex;
+    flex-direction: column;
+    gap: 4px;
+  }
+
+  .tab-row {
+    display: flex;
+    align-items: center;
+    border-radius: 14px;
+  }
+
+  .tab-row.active {
+    background: color-mix(in srgb, var(--accent) 12%, transparent);
+  }
+
+  .tab-open {
+    display: flex;
+    flex: 1;
+    flex-direction: column;
+    min-width: 0;
+    padding: 10px 14px;
+    text-align: left;
+  }
+
+  .tab-row-name {
+    overflow: hidden;
+    font-size: 16px;
+    text-overflow: ellipsis;
+    white-space: nowrap;
+  }
+
+  .tab-row.active .tab-row-name {
+    color: var(--accent);
+    font-weight: 600;
+  }
+
+  .tab-row-folder {
+    overflow: hidden;
+    color: var(--text-faint);
+    font-size: 12.5px;
+    text-overflow: ellipsis;
+    white-space: nowrap;
+  }
+
+  .tab-row-close {
+    display: flex;
+    flex: none;
+    align-items: center;
+    justify-content: center;
+    width: 44px;
+    height: 44px;
+    color: var(--text-faint);
+    font-size: 18px;
+  }
+
+  .tiles {
+    display: grid;
+    grid-template-columns: repeat(auto-fill, minmax(96px, 1fr));
+    gap: 8px;
+    padding: 4px 8px 8px;
+  }
+
+  .tiles-title {
+    padding: 10px 16px 4px;
+    color: var(--text-faint);
+    font-size: 13px;
+  }
+
+  .tile {
+    display: flex;
+    flex-direction: column;
+    align-items: center;
+    gap: 8px;
+    min-height: 84px;
+    padding: 14px 6px 10px;
+    border-radius: 16px;
+    background: var(--bg-alt);
+    font-size: 13px;
+    line-height: 1.2;
+    text-align: center;
+  }
+
+  .tile:active {
+    background: var(--bg-hover);
+  }
+
+  .tile-icon {
+    display: flex;
+    color: var(--accent);
+    font-size: 24px;
   }
 
   kbd {

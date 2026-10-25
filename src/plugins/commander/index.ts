@@ -3,7 +3,7 @@ import { dropBuiltIn, emptyData, importData, PLACE_NAMES, PLACES, renameMoved, t
 import './style.css'
 
 const FILE = '.flint/commander.json'
-const TOOLBARS: Partial<Record<Place, ToolbarPlace>> = { leftRibbon: 'left-ribbon', rightRibbon: 'right-ribbon', titleBar: 'tab-bar', pageHeader: 'page-header', explorer: 'explorer' }
+const TOOLBARS: Partial<Record<Place, ToolbarPlace>> = { leftRibbon: 'left-ribbon', rightRibbon: 'right-ribbon', titleBar: 'tab-bar', pageHeader: 'page-header', explorer: 'explorer', keyboardBar: 'keyboard' }
 const PLACE_OF = Object.fromEntries(Object.entries(TOOLBARS).map(([place, toolbar]) => [toolbar, place])) as Record<ToolbarPlace, Place>
 
 /**

@@ -126,7 +126,7 @@ export async function run(t) {
   await page.keyboard.press('Control+Comma')
   await page.locator('nav button.sub', { hasText: 'Быстрые кнопки и команды' }).click()
   const places = page.locator('.commander-place')
-  ok('the settings page shows all places and the macros', (await places.count()) === 9 && (await page.locator('.commander-place[data-place="leftRibbon"] .commander-row').count()) === 2, await places.count())
+  ok('the settings page shows all places and the macros', (await places.count()) === 10 && (await page.locator('.commander-place[data-place="leftRibbon"] .commander-row').count()) === 2, await places.count())
   await page.keyboard.press('Escape')
 
   // ---- the rule: every panel and every plugin has commands
