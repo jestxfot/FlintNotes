@@ -7,6 +7,21 @@
   position: relative;
 }
 
+/* A base drawn a moment after its note opened comes in softly instead of popping up. */
+.base-fade {
+  animation: base-in 0.22s ease-out;
+}
+@keyframes base-in {
+  from {
+    opacity: 0;
+  }
+}
+@media (prefers-reduced-motion: reduce) {
+  .base-fade {
+    animation: none;
+  }
+}
+
 /* The toolbar, as in Obsidian Bases: the view on the left, the tools on the right. */
 .base-toolbar {
   display: flex;

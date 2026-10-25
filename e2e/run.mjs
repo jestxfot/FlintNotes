@@ -32,8 +32,8 @@ function startServer(vault, port) {
   const release = process.env.FLINT_E2E_RELEASE
   const server = spawn(process.execPath, release ? [path.join(release, 'server.mjs')] : ['--import', 'tsx', 'server/index.ts'], {
     cwd: release ? os.tmpdir() : ROOT,
-    // The list of known vaults goes to a throwaway file, not to the user's own.
-    env: { ...process.env, FLINT_VAULT: vault, FLINT_PORT: String(port), FLINT_CONFIG: `${vault}.config.json`, FLINT_AUTOSTART_DIR: `${vault}.autostart` },
+    // The list of known vaults goes to a throwaway file, not to the user's own; so does what the server keeps between runs.
+    env: { ...process.env, FLINT_VAULT: vault, FLINT_PORT: String(port), FLINT_CONFIG: `${vault}.config.json`, FLINT_AUTOSTART_DIR: `${vault}.autostart`, FLINT_CACHE: `${vault}.cache` },
   })
   return new Promise((resolve, reject) => {
     let output = ''
@@ -91,6 +91,7 @@ for (const [index, file] of suites.entries()) {
   fs.rmSync(vault, { recursive: true, force: true })
   fs.rmSync(`${vault}.config.json`, { force: true })
   fs.rmSync(`${vault}.autostart`, { recursive: true, force: true })
+  fs.rmSync(`${vault}.cache`, { recursive: true, force: true })
 
   const failed = results.filter((result) => !result.pass)
   total += results.length

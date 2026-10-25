@@ -34,15 +34,14 @@ function bucketOf(path: string): number {
  *
  * The notes are kept in a few dozen blocks rather than one record each: reading
  * a few large records is much faster than reading thousands of small ones, and a
- * change rewrites only the block of the note that changed. Reading starts as soon
- * as the cache is made, so it goes on while the rest of the app is starting.
+ * change rewrites only the block of the note that changed. The database is opened
+ * as soon as the cache is made; its blocks are read when the index first asks for them.
  *
  * It is only a cache: when the browser will not keep it (a private window, no
  * room), everything works as before, just slower to start.
  */
 export class IndexCache {
   private db: Promise<IDBDatabase | null>
-  private buckets: Promise<Map<number, Bucket>>
   private pending = new Map<string, StoredNote | null>()
   private timer: ReturnType<typeof setTimeout> | undefined
 
@@ -62,7 +61,12 @@ export class IndexCache {
         resolve(null)
       }
     })
-    this.buckets = this.db.then(
+  }
+
+  private reading: Promise<Map<number, Bucket>> | null = null
+  /** The blocks as stored, read the first time they are needed. */
+  private get buckets(): Promise<Map<number, Bucket>> {
+    return (this.reading ??= this.db.then(
       (db) =>
         new Promise((resolve) => {
           const empty = () => resolve(new Map())
@@ -75,7 +79,7 @@ export class IndexCache {
             empty()
           }
         }),
-    )
+    ))
   }
 
   /** Everything stored for this vault, by path. */

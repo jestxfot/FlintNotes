@@ -15,6 +15,7 @@ import path from 'node:path'
 import { fileURLToPath } from 'node:url'
 import type { ExternalPluginInfo, RemoteEvent, VaultEntry, VaultInfo } from '../shared/protocol'
 import { checkWay, chooseProxy, computerProxy, describe, parseProxy, telegramName, viaProxy, webFetch, webGet, youtubeVideo } from './web'
+import { keptTrees, limiter } from './kept'
 import { TreeCache } from './tree-cache'
 
 // The vaults the user has opened are remembered between runs, outside any vault.
@@ -125,8 +126,16 @@ function resolveInVault(rel: string | undefined, allowRoot = false): string {
 
 const target = (c: Context) => resolveInVault(c.req.query('path'))
 
-/** The lists of the vaults' files, kept current by their watchers. */
-const trees = new TreeCache((dir) => walk(dir))
+/** The lists of the vaults' files, kept current by their watchers, and on disk for the next start. */
+const trees = new TreeCache(
+  (dir) => walk(dir),
+  undefined,
+  process.env.FLINT_KEEP_TREES === '0' ? null : keptTrees,
+  // What the walk after a start finds different from the kept list reaches the pages as the watcher's news would.
+  (dir, change) => broadcast(dir, change.type === 'upsert' ? change : { type: 'delete', path: change.path }),
+)
+/** The disk is asked about a few files at a time: requests of the page get their turn while a large vault is walked. */
+const disk = limiter(24)
 
 /**
  * Every file and folder under `dir`, with paths relative to the vault `base`. What the system will
@@ -134,7 +143,7 @@ const trees = new TreeCache((dir) => walk(dir))
  * Windows) is left out instead of failing the whole vault; only the vault's own folder must be readable.
  */
 async function walk(dir: string, base = dir): Promise<VaultEntry[]> {
-  const listed = await fs.readdir(dir, { withFileTypes: true }).catch((err) => {
+  const listed = await disk(() => fs.readdir(dir, { withFileTypes: true })).catch((err) => {
     if (dir === base) throw err
     return []
   })
@@ -142,7 +151,7 @@ async function walk(dir: string, base = dir): Promise<VaultEntry[]> {
   const nested = await Promise.all(
     dirents.map(async (d) => {
       const abs = path.join(dir, d.name)
-      const stat = await fs.stat(abs).catch(() => null)
+      const stat = await disk(() => fs.stat(abs)).catch(() => null)
       if (!stat) return []
       const self = toEntry(abs, stat, base)
       return d.isDirectory() ? [self, ...(await walk(abs, base))] : [self]
@@ -320,9 +329,12 @@ api.get('/file', async (c) => {
     throw new HTTPException(404, { message: 'File not found' })
   }
   const ext = path.extname(abs).slice(1).toLowerCase()
+  // An address that names the file's version (`v`, its time and size) always means the same bytes:
+  // the browser keeps them and asks no more. A changed file gets another address.
+  const version = c.req.query('v')
   return c.body(new Uint8Array(await fs.readFile(abs)), 200, {
     'content-type': MIME[ext] ?? 'application/octet-stream',
-    'cache-control': 'no-store',
+    'cache-control': version && version === `${Math.round(stat.mtimeMs)}-${stat.size}` ? 'private, max-age=31536000, immutable' : 'no-store',
   })
 })
 
@@ -967,6 +979,8 @@ async function stop(): Promise<void> {
   server.close()
   // Saves that have begun are let finish: a note cut off mid-write would be lost.
   for (const until = Date.now() + 5000; writes > 0 && Date.now() < until; ) await new Promise((resume) => setTimeout(resume, 50))
+  // The lists of files as they are now, for the next start.
+  await Promise.race([trees.flush(), new Promise((resume) => setTimeout(resume, 2000))])
   process.exit(0)
 }
 process.on('message', (message) => message === 'stop' && void stop())

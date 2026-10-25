@@ -20,6 +20,12 @@ export interface FileView {
   /** Write unsaved changes now. `unloading` means the page is closing. */
   flush?(unloading?: boolean): void | Promise<void>
   focus?(): void
+  /**
+   * A view that has these is kept for a while when its file is left (another note opened in its tab, the tab
+   * closed): `park` as it leaves the screen, `resume` when the file is opened again and the same view comes back.
+   */
+  park?(): void
+  resume?(): void
   destroy(): void
 }
 
@@ -50,6 +56,8 @@ export interface Leaf {
   pinned?: boolean
   /** Counts the times a view was put into the tab: a view that finishes loading late knows it is no longer wanted. */
   mounts?: number
+  /** The file the view in the tab shows (`path` moves on to the next file before its view is made). */
+  viewPath?: string
 }
 
 type WorkspaceEvents = {
@@ -62,6 +70,9 @@ type WorkspaceEvents = {
 const FALLBACK = 'unsupported'
 
 const VIEW_PREFIX = 'view:'
+
+/** How many files left a moment ago are kept whole, to open again at once. */
+const PARKED = 8
 
 const unsupportedView: ViewCreator = ({ path, containerEl }) => {
   const message = document.createElement('div')
@@ -92,6 +103,13 @@ export class Workspace extends Events<WorkspaceEvents> {
   newTabPage: (() => boolean) | null = null
   /** Whether the click or Enter being handled right now asks for a new tab (Ctrl or the middle button). */
   private aside = false
+  /**
+   * Views of files left a moment ago, the latest last: such a file opened again comes back as it was left
+   * (its editor drawn, its undo history), instead of being read and drawn anew. They wait in a hidden element
+   * at the end of the page, after everything that is on screen.
+   */
+  private parked = new Map<string, { type: string; view: FileView; el: HTMLElement }>()
+  private parking = document.createElement('div')
   /** The button of an edge strip whose click is being handled right now: a plugin's view opened by it belongs to that button. */
   private hostFor: string | null = null
   /** The last tab of the strip that was on screen, to go back to from a button's view. */
@@ -102,6 +120,8 @@ export class Workspace extends Events<WorkspaceEvents> {
   constructor(private app: App) {
     super()
     this.containerEl.className = 'workspace'
+    this.parking.className = 'parked-views'
+    this.parking.hidden = true
     // Every list, link and menu opens notes through `openFile`, so the modifier
     // is read here once instead of in each of them.
     const note = (event: Event) => {
@@ -114,12 +134,20 @@ export class Workspace extends Events<WorkspaceEvents> {
     app.vault.on('rename', (entry, oldPath) => {
       for (const leaf of this.leaves.filter((l) => l.path === oldPath)) {
         leaf.path = entry.path
+        if (leaf.viewPath === oldPath) leaf.viewPath = entry.path
         leaf.view?.onRename?.(entry.path)
         this.changed()
+      }
+      const kept = this.parked.get(oldPath)
+      if (kept) {
+        this.parked.delete(oldPath)
+        this.parked.set(entry.path, kept)
+        kept.view.onRename?.(entry.path)
       }
     })
     app.vault.on('delete', (entry) => {
       this.leaves.filter((l) => l.path === entry.path).forEach((leaf) => this.close(leaf, true))
+      this.unpark(entry.path)
     })
     app.vault.on('modify', (entry) => {
       this.leaves.filter((l) => l.path === entry.path).forEach((leaf) => leaf.view?.onExternalChange?.())
@@ -278,8 +306,7 @@ export class Workspace extends Events<WorkspaceEvents> {
     if (index < 0 || (leaf.pinned && !force)) return
     // A button's view is not closed along with tabs: it is left, and stays as it was for the next click on its button.
     if (leaf.host && !force) return void (this.active === leaf && this.back())
-    leaf.view?.destroy()
-    leaf.view = null
+    this.retire(leaf)
     leaf.el.remove()
     this.mounting.delete(leaf)
     this.leaves.splice(index, 1)
@@ -330,6 +357,8 @@ export class Workspace extends Events<WorkspaceEvents> {
   }
 
   private remountStale(): void {
+    // What is kept may be of a view that is no longer the one for its file.
+    for (const path of [...this.parked.keys()]) this.unpark(path)
     for (const leaf of this.leaves) {
       if (leaf.mounts && leaf.viewType !== this.viewTypeFor(leaf.path)) void this.mount(leaf)
     }
@@ -354,13 +383,32 @@ export class Workspace extends Events<WorkspaceEvents> {
    */
   private async mount(leaf: Leaf, focus = false): Promise<void> {
     const turn = (leaf.mounts = (leaf.mounts ?? 0) + 1)
-    leaf.view?.destroy()
-    leaf.view = null
+    this.retire(leaf)
     leaf.el.replaceChildren()
-    const host = leaf.el.appendChild(document.createElement('div'))
-    host.className = 'leaf-view'
     const path = leaf.path
     const type = (leaf.viewType = this.viewTypeFor(path))
+    const kept = this.parked.get(path)
+    this.parked.delete(path)
+    if (kept && kept.type === type) {
+      // Left a moment ago: it comes back as it was, brought up to date with its file.
+      leaf.el.append(kept.el)
+      leaf.view = kept.view
+      leaf.viewPath = path
+      this.mounting.delete(leaf)
+      this.show()
+      kept.view.resume?.()
+      if (leaf === this.active) {
+        if (focus) kept.view.focus?.()
+        this.trigger('active-change', leaf)
+      }
+      return
+    }
+    if (kept) {
+      kept.view.destroy()
+      kept.el.remove()
+    }
+    const host = leaf.el.appendChild(document.createElement('div'))
+    host.className = 'leaf-view'
     const creator = this.views.get(type) ?? unsupportedView
     const current = () => this.leaves.includes(leaf) && leaf.mounts === turn
     let view: FileView
@@ -386,10 +434,35 @@ export class Workspace extends Events<WorkspaceEvents> {
       return
     }
     leaf.view = view
+    leaf.viewPath = path
     if (leaf === this.active) {
       if (focus) view.focus?.()
       this.trigger('active-change', leaf)
     }
+  }
+
+  /** Takes the view out of the tab: kept for a while if it can be, done away with if not. */
+  private retire(leaf: Leaf): void {
+    const { view, viewPath } = leaf
+    leaf.view = null
+    leaf.viewPath = undefined
+    if (!view) return
+    const el = leaf.el.querySelector<HTMLElement>(':scope > .leaf-view')
+    if (!view.park || !el || !viewPath || viewPath.startsWith(VIEW_PREFIX)) return view.destroy()
+    view.park()
+    this.unpark(viewPath)
+    this.parked.set(viewPath, { type: leaf.viewType, view, el })
+    if (!this.parking.isConnected) document.body.append(this.parking)
+    this.parking.append(el)
+    for (const path of this.parked.keys()) if (this.parked.size > PARKED) this.unpark(path)
+  }
+
+  private unpark(path: string): void {
+    const kept = this.parked.get(path)
+    if (!kept) return
+    this.parked.delete(path)
+    kept.view.destroy()
+    kept.el.remove()
   }
 
   private changed(): void {

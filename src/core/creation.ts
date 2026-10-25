@@ -57,7 +57,15 @@ export class NoteCreation {
    */
   locate: ((placement: Placement) => Promise<string | null> | string | null) | null = null
 
+  /** How the paths of notes about to be made were chosen, until they are made. */
+  private placements = new Map<string, Placement>()
+
   constructor(private app: App) {}
+
+  /** How `place` chose this path for a note about to be made: for whoever prepares the note (a template may have a folder of its own). */
+  placementOf(path: string): Placement | undefined {
+    return this.placements.get(path)
+  }
 
   /** The note the user is in: the open one, if it is a file of the vault. */
   activeNote(): string {
@@ -82,12 +90,16 @@ export class NoteCreation {
     const placement: Placement = { ext: 'md', source: this.activeNote(), ...request }
     const chosen = this.locate ? await this.locate(placement) : placement.folder
     if (chosen === null) return null
-    return this.app.vault.uniquePath(normalize(chosen), placement.name, placement.ext)
+    const path = this.app.vault.uniquePath(normalize(chosen), placement.name, placement.ext)
+    if (this.placements.size > 50) this.placements.clear()
+    this.placements.set(path, placement)
+    return path
   }
 
   /** Creates the note at `path` (or where its template moves it). `null`: nothing was created. */
   async create(path: string): Promise<VaultEntry | null> {
     const draft = this.prepare ? await this.prepare(path) : { path, text: '' }
+    this.placements.delete(path)
     if (!draft) return null
     const entry = await this.app.vault.create(draft.path, draft.text)
     await draft.after?.(entry)

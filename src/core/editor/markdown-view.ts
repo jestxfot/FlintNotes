@@ -319,6 +319,24 @@ export class MarkdownView implements FileView {
     this.app.positions.put(this.path, { anchor, head, top })
   }
 
+  /** Off the screen, kept to come back to: what was typed is saved, the place it was left remembered. */
+  park(): void {
+    this.rememberPlace()
+    void this.flush()
+  }
+
+  /** Back on the screen: the text is brought up to the file as the index knows it, and the note shows where it was left. */
+  resume(): void {
+    if (this.remembering()) this.restorePlace()
+    else {
+      // Not remembering places: it opens at its start, as a note read anew would.
+      this.editor.dispatch({ selection: { anchor: 0 } })
+      this.skipFrontmatter()
+      requestAnimationFrame(() => (this.editor.scrollDOM.scrollTop = 0))
+    }
+    void this.onExternalChange(this.app.metadata.text(this.path))
+  }
+
   destroy(): void {
     this.rememberPlace()
     void this.flush()

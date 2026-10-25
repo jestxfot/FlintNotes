@@ -163,9 +163,13 @@ export class Vault extends Events<VaultEvents> {
     return this.all().filter((entry) => entry.kind === 'file')
   }
 
-  /** URL the browser can load the file from, e.g. for `<img src>`. */
+  /**
+   * URL the browser can load the file from, e.g. for `<img src>`. It names the file's version (its time
+   * and size), so the browser keeps a picture and shows it again at once, until the file changes.
+   */
   url(path: string): string {
-    return url('file', path)
+    const entry = this.entries.get(path)
+    return entry ? `${url('file', path)}&v=${Math.round(entry.mtime)}-${entry.size}` : url('file', path)
   }
 
   async read(path: string): Promise<string> {

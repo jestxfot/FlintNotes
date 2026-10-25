@@ -74,6 +74,13 @@ export default class Templates extends Plugin {
         default: '',
         placeholder: 'Проекты/Клиенты = Клиент\nПроекты = Проект\nre:^Встречи/\\d{4} = Встреча\n/ = Заметка',
       },
+      {
+        key: 'folders',
+        name: 'Папки заметок по шаблонам',
+        desc: 'Заметка по шаблону ложится в его папку: и командой «Создать заметку из шаблона», и когда шаблон выбран для новой заметки. Папка, названная явно (путь в ссылке, «Новая заметка» на папке), главнее. Пусто — как обычно',
+        type: 'custom',
+        render: (el) => this.drawFolders(el),
+      },
       { key: 'excluded', name: 'Папки без шаблонов', desc: 'По папке в строке; новые заметки в них не заполняются', type: 'lines', default: '' },
       {
         key: 'autoJump',
@@ -140,6 +147,15 @@ export default class Templates extends Plugin {
     }
 
     this.register(app.vault.on('created-here', (entry) => void this.onCreated(entry)))
+    // A template, or a folder chosen for one, that is renamed keeps its choice.
+    this.register(
+      app.vault.on('rename', (entry, from) => {
+        const all = this.folders()
+        const moved = (path: string) => (path === from ? entry.path : path.startsWith(`${from}/`) ? entry.path + path.slice(from.length) : path)
+        const next = Object.fromEntries(Object.entries(all).map(([template, folder]) => [moved(template), moved(folder)]))
+        if (JSON.stringify(next) !== JSON.stringify(all)) this.setSetting('folders', next)
+      }),
+    )
     app.creation.prepare = (path) => this.prepare(path)
     this.register(() => (app.creation.prepare = null))
 
@@ -158,6 +174,51 @@ export default class Templates extends Plugin {
 
   private get folder(): string {
     return paths.normalize(this.getSetting<string>('folder'))
+  }
+
+  /** The folder chosen for notes made from each template, by the template's path. */
+  private folders(): Record<string, string> {
+    return { ...(this.getSetting<Record<string, string> | undefined>('folders') ?? {}) }
+  }
+
+  /** Where notes made from this template go, if a folder is chosen for it. */
+  private folderFor(template: string): string | null {
+    const folder = this.folders()[template]
+    return folder ? paths.normalize(folder) : null
+  }
+
+  /** The settings' list of templates, each with a field for its folder. */
+  private drawFolders(el: HTMLElement): () => void {
+    const box = el.appendChild(document.createElement('div'))
+    box.className = 'tpl-folders'
+    const templates = this.list()
+    if (!templates.length) box.textContent = `В папке «${this.folder}» пока нет шаблонов`
+    const hints = box.appendChild(document.createElement('datalist'))
+    hints.id = 'tpl-folder-hints'
+    for (const entry of this.app.vault.all()) {
+      if (entry.kind !== 'folder' || entry.path === this.folder || entry.path.startsWith(`${this.folder}/`)) continue
+      hints.appendChild(document.createElement('option')).value = entry.path
+    }
+    for (const template of templates) {
+      const row = box.appendChild(document.createElement('label'))
+      row.className = 'tpl-folder'
+      const name = row.appendChild(document.createElement('span'))
+      name.textContent = paths.stripExt(template.slice(this.folder.length + 1))
+      const input = row.appendChild(document.createElement('input'))
+      input.type = 'text'
+      input.setAttribute('list', hints.id)
+      input.placeholder = 'как обычно'
+      input.value = this.folders()[template] ?? ''
+      input.onchange = () => {
+        const all = this.folders()
+        const folder = paths.normalize(input.value.trim()).replace(/^\/+|\/+$/g, '')
+        if (folder) all[template] = folder
+        else delete all[template]
+        input.value = folder
+        this.setSetting('folders', all)
+      }
+    }
+    return () => box.remove()
   }
 
   private list(): string[] {
@@ -386,9 +447,10 @@ export default class Templates extends Plugin {
     this.guard(template, async () => {
       const hooks: Run['hooks'] = []
       const active = app.workspace.active?.path
-      const folder = active && app.vault.get(active) ? paths.dirname(active) : ''
-      // Next to the open note, unless a plugin chooses another place for new notes.
-      const target = await app.creation.place({ origin: 'template', name: 'Без названия', folder, explicit: false })
+      const own = this.folderFor(template)
+      const folder = own ?? (active && app.vault.get(active) ? paths.dirname(active) : '')
+      // In the template's own folder, if it has one; next to the open note otherwise, unless a plugin chooses another place for new notes.
+      const target = await app.creation.place({ origin: 'template', name: 'Без названия', folder, explicit: own !== null })
       // The user backed out of the question of where.
       if (!target) return
       const made = await this.run(await app.vault.read(template), {
@@ -465,8 +527,11 @@ export default class Templates extends Plugin {
     if (!template) return empty
     const hooks: Run['hooks'] = []
     const from = template
+    // A template with a folder of its own takes the note there, unless the user named the note's folder.
+    const own = this.folderFor(from)
+    const at = own !== null && !app.creation.placementOf(path)?.explicit && paths.dirname(path) !== own ? app.vault.uniquePath(own, paths.stripExt(paths.basename(path)), paths.extname(path) || 'md') : path
     try {
-      const made = await this.run(await app.vault.read(from), { template: from, target: path, mode: 'CreateNewFromTemplate', hooks })
+      const made = await this.run(await app.vault.read(from), { template: from, target: at, mode: 'CreateNewFromTemplate', hooks })
       const target = app.vault.get(made.target) ? app.vault.uniquePath(paths.dirname(made.target), paths.stripExt(paths.basename(made.target)), 'md') : made.target
       this.creating.add(target)
       return {

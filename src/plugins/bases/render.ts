@@ -114,6 +114,18 @@ export interface MountedBase {
 /** How many records of a base are drawn at first. */
 const PAGE = 120
 
+type Worked = { engine: BaseEngine; result: ViewResult; columns: string[] }
+/**
+ * The records of bases as they were last worked out, shared by every showing of them: a note opened
+ * again shows its bases without working them out anew, until some note changes. Only the latest few are kept.
+ */
+const worked = new Map<string, Worked>()
+const WORKED_KEPT = 24
+/** How tall each base was when last drawn: one drawn a moment after its note opens takes its room at once, and nothing below it jumps. */
+const heights = new Map<string, number>()
+const idle = (work: (deadline?: IdleDeadline) => void): number => (typeof requestIdleCallback === 'function' ? requestIdleCallback(work, { timeout: 3000 }) : (setTimeout(work, 200) as unknown as number))
+const unidle = (id: number) => (typeof cancelIdleCallback === 'function' ? cancelIdleCallback(id) : clearTimeout(id))
+
 /** Draws a base (its views, toolbar and settings) into `el` and keeps it current. */
 export function mountBase(el: HTMLElement, host: BaseHost, initial: string): MountedBase {
   const { app } = host
@@ -141,6 +153,12 @@ export function mountBase(el: HTMLElement, host: BaseHost, initial: string): Mou
   let search = ''
   let stale = false
   let offscreen = false
+  /** Nothing is worked out before the base comes near the screen, or the page has a free moment for it. */
+  let started = false
+  let drawn = false
+  const place = () => `${host.sourcePath}\n${active}\n${source}`
+  const height = heights.get(place())
+  if (height) el.style.minHeight = `${height}px`
   /** How many records are drawn. A large base is drawn a part at a time, more as the reader gets near the end. */
   let limit = PAGE
   /** What the limit was counted for: another view or another search starts from the first part again. */
@@ -187,13 +205,14 @@ export function mountBase(el: HTMLElement, host: BaseHost, initial: string): Mou
   }
 
   function draw(): void {
+    if (!started) return
     // Nothing is worked out for a base that is not on screen; it catches up when it is.
     if (!el.isConnected || el.offsetParent === null) {
       offscreen = true
       return
     }
     offscreen = false
-    const started = performance.now()
+    const begun = performance.now()
     more.disconnect()
     const scroll = el.querySelector('.base-body')?.scrollTop ?? 0
     const { config, error } = parseBase(source)
@@ -206,11 +225,18 @@ export function mountBase(el: HTMLElement, host: BaseHost, initial: string): Mou
     const view = drawnAs(views[active])
     // Working the records out is the heavy part. It is done again only when the base's text, the view
     // or some note has changed, not for every opening of a panel, search or next part of the list.
-    const stamp = `${app.metadata.generation}\n${active}\n${source}`
+    const stamp = `${app.metadata.generation}\n${place()}`
     if (cached?.key !== stamp) {
-      const fresh = new BaseEngine(app, config, host.sourcePath)
-      const found = fresh.query(view)
-      cached = { key: stamp, engine: fresh, result: found, columns: fresh.columns(view, found.rows) }
+      let known = worked.get(stamp)
+      if (known) worked.delete(stamp)
+      else {
+        const fresh = new BaseEngine(app, config, host.sourcePath)
+        const found = fresh.query(view)
+        known = { engine: fresh, result: found, columns: fresh.columns(view, found.rows) }
+      }
+      worked.set(stamp, known)
+      for (const key of worked.keys()) if (worked.size > WORKED_KEPT) worked.delete(key)
+      cached = { key: stamp, ...known }
     }
     const { engine, result, columns } = cached
 
@@ -340,7 +366,15 @@ export function mountBase(el: HTMLElement, host: BaseHost, initial: string): Mou
     // The next part is drawn by itself when the end of this one comes near.
     if (rest) more.observe(rest)
     last = Object.hasOwn(RENDERERS, view.type) ? { ctx, shown, render } : null
-    cost = performance.now() - started
+    cost = performance.now() - begun
+    // The first drawing comes in softly, in the room kept for it.
+    if (!drawn) {
+      drawn = true
+      el.style.minHeight = ''
+      el.classList.add('base-fade')
+    }
+    heights.set(place(), el.offsetHeight)
+    for (const key of heights.keys()) if (heights.size > 300) heights.delete(key)
   }
 
   /**
@@ -720,8 +754,30 @@ export function mountBase(el: HTMLElement, host: BaseHost, initial: string): Mou
   })
   visible.observe(el)
 
+  // A base in sight is drawn at once; one further down when it is scrolled near, or before that while
+  // the page is idle, so that a long note opens without waiting for all of its bases.
+  let near: IntersectionObserver | null = null
+  let waiting = 0
+  const start = () => {
+    if (started) return
+    started = true
+    near?.disconnect()
+    unidle(waiting)
+    draw()
+  }
+  const later = (deadline?: IdleDeadline) => {
+    if (deadline && !deadline.didTimeout && deadline.timeRemaining() < 8) waiting = idle(later)
+    else start()
+  }
   // The element is not in the page yet while the block is being created.
-  requestAnimationFrame(draw)
+  requestAnimationFrame(() => {
+    if (started) return
+    const box = el.getBoundingClientRect()
+    if (el.isConnected && el.offsetParent !== null && box.bottom > -100 && box.top < innerHeight + 100) return start()
+    near = new IntersectionObserver((entries) => entries.some((entry) => entry.isIntersecting) && start(), { root: el.closest('.cm-scroller'), rootMargin: '600px 0px' })
+    near.observe(el)
+    waiting = idle(later)
+  })
   return {
     update(next) {
       if (next === source) return
@@ -731,6 +787,8 @@ export function mountBase(el: HTMLElement, host: BaseHost, initial: string): Mou
     destroy() {
       clearTimeout(timer)
       off()
+      near?.disconnect()
+      unidle(waiting)
       visible.disconnect()
       more.disconnect()
       el.removeEventListener('focusout', onFocusOut)

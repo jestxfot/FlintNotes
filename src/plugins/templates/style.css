@@ -96,3 +96,21 @@
   font-family: var(--font-mono);
   font-size: 0.88em;
 }
+
+/* Settings: the folder each template's notes go to. */
+.tpl-folders {
+  display: grid;
+  gap: 6px;
+  margin-top: 6px;
+}
+.tpl-folder {
+  display: grid;
+  grid-template-columns: minmax(0, 1fr) minmax(0, 1.4fr);
+  align-items: center;
+  gap: 10px;
+}
+.tpl-folder span {
+  overflow: hidden;
+  text-overflow: ellipsis;
+  white-space: nowrap;
+}

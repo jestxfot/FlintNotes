@@ -222,7 +222,11 @@ export class MetadataCache extends Events<MetadataEvents> {
     this.ready = new Promise((resolve) => (this.markReady = resolve))
   }
 
-  /** Starts reading the index the browser kept, as early as the vault is known: it arrives while the rest starts. */
+  /**
+   * Opens the index the browser kept, as early as the vault is known. Its notes are read only with `load`:
+   * taking tens of megabytes out of the browser's store holds the page up for a moment, and that moment
+   * must not come before the first note is on screen.
+   */
   prefetch(): void {
     this.stored ??= new IndexCache(this.vault.urlName || 'vault')
   }
@@ -230,7 +234,14 @@ export class MetadataCache extends Events<MetadataEvents> {
   /** Starts following the vault. Links by name resolve from here on; contents come with `load`. */
   init(): void {
     const { vault } = this
-    vault.on('create', (entry) => (isNote(entry) ? void this.index(entry.path) : this.rebuild()))
+    // Files come and go in bursts (a folder copied in, a sync, the server finding what changed while it was off):
+    // a link to the new file resolves at once, the maps of links are worked out once the burst is over.
+    vault.on('create', (entry) => {
+      if (isNote(entry)) return void this.index(entry.path)
+      if (entry.kind !== 'file') return
+      this.addName(entry.path)
+      this.rebuildSoon()
+    })
     // Text saved by the app itself is taken as is; only changes made elsewhere are read from disk.
     vault.on('written', (entry, text) => {
       if (!isNote(entry)) return
@@ -243,7 +254,7 @@ export class MetadataCache extends Events<MetadataEvents> {
       this.cache.delete(entry.path)
       this.texts.delete(entry.path)
       this.stored?.remove(entry.path)
-      this.rebuild()
+      if (entry.kind === 'file') this.rebuildSoon()
     })
     vault.on('rename', (entry, oldPath) => this.onRename(entry, oldPath))
     this.rebuild()
@@ -486,9 +497,26 @@ export class MetadataCache extends Events<MetadataEvents> {
     this.trigger('renamed', entry.path, oldPath, affected)
   }
 
+  /** A file that came: links to it resolve from now on, before the maps of links are made again. */
+  private addName(path: string): void {
+    const lower = path.toLowerCase()
+    const name = basename(lower)
+    this.paths.set(lower, path)
+    push(this.names, name, path)
+    if (name.endsWith('.md')) push(this.names, name.slice(0, -3), path)
+    this.resolved.clear()
+  }
+
+  private rebuildTimer: ReturnType<typeof setTimeout> | undefined
+  private rebuildSoon(): void {
+    clearTimeout(this.rebuildTimer)
+    this.rebuildTimer = setTimeout(() => this.rebuild(), 80)
+  }
+
   // Recomputing everything on each change keeps the index trivially correct and
   // costs a few map lookups per link.
   private rebuild(): void {
+    clearTimeout(this.rebuildTimer)
     this.generation++
     this.resolved.clear()
     this.paths.clear()
