@@ -1,6 +1,6 @@
 /**
- * What FlintNotes.vbs and the start with the computer run: it keeps the server going in the
- * background, with no window.
+ * The browser version's way of running (node release/launcher.mjs, and the start with the computer
+ * outside Windows): it keeps the server going in the background, with no window.
  * - A new build (`npm run release` writes `build.json` last) replaces the server: the old one
  *   finishes the saves it has begun and steps aside, the new one starts on the same port, and
  *   the open pages reload themselves.

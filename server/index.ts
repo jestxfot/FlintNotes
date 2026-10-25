@@ -68,8 +68,9 @@ let port = fixedPort ?? config.port ?? DEFAULT_PORT
 const PIPE = process.env.FLINT_PIPE
 /** Electron's channel to the desktop app, when the server runs as its utility process. */
 const parentPort = (process as unknown as { parentPort?: { on(event: 'message', listener: (message: { data: unknown }) => void): void; postMessage(message: unknown): void } }).parentPort
-// A vault named on the command line wins over the one used last time.
-let defaultRoot = path.resolve(process.argv[2] ?? process.env.FLINT_VAULT ?? config.current ?? 'vault')
+// A vault named on the command line wins over the one used last time. The first start of all has `vault`
+// next to the program, or the place the desktop app gives (FLINT_FIRST_VAULT: Documents\FlintNotes).
+let defaultRoot = path.resolve(process.argv[2] ?? process.env.FLINT_VAULT ?? config.current ?? process.env.FLINT_FIRST_VAULT ?? 'vault')
 /**
  * The server serves every known vault at once: each request says which vault it
  * is about, and each page keeps to its own. Inside a request `root()` is that
@@ -442,7 +443,7 @@ api.post('/exec', async (c) => {
 
 // ---- starting with the computer: a small file where the system looks for programs to run at sign-in
 const AUTOSTART_DIR = process.env.FLINT_AUTOSTART_DIR
-function autostart(): { file: string; text: string; encoding: BufferEncoding } | { reason: string } {
+function autostart(): { file: string; text: string } | { reason: string } {
   // The desktop app starts with Windows by Windows' own means (server/desktop.ts), not by a script of the server's.
   if (PIPE) return { reason: 'Приложение запускается вместе с Windows своими средствами' }
   const script = process.argv[1] ? path.resolve(process.argv[1]) : ''
@@ -451,25 +452,20 @@ function autostart(): { file: string; text: string; encoding: BufferEncoding } |
   // Started by the launcher, the launcher itself: it keeps the server up and puts new builds in place.
   const launcher = process.env.FLINT_LAUNCHER
   const command = launcher ? [process.execPath, launcher] : [process.execPath, ...process.execArgv, script]
-  if (process.platform === 'win32') {
-    const dir = AUTOSTART_DIR ?? path.join(process.env.APPDATA ?? path.join(os.homedir(), 'AppData', 'Roaming'), 'Microsoft', 'Windows', 'Start Menu', 'Programs', 'Startup')
-    // A script for Windows Script Host: it starts the server with no window. Doubled quotes are how VBScript writes a quote.
-    const line = command.map((part) => `""${part}""`).join(' ')
-    return { file: path.join(dir, 'FlintNotes.vbs'), text: `' FlintNotes: запускает сервер заметок при входе в Windows. Создан в настройках приложения; удалите файл, чтобы отключить.\r\nCreateObject("WScript.Shell").Run "${line}", 0, False\r\n`, encoding: 'utf16le' }
-  }
+  // On Windows it is the desktop app that starts with the system (desktop/main.ts), not a server of the browser's.
+  if (process.platform === 'win32' && !AUTOSTART_DIR) return { reason: 'На Windows вместе с системой запускается приложение FlintNotes: включите это в его настройках или в меню значка в трее' }
   if (process.platform === 'darwin') {
     const dir = AUTOSTART_DIR ?? path.join(os.homedir(), 'Library', 'LaunchAgents')
     const escape = (text: string) => text.replace(/&/g, '&amp;').replace(/</g, '&lt;')
     return {
       file: path.join(dir, 'com.flintnotes.server.plist'),
       text: `<?xml version="1.0" encoding="UTF-8"?>\n<!DOCTYPE plist PUBLIC "-//Apple//DTD PLIST 1.0//EN" "http://www.apple.com/DTDs/PropertyList-1.0.dtd">\n<plist version="1.0"><dict>\n<key>Label</key><string>com.flintnotes.server</string>\n<key>ProgramArguments</key><array>${command.map((part) => `<string>${escape(part)}</string>`).join('')}</array>\n<key>RunAtLoad</key><true/>\n</dict></plist>\n`,
-      encoding: 'utf8',
     }
   }
-  if (!AUTOSTART_DIR && /microsoft/i.test(os.release())) return { reason: 'Сервер запущен внутри WSL: автозапуск настраивается в самой Windows (запустите FlintNotes.vbs и включите настройку там)' }
+  if (!AUTOSTART_DIR && /microsoft/i.test(os.release())) return { reason: 'Сервер запущен внутри WSL: вместе с Windows запускается приложение FlintNotes, это включается в нём самом' }
   const dir = AUTOSTART_DIR ?? path.join(process.env.XDG_CONFIG_HOME ?? path.join(os.homedir(), '.config'), 'autostart')
   const quoted = command.map((part) => `"${part.replace(/(["\\$`])/g, '\\$1')}"`).join(' ')
-  return { file: path.join(dir, 'flintnotes.desktop'), text: `[Desktop Entry]\nType=Application\nName=FlintNotes\nComment=Сервер заметок FlintNotes\nExec=${quoted}\nTerminal=false\nX-GNOME-Autostart-enabled=true\n`, encoding: 'utf8' }
+  return { file: path.join(dir, 'flintnotes.desktop'), text: `[Desktop Entry]\nType=Application\nName=FlintNotes\nComment=Сервер заметок FlintNotes\nExec=${quoted}\nTerminal=false\nX-GNOME-Autostart-enabled=true\n` }
 }
 
 api.get('/autostart', (c) => {
@@ -485,8 +481,7 @@ api.post('/autostart', async (c) => {
   if ('reason' in entry) throw new HTTPException(400, { message: entry.reason })
   if (enabled) {
     await fs.mkdir(path.dirname(entry.file), { recursive: true })
-    // Windows Script Host reads names in any language only from a file that starts with this mark.
-    await fs.writeFile(entry.file, entry.encoding === 'utf16le' ? Buffer.concat([Buffer.from([0xff, 0xfe]), Buffer.from(entry.text, 'utf16le')]) : entry.text)
+    await fs.writeFile(entry.file, entry.text)
   } else await fs.rm(entry.file, { force: true })
   return c.json({ supported: true, enabled, file: entry.file })
 })

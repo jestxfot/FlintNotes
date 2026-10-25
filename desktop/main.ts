@@ -7,12 +7,12 @@
  *   on a named pipe, not on a port. Nothing outside the app can reach it.
  * - A new build (`release/build.json` changes) replaces the server, and the window reloads itself
  *   keeping what is typed, as with the launcher of the browser version. When this file itself is new,
- *   the app saves and starts again.
+ *   the app saves and restarts itself, the way it was (with its window, or in the tray).
  * - Closing the window hides it in the tray: reminders keep coming. «Выйти» in the tray quits.
  * - It starts with Windows by Windows' own list (hidden, in the tray), and takes over from the old
- *   background server (FlintNotes.vbs) where that one is still running or set to start.
+ *   background server of the browser version (release/launcher.mjs) where that one is still running.
  */
-import { app, BrowserWindow, clipboard, dialog, ipcMain, Menu, nativeImage, Notification, protocol, screen, session, shell, Tray, utilityProcess, type IpcMainEvent, type IpcMainInvokeEvent, type MenuItemConstructorOptions, type UtilityProcess } from 'electron'
+import { app, BrowserWindow, clipboard, dialog, ipcMain, Menu, nativeImage, net, protocol, screen, session, shell, Tray, utilityProcess, type IpcMainEvent, type IpcMainInvokeEvent, type MenuItemConstructorOptions, type UtilityProcess } from 'electron'
 import { spawn } from 'node:child_process'
 import { createHash } from 'node:crypto'
 import fs from 'node:fs'
@@ -87,7 +87,8 @@ function startServer(): Promise<Server> {
   const child = utilityProcess.fork(SERVER, [], {
     // The default vault (`vault`) lies next to the build, as for the launcher.
     cwd: BUNDLED ? os.homedir() : path.dirname(here),
-    env: { ...process.env, FLINT_PIPE: pipe, FLINT_UPDATES: BUNDLED ? '0' : '1' },
+    // A copy installed on its own (no project's folder) starts its first vault among the user's documents.
+    env: { ...process.env, FLINT_PIPE: pipe, FLINT_UPDATES: BUNDLED ? '0' : '1', ...(BUNDLED ? { FLINT_FIRST_VAULT: path.join(app.getPath('documents'), 'FlintNotes') } : {}) },
     stdio: 'pipe',
     serviceName: 'FlintNotes server',
   })
@@ -206,10 +207,8 @@ interface WindowState {
   maximized?: boolean
   /** The bar's colours, for the next start to open in them without a flash. */
   colors?: { color: string; symbolColor: string }
-  /** The old background server's start with Windows was moved to the app already. */
-  migrated?: boolean
-  /** The newest shell an update was tried for: a start does not try the same one twice. */
-  shellTried?: string
+  /** The newest version an update was tried for: it is not tried again. */
+  updateTried?: string
 }
 const STATE = path.join(app.getPath('userData'), 'window.json')
 const state: WindowState = (() => {
@@ -329,10 +328,19 @@ async function quit(): Promise<void> {
 // Linux keeps it as a file (used by the tests: FLINT_AUTOSTART_DIR); Windows and macOS in their own lists.
 const LINUX_AUTOSTART = path.join(process.env.FLINT_AUTOSTART_DIR ?? path.join(os.homedir(), '.config', 'autostart'), 'flintnotes.desktop')
 const loginArgs = ['--hidden']
+/**
+ * Windows keeps it in its Run list, under the app's id (Electron reads it back only under that name), and
+ * Task Manager may switch it off there. What counts is whether this program really starts with Windows.
+ */
 function autostart(): boolean {
   if (process.platform === 'linux') return fs.existsSync(LINUX_AUTOSTART)
-  return app.getLoginItemSettings({ path: process.execPath, args: loginArgs }).openAtLogin
+  const settings = app.getLoginItemSettings({ path: process.execPath, args: loginArgs })
+  return process.platform === 'win32' ? settings.executableWillLaunchAtLogin : settings.openAtLogin
 }
+/** The entry the first builds wrote under the name «FlintNotes», which Electron could not read back. */
+const LEGACY_LOGIN_NAME = 'FlintNotes'
+const legacyLogin = () =>
+  process.platform === 'win32' ? app.getLoginItemSettings({ path: process.execPath }).launchItems.filter((item) => item.name === LEGACY_LOGIN_NAME && item.path.toLowerCase() === process.execPath.toLowerCase()) : []
 function setAutostart(enabled: boolean): boolean {
   if (process.platform === 'linux') {
     if (!enabled) fs.rmSync(LINUX_AUTOSTART, { force: true })
@@ -341,12 +349,16 @@ function setAutostart(enabled: boolean): boolean {
       const command = [process.execPath, ...process.argv.slice(1).filter((arg) => !arg.startsWith('--')), ...loginArgs].map((part) => `"${part.replace(/(["\\$`])/g, '\\$1')}"`).join(' ')
       fs.writeFileSync(LINUX_AUTOSTART, `[Desktop Entry]\nType=Application\nName=FlintNotes\nExec=${command}\nTerminal=false\n`)
     }
-  } else app.setLoginItemSettings({ openAtLogin: enabled, path: process.execPath, args: loginArgs, name: 'FlintNotes' })
+  } else {
+    for (const item of legacyLogin()) app.setLoginItemSettings({ openAtLogin: false, path: item.path, args: item.args, name: item.name })
+    // `enabled` also switches it on again where Task Manager had switched it off.
+    app.setLoginItemSettings({ openAtLogin: enabled, path: process.execPath, args: loginArgs, name: APP_ID, enabled: true })
+  }
   buildTrayMenu()
   return autostart()
 }
 
-// ---- the old background server (FlintNotes.vbs, release/launcher.mjs): the app takes its place
+// ---- the browser version's background server (release/launcher.mjs): the app takes its place
 const readConfig = (): { port?: number; proxy?: string } => {
   try {
     return JSON.parse(readText(CONFIG))
@@ -357,15 +369,6 @@ const readConfig = (): { port?: number; proxy?: string } => {
 
 async function takeOver(): Promise<void> {
   if (process.platform !== 'win32') return
-  // Its start with Windows becomes the app's: both at once would serve the same vaults.
-  const startup = path.join(process.env.APPDATA ?? path.join(os.homedir(), 'AppData', 'Roaming'), 'Microsoft', 'Windows', 'Start Menu', 'Programs', 'Startup', 'FlintNotes.vbs')
-  if (fs.existsSync(startup) && Buffer.from(fs.readFileSync(startup)).toString('utf16le').includes('launcher.mjs')) {
-    fs.rmSync(startup, { force: true })
-    if (!state.migrated) setAutostart(true)
-    note('Запуск вместе с Windows перенесён с FlintNotes.vbs на приложение')
-  }
-  state.migrated = true
-  saveState()
   // A server running now is asked to stop the way the app's own page stops it; the launcher then stops too.
   const port = readConfig().port ?? 4600
   await new Promise<void>((resolve) => {
@@ -412,7 +415,6 @@ app.on('login', (event, _webContents, _details, authInfo, callback) => {
 function buildTrayMenu(): void {
   if (!tray) return
   const items: MenuItemConstructorOptions[] = [
-    ...(pending ? [{ label: `${pending.title}: перезапустить`, click: pending.apply }, { type: 'separator' as const }] : []),
     { label: 'Открыть FlintNotes', click: showWindow },
     { label: 'Новая заметка', click: () => (showWindow(), win?.webContents.send('command', 'core:new-note')) },
     { label: 'Палитра команд', click: () => (showWindow(), win?.webContents.send('command', 'core:command-palette')) },
@@ -500,11 +502,10 @@ if (first && !BUNDLED)
     const next = buildId()
     if (!next || next === build || quitting) return
     build = next
-    // The notes app and its server change at once; the app's own part (this file, the preload) on a restart.
-    void replaceServer()
-    if (readText(self) === selfText && readText(PRELOAD) === preloadText) return
-    note('Новая сборка приложения: оно обновится при перезапуске')
-    offer({ title: 'Обновление FlintNotes готово', body: 'Щёлкните, чтобы перезапустить приложение. Иначе обновление придёт при следующем запуске', apply: restart })
+    // The notes app and its server change at once; the app's own part (this file, the preload) by a restart of itself.
+    if (readText(self) === selfText && readText(PRELOAD) === preloadText) return void replaceServer()
+    note('Новая сборка приложения: перезапускаю его')
+    restart()
   })
 
 /** Starts the app again the way it is now: with its window, or in the tray. */
@@ -513,64 +514,65 @@ function restart(): void {
   void quit()
 }
 
-// ---- updates of the app itself (a new Electron, icon or stub): a new installer in the project's `updates`
-// folder (scripts/installer.mjs). Only the installed app has a shell to update (desktop/stub.cjs says where it is).
+// ---- updates of the installed app: the newest release of the project on GitHub (scripts/installer.mjs makes
+// its installer and latest.json). The app looks at start and every few hours; a newer version is downloaded,
+// checked against its checksum and installed silently, and the app starts again the way it was.
 interface Latest {
-  shell: string
+  version: string
   file: string
   sha256: string
-  version: string
 }
-const UPDATES_DIR = process.env.FLINT_UPDATES_DIR
-const ownShell = (() => {
+const FEED = process.env.FLINT_UPDATE_FEED ?? 'https://github.com/jestxfot/FlintNotes/releases/latest/download/latest.json'
+/** The installed app's version (desktop/stub.cjs says where it is written); a run from the sources has none and updates nothing. */
+const ownVersion = (() => {
   try {
-    return (JSON.parse(readText(process.env.FLINT_SHELL ?? '')) as { shell?: string }).shell
+    return (JSON.parse(readText(process.env.FLINT_SHELL ?? '')) as { version?: string }).version
   } catch {
     return undefined
   }
 })()
+const isNewer = (version: string, than: string) => {
+  const [a, b] = [version, than].map((one) => one.split('.').map((part) => parseInt(part, 10) || 0))
+  for (let i = 0; i < 3; i++) if ((a[i] ?? 0) !== (b[i] ?? 0)) return (a[i] ?? 0) > (b[i] ?? 0)
+  return false
+}
 
-/** The newest installer, if it brings another shell than this one and is complete. */
-function newerShell(): (Latest & { setup: string }) | undefined {
-  if (!UPDATES_DIR || !ownShell) return undefined
+let checking = false
+async function checkForUpdate(): Promise<void> {
+  if (!ownVersion || checking || quitting) return
+  checking = true
   try {
-    const latest = JSON.parse(readText(path.join(UPDATES_DIR, 'latest.json'))) as Latest
-    if (!latest.shell || latest.shell === ownShell) return undefined
-    const setup = path.join(UPDATES_DIR, path.basename(latest.file))
-    if (createHash('sha256').update(fs.readFileSync(setup)).digest('hex') !== latest.sha256) return undefined
-    return { ...latest, setup }
-  } catch {
-    return undefined
+    // Through the app's own session: the same proxy as the window's.
+    const answer = await net.fetch(FEED, { cache: 'no-store' })
+    // No release yet (404) is not worth a word.
+    if (!answer.ok) return void (answer.status !== 404 && note(`Обновления: ${FEED} ответил ${answer.status}`))
+    const latest = (await answer.json()) as Latest
+    if (typeof latest?.version !== 'string' || !isNewer(latest.version, ownVersion)) return
+    // A version that was installed and did not take (the app is still the old one) is not tried again and again.
+    if (state.updateTried === latest.version) return void note(`Версия ${latest.version} уже ставилась и не встала: работаю на ${ownVersion}`)
+    if (!/^FlintNotes-Setup-[\w.-]+\.exe$/.test(latest.file) || !/^[0-9a-f]{64}$/.test(latest.sha256)) return void note(`Обновления: непонятный latest.json ${JSON.stringify(latest)}`)
+    note(`Загружаю обновление ${ownVersion} → ${latest.version}`)
+    const download = await net.fetch(new URL(latest.file, FEED).href)
+    if (!download.ok) throw new Error(`установщик не загрузился (${download.status})`)
+    const bytes = Buffer.from(await download.arrayBuffer())
+    if (createHash('sha256').update(bytes).digest('hex') !== latest.sha256) throw new Error('контрольная сумма установщика не сошлась')
+    const setup = path.join(app.getPath('temp'), latest.file)
+    fs.writeFileSync(setup, bytes, { mode: 0o755 })
+    install(setup, latest.version)
+  } catch (err) {
+    note(`Обновление не удалось: ${(err as Error).message}`)
+  } finally {
+    checking = false
   }
 }
 
-/** Runs the installer silently; it closes this app (which saves first) and starts the new one. */
-function installShell(update: Latest & { setup: string }, hidden: boolean): void {
-  note(`Обновление приложения: ${ownShell} → ${update.shell}`)
-  state.shellTried = update.shell
+/** Runs the installer silently; it closes this app (which saves first) and starts the new one, the way this one was. */
+function install(setup: string, version: string): void {
+  note(`Ставлю обновление ${version}`)
+  state.updateTried = version
   fs.writeFileSync(STATE, JSON.stringify(state, null, 2))
-  spawn(update.setup, ['/S', '--run', ...(hidden ? ['--hidden'] : [])], { detached: true, stdio: 'ignore' }).unref()
+  spawn(setup, ['/S', '--run', ...(win?.isVisible() ? [] : ['--hidden'])], { detached: true, stdio: 'ignore' }).unref()
   void quit()
-}
-
-let offered: string | undefined
-function checkShell(): void {
-  const update = newerShell()
-  if (!update || offered === update.shell || quitting) return
-  offered = update.shell
-  offer({ title: `Обновление FlintNotes ${update.version}`, body: 'Щёлкните, чтобы перезапустить приложение с обновлением. Иначе оно установится при следующем запуске', apply: () => installShell(update, !win?.isVisible()) })
-}
-
-/** What an update offers: a notification to click, and the same in the tray's menu until it is done. */
-let pending: { title: string; apply: () => void } | undefined
-function offer({ title, body, apply }: { title: string; body: string; apply: () => void }): void {
-  pending = { title, apply }
-  note(`Предложено: ${title}`)
-  buildTrayMenu()
-  if (!Notification.isSupported()) return
-  const shown = new Notification({ title, body, icon: icon(process.platform === 'win32' ? 'flintnotes.ico' : 'flintnotes.png') })
-  shown.on('click', apply)
-  shown.show()
 }
 
 /** On a Windows of today, the app's notifications are shown only for a Start menu shortcut that carries its id. */
@@ -599,11 +601,9 @@ void app.whenReady().then(async () => {
   if (!first) return
   note(`Запуск: ${process.execPath} ${process.argv.slice(1).join(' ')} (сборка ${build || 'для разработки'}${BUNDLED ? ', своя копия' : `, из ${here}`})`)
   Menu.setApplicationMenu(null)
-  // An update of the app that was not taken last time is taken now, before anything else starts (once per update).
-  const update = newerShell()
-  if (update && state.shellTried !== update.shell) return installShell(update, process.argv.includes('--hidden'))
   markShortcut()
   await takeOver().catch((err) => note(`Не удалось сменить прежний сервер: ${err.message}`))
+  if (legacyLogin().length) note(`Запуск вместе с Windows записан заново: ${setAutostart(true) ? 'включён' : 'не включился'}`)
   current = startServer()
   current.catch(failed)
   applyProxy()
@@ -618,9 +618,7 @@ void app.whenReady().then(async () => {
     return url.pathname.startsWith('/api/') ? forward(request, url) : staticFile(url.pathname)
   })
   createTray()
-  if (UPDATES_DIR) {
-    checkShell()
-    fs.watchFile(path.join(UPDATES_DIR, 'latest.json'), { interval: 10_000 }, checkShell)
-  }
+  void checkForUpdate()
+  setInterval(() => void checkForUpdate(), 3 * 3_600_000)
   win = createWindow()
 })

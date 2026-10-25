@@ -1,19 +1,12 @@
 // FlintNotes.exe starts here (resources/app/main.cjs of the installed app, see scripts/installer.mjs).
-// It runs the build of the project's folder (named in project.json), which `npm run release` keeps new;
-// where that folder cannot be reached, the copy of the build that came with the installer.
-const fs = require('node:fs')
+// The installed app runs the copy of the build that came with its installer, and nothing else: a new
+// version comes as a new installer (desktop/main.ts fetches it from the project's releases).
 const path = require('node:path')
 const { pathToFileURL } = require('node:url')
 
-let project = {}
-try {
-  project = JSON.parse(fs.readFileSync(path.join(__dirname, 'project.json'), 'utf8'))
-} catch {}
-const bundled = path.join(__dirname, 'release')
-const release = project.release && fs.existsSync(path.join(project.release, 'desktop.mjs')) ? project.release : bundled
-if (release === bundled) process.env.FLINT_BUNDLED = '1'
-// Where the installer puts new versions of the app itself (desktop/main.ts looks there).
-if (project.updates) process.env.FLINT_UPDATES_DIR = project.updates
+const release = path.join(__dirname, 'release')
+process.env.FLINT_BUNDLED = '1'
+// Which version this is, to compare with the newest release.
 process.env.FLINT_SHELL = path.join(__dirname, 'shell.json')
 
 import(pathToFileURL(path.join(release, 'desktop.mjs')).href).catch((err) => {

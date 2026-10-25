@@ -384,7 +384,7 @@ const buildSetting = (): SettingsSection['defs'][number] => ({
               ? 'Новые сборки подхватываются сами'
               : desktop
                 ? 'Приложение запущено без папки сборок: новую версию приносит новый установщик'
-                : 'Сервер запущен без программы запуска: новую сборку он не подхватит. Запускайте FlintNotes.vbs (или node release/launcher.mjs)',
+                : 'Сервер запущен без программы запуска: новую сборку он не подхватит. Запускайте приложение FlintNotes или node release/launcher.mjs',
         ]
           .filter(Boolean)
           .map((text) => Object.assign(document.createElement('small'), { textContent: text })),
@@ -582,7 +582,7 @@ export class App {
         void Promise.all([this.workspace.flushAll(), this.state.flush()])
           .then(() => this.vault.quit())
           .then(
-            () => desktop || notice('FlintNotes остановлен. Запустить снова — FlintNotes.vbs', 10_000),
+            () => desktop || notice('FlintNotes остановлен. Запустить снова — node release/launcher.mjs', 10_000),
             (err) => notice(err instanceof Error ? err.message : String(err)),
           ),
     })

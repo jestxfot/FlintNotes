@@ -1,6 +1,7 @@
 // Checks the desktop app (Electron, desktop/main.ts) as it runs on the user's computer: no port, the page
 // at flint://app, saving, changes from outside, the title bar, a new build taken over keeping what is typed,
-// one app at a time, `--quit` from the installer, links going to the browser, and the app's update of itself.
+// one app at a time, `--quit` from the installer, links going to the browser, a restart of itself for a new
+// app, and the installed app's update of itself from a newer release.
 // Builds into a temporary folder; the project's own release/ is not touched. About a minute:
 //   node e2e/desktop-check.mjs
 // Electron for Linux comes with `npm install` (or `node node_modules/electron/install.js`). It needs a display (WSLg gives :0) and GTK 3; under WSL without
@@ -8,6 +9,7 @@
 import { execSync, spawn } from 'node:child_process'
 import { createHash } from 'node:crypto'
 import fs from 'node:fs'
+import http from 'node:http'
 import { createRequire } from 'node:module'
 import os from 'node:os'
 import path from 'node:path'
@@ -79,6 +81,7 @@ const listening = (pid) => {
 }
 
 let app
+let feed
 try {
   app = await launch()
   const page = await app.firstWindow()
@@ -131,11 +134,6 @@ try {
   ok('a new build replaces the server and the page reloads by itself', reloaded && readLog().includes('Новая сборка: сервер запущен заново'), readLog().slice(-400))
   ok('what was typed before the update is in the note', fs.readFileSync(path.join(vault, 'Note.md'), 'utf8').includes('before the update'))
 
-  // A new app (this time desktop.mjs itself): offered, not forced.
-  fs.appendFileSync(path.join(out, 'desktop.mjs'), '\n// changed\n')
-  fs.writeFileSync(path.join(out, 'build.json'), JSON.stringify({ ...build, id: new Date(Date.now() + 1000).toISOString() }))
-  ok('a new app is offered for a restart, and the app keeps running', (await until(() => readLog().includes('обновится при перезапуске'))) && !app.process().killed && app.windows().length === 1)
-
   // A second start finds the app running and leaves; `--quit` (the installer's) closes it, saving first.
   const second = spawn(electron, ['--no-sandbox', path.join(out, 'desktop.mjs')], { env, stdio: 'ignore' })
   ok('a second start leaves the running app alone', await Promise.race([exited(second).then(() => true), new Promise((resume) => setTimeout(() => resume(false), 15000))]) && app.windows().length === 1)
@@ -150,25 +148,43 @@ try {
   ok('what was typed last is saved before the app closes', fs.readFileSync(path.join(vault, 'Note.md'), 'utf8').includes('at the end'), fs.readFileSync(path.join(vault, 'Note.md'), 'utf8'))
   ok('the app leaves no process behind (its server among them)', await until(() => !running.some((pid) => fs.existsSync(`/proc/${pid}`)), 10000), running.filter((pid) => fs.existsSync(`/proc/${pid}`)).join(' '))
 
-  // The app's update of itself: a newer installer in the updates folder is run (silently) at the next start, once.
-  const updates = path.join(dir, 'updates')
-  fs.mkdirSync(updates)
+  // A new app (this time desktop.mjs itself): it restarts by itself, the way it was (here: in the tray).
+  const starts = () => readLog().split('\n').filter((line) => line.includes('Запуск:')).length
+  const before = starts()
+  const tray = spawn(electron, ['--no-sandbox', path.join(out, 'desktop.mjs'), '--hidden'], { env, stdio: 'ignore' })
+  await until(() => starts() === before + 1 && /FlintNotes: канал /.test(readLog().split('Запуск:').at(-1)))
+  fs.appendFileSync(path.join(out, 'desktop.mjs'), '\n// changed\n')
+  fs.writeFileSync(path.join(out, 'build.json'), JSON.stringify({ ...build, id: new Date(Date.now() + 2000).toISOString() }))
+  const restarted = await Promise.race([exited(tray).then(() => true), new Promise((resume) => setTimeout(() => resume(false), 20000))])
+  ok('a new app restarts by itself, in the tray as it was', restarted && (await until(() => starts() === before + 2)) && readLog().includes('перезапускаю его') && readLog().split('Запуск:').at(-1).includes('--hidden'), readLog().slice(-500))
+  spawn(electron, ['--no-sandbox', path.join(out, 'desktop.mjs'), '--quit'], { env, stdio: 'ignore' })
+  await until(() => readLog().split('Запуск:').at(-1).includes('остановился'))
+
+  // The installed app's update of itself: a newer release (a local server here, in GitHub's place) is
+  // downloaded, checked against its checksum and installed silently, the app stepping aside; and only once.
   const ran = path.join(dir, 'installer-ran')
-  const setup = path.join(updates, 'setup.sh')
-  fs.writeFileSync(setup, `#!/bin/sh\necho "$@" >> '${ran}'\n`, { mode: 0o755 })
-  fs.writeFileSync(path.join(dir, 'shell.json'), JSON.stringify({ shell: 'old' }))
-  fs.writeFileSync(path.join(updates, 'latest.json'), JSON.stringify({ shell: 'new', version: '9.9.9', file: 'setup.sh', sha256: createHash('sha256').update(fs.readFileSync(setup)).digest('hex') }))
-  const shellEnv = { FLINT_UPDATES_DIR: updates, FLINT_SHELL: path.join(dir, 'shell.json') }
-  const updating = spawn(electron, ['--no-sandbox', path.join(out, 'desktop.mjs'), '--hidden'], { env: { ...env, ...shellEnv }, stdio: 'ignore' })
-  const quitForUpdate = await Promise.race([exited(updating).then(() => true), new Promise((resume) => setTimeout(() => resume(false), 20000))])
-  ok('a newer installer is run silently at start, and the app steps aside for it', quitForUpdate && (await until(() => fs.existsSync(ran) && fs.readFileSync(ran, 'utf8').trim() === '/S --run --hidden')), fs.existsSync(ran) ? fs.readFileSync(ran, 'utf8') : 'not run')
-  app = await launch(shellEnv)
+  const setupText = `#!/bin/sh\necho "$@" >> '${ran}'\n`
+  const latest = { version: '9.9.9', file: 'FlintNotes-Setup-9.9.9.exe', sha256: createHash('sha256').update(setupText).digest('hex') }
+  feed = http.createServer((req, res) => {
+    if (req.url.endsWith('/latest.json')) return res.end(JSON.stringify(latest))
+    if (req.url.endsWith(`/${latest.file}`)) return res.end(setupText)
+    res.statusCode = 404
+    res.end()
+  })
+  await new Promise((resume) => feed.listen(0, '127.0.0.1', resume))
+  fs.writeFileSync(path.join(dir, 'shell.json'), JSON.stringify({ version: '0.1.0' }))
+  const installed = { FLINT_UPDATE_FEED: `http://127.0.0.1:${feed.address().port}/releases/latest/download/latest.json`, FLINT_SHELL: path.join(dir, 'shell.json') }
+  const updating = spawn(electron, ['--no-sandbox', path.join(out, 'desktop.mjs'), '--hidden'], { env: { ...env, ...installed }, stdio: 'ignore' })
+  const quitForUpdate = await Promise.race([exited(updating).then(() => true), new Promise((resume) => setTimeout(() => resume(false), 30000))])
+  ok('a newer release is downloaded, checked and installed silently, the app stepping aside', quitForUpdate && (await until(() => fs.existsSync(ran) && fs.readFileSync(ran, 'utf8').trim() === '/S --run --hidden')), (fs.existsSync(ran) ? fs.readFileSync(ran, 'utf8') : 'not run') + readLog().slice(-300))
+  app = await launch(installed)
   await (await app.firstWindow()).waitForSelector('.tabbar', { timeout: 30000 })
-  ok('the same installer is not run at every start: it is offered instead', fs.readFileSync(ran, 'utf8').trim().split('\n').length === 1 && (await until(() => readLog().includes('Предложено: Обновление FlintNotes 9.9.9'))), readLog().slice(-300))
+  ok('a version that did not take is not installed again: the app keeps working', (await until(() => readLog().includes('уже ставилась и не встала'))) && fs.readFileSync(ran, 'utf8').trim().split('\n').length === 1, readLog().slice(-300))
 } catch (err) {
   ok('the checks ran to the end', false, err.stack)
 } finally {
   await app?.evaluate(({ app }) => app.exit(0)).catch(() => {})
+  feed?.close()
   fs.rmSync(dir, { recursive: true, force: true })
 }
 

@@ -110,7 +110,10 @@ Section "Uninstall"
   RMDir /r "$INSTDIR"
   DeleteRegKey HKCU "${UNINSTALL_KEY}"
   DeleteRegKey HKCU "Software\${APP}"
-  ; Its start with Windows (desktop/main.ts writes it under this name).
+  ; Its start with Windows (desktop/main.ts writes it under the app's id; the first builds under its name).
+  DeleteRegValue HKCU "Software\Microsoft\Windows\CurrentVersion\Run" "md.flintnotes.app"
   DeleteRegValue HKCU "Software\Microsoft\Windows\CurrentVersion\Run" "${APP}"
+  DeleteRegValue HKCU "Software\Microsoft\Windows\CurrentVersion\Explorer\StartupApproved\Run" "md.flintnotes.app"
+  DeleteRegValue HKCU "Software\Microsoft\Windows\CurrentVersion\Explorer\StartupApproved\Run" "${APP}"
   ; The window's place, the log and the browser data in %APPDATA%\FlintNotes stay, as do the notes.
 SectionEnd

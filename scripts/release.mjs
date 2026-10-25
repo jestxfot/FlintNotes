@@ -3,9 +3,8 @@
 //   release/server.mjs     the server with all its libraries in one file
 //   release/public/        the app for the browser
 //   release/desktop.mjs    the desktop app's main process (see desktop/main.ts), with preload.cjs and icons/
-//   release/build.json     which build this is; written last, it tells a running launcher the build is complete
-// and FlintNotes.vbs next to the project, which starts it all on Windows without a window.
-// Running it needs Node.js only, no `npm install`: node release/launcher.mjs
+//   release/build.json     which build this is; written last, it tells the running app (or launcher) the build is complete
+// On Windows the app (npm run installer) runs it; in a browser it needs Node.js only, no `npm install`: node release/launcher.mjs
 import { build as bundle } from 'esbuild'
 import fs from 'node:fs'
 import path from 'node:path'
@@ -49,8 +48,4 @@ await bundle({ ...common, banner: {}, format: 'cjs', entryPoints: ['desktop/prel
 fs.cpSync('desktop/icons', path.join(OUT, 'icons'), { recursive: true })
 fs.writeFileSync(path.join(OUT, 'build.json'), JSON.stringify({ id, files }, null, 2))
 
-// Windows Script Host reads letters beyond Latin only from UTF-16 with its byte-order mark, and wants CRLF.
-const vbs = fs.readFileSync('scripts/FlintNotes.vbs', 'utf8').replace(/\r?\n/g, '\r\n')
-fs.writeFileSync('FlintNotes.vbs', Buffer.concat([Buffer.from([0xff, 0xfe]), Buffer.from(vbs, 'utf16le')]))
-
-console.log('Готово: release/ и FlintNotes.vbs (запуск: двойной щелчок по FlintNotes.vbs или node release/launcher.mjs)')
+console.log('Готово: release/ (приложение FlintNotes подхватит сборку само; в браузере — node release/launcher.mjs)')

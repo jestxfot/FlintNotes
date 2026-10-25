@@ -1,12 +1,12 @@
-// Builds FlintNotes for Windows from WSL (no Windows tools needed) and publishes it for the app's updates:
-//   updates/FlintNotes-Setup-<version>.exe   the installer (NSIS): for the current user, no administrator
-//   updates/latest.json                      which installer is the newest; the installed app looks here
-// Run `npm run release` before (`npm run installer` does both).
+// Builds the installer of FlintNotes for Windows from WSL (no Windows tools needed), ready to publish:
+//   publish/FlintNotes-Setup-<version>.exe   the installer (NSIS): for the current user, no administrator
+//   publish/latest.json                      the version, the installer's name and checksum
+// Both go to a release of the project on GitHub (tag v<version>); installed apps look for the newest
+// release's latest.json and update themselves from it (desktop/main.ts). A new release needs a new
+// `version` in package.json. Run `npm run release` before (`npm run installer` does both).
 //
-// The installed app runs the build of this project's `release/` (npm run release keeps it new, as for the
-// browser), and falls back to a copy of it inside the app where the project's folder cannot be reached.
-// The installer itself is only needed again for a new Electron, a new icon or a new desktop/stub.cjs:
-// the running app sees a new latest.json and offers to restart into it (desktop/main.ts).
+// There is only this one, public installer: the app inside it runs its own copy of the build and nothing
+// of this computer's. The build fails if anything of this computer (its paths, its user) got into it.
 import { downloadArtifact } from '@electron/get'
 import { execFileSync } from 'node:child_process'
 import { createHash } from 'node:crypto'
@@ -16,9 +16,9 @@ import path from 'node:path'
 import * as ResEdit from 'resedit'
 
 const ROOT = path.resolve(import.meta.dirname, '..')
-// Elsewhere for a try that must not touch the project's own (FLINT_RELEASE_OUT as for release.mjs, FLINT_UPDATES_OUT).
+// Elsewhere for a try that must not touch the project's own (FLINT_RELEASE_OUT as for release.mjs, FLINT_PUBLISH_OUT).
 const RELEASE = path.resolve(process.env.FLINT_RELEASE_OUT ?? path.join(ROOT, 'release'))
-const UPDATES = path.resolve(process.env.FLINT_UPDATES_OUT ?? path.join(ROOT, 'updates'))
+const PUBLISH = path.resolve(process.env.FLINT_PUBLISH_OUT ?? path.join(ROOT, 'publish'))
 const STAGE = path.join(RELEASE, 'windows', 'FlintNotes')
 const CACHE = path.join(os.homedir(), '.cache', 'flintnotes')
 const ICON = path.join(ROOT, 'desktop', 'icons', 'flintnotes.ico')
@@ -26,9 +26,6 @@ const pkg = JSON.parse(fs.readFileSync(path.join(ROOT, 'package.json'), 'utf8'))
 const ELECTRON = JSON.parse(fs.readFileSync(path.join(ROOT, 'node_modules', 'electron', 'package.json'), 'utf8')).version
 const build = JSON.parse(fs.readFileSync(path.join(RELEASE, 'build.json'), 'utf8')).id
 if (!fs.existsSync(path.join(RELEASE, 'desktop.mjs'))) throw new Error('Нет release/desktop.mjs: сначала npm run release')
-
-/** A path of WSL on a Windows drive (/mnt/j/...) as Windows writes it (J:\...); a folder Windows cannot see has none. */
-const windowsPath = (posix) => (/^\/mnt\/[a-z]\//.test(posix) ? posix.replace(/^\/mnt\/([a-z])\//, (_, drive) => `${drive.toUpperCase()}:\\`).replace(/\//g, '\\') : undefined)
 
 const sevenZip = (() => {
   const bin = path.join(ROOT, 'node_modules', '7zip-bin', 'linux', 'x64', '7za')
@@ -83,38 +80,46 @@ info.outputToResourceEntries(resources.entries)
 resources.outputResource(exe)
 fs.writeFileSync(exePath, Buffer.from(exe.generate()))
 
-// ---- what the app runs: the stub, where the project is, and a copy of the build for when it is not there
+// ---- what the app runs: the stub and its own copy of the build
 const app = path.join(STAGE, 'resources', 'app')
 fs.mkdirSync(app, { recursive: true })
 fs.copyFileSync(path.join(ROOT, 'desktop', 'stub.cjs'), path.join(app, 'main.cjs'))
 fs.writeFileSync(path.join(app, 'package.json'), JSON.stringify({ name: 'flintnotes', productName: 'FlintNotes', version: pkg.version, main: 'main.cjs', private: true }, null, 2))
-fs.writeFileSync(path.join(app, 'project.json'), JSON.stringify({ release: windowsPath(RELEASE), updates: windowsPath(UPDATES) }, null, 2))
 for (const name of ['desktop.mjs', 'preload.cjs', 'server.mjs', 'build.json', 'icons', 'public']) fs.cpSync(path.join(RELEASE, name), path.join(app, 'release', name), { recursive: true })
+// Which version this is: the app compares it with the newest release.
+fs.writeFileSync(path.join(app, 'shell.json'), JSON.stringify({ version: pkg.version, electron: ELECTRON, build }, null, 2))
 
-// Which shell this is: the app offers the installer's update only when it brings a shell of another make.
-const shellHash = createHash('sha256')
-for (const file of ['desktop/stub.cjs', 'desktop/installer.nsi', 'desktop/icons/flintnotes.ico']) shellHash.update(fs.readFileSync(path.join(ROOT, file)))
-const shell = `${pkg.version}+electron-${ELECTRON}+${shellHash.digest('hex').slice(0, 12)}`
-fs.writeFileSync(path.join(app, 'shell.json'), JSON.stringify({ shell, version: pkg.version, electron: ELECTRON, build }, null, 2))
+// Nothing of this computer may go out with the installer: its folders, the name and address its git signs with.
+const gitConfig = (key) => {
+  try {
+    return execFileSync('git', ['config', key], { cwd: ROOT, encoding: 'utf8' }).trim()
+  } catch {
+    return ''
+  }
+}
+const personal = [ROOT, os.homedir(), gitConfig('user.name'), gitConfig('user.email')].filter((mark) => mark.length > 3)
+const walk = (dir) => fs.readdirSync(dir, { withFileTypes: true }).flatMap((entry) => (entry.isDirectory() ? walk(path.join(dir, entry.name)) : [path.join(dir, entry.name)]))
+for (const file of walk(app).filter((one) => /\.(mjs|cjs|js|json|html|css|txt|map)$/.test(one))) {
+  const text = fs.readFileSync(file, 'utf8')
+  const found = personal.find((mark) => text.includes(mark))
+  if (found) throw new Error(`В установщик попало бы личное («${found}») в ${path.relative(app, file)}: сборка остановлена`)
+}
 
-// ---- the installer, published with the newest-version note the installed app reads
+// ---- the installer, and the note of it that installed apps read
 console.log('Собираю установщик…')
-fs.mkdirSync(UPDATES, { recursive: true })
-const setupName = `FlintNotes-Setup-${pkg.version}-${build.replace(/[:.]/g, '-')}.exe`
-const setup = path.join(UPDATES, setupName)
+fs.rmSync(PUBLISH, { recursive: true, force: true })
+fs.mkdirSync(PUBLISH, { recursive: true })
+const setupName = `FlintNotes-Setup-${pkg.version}.exe`
+const setup = path.join(PUBLISH, setupName)
 execFileSync(
   path.join(NSIS, 'linux', 'makensis'),
   ['-V2', '-INPUTCHARSET', 'UTF8', `-DVERSION=${pkg.version}`, `-DVERSION4=${major}.${minor}.${patch}.0`, `-DSOURCE=${STAGE}`, `-DOUTFILE=${setup}`, `-DICON=${ICON}`, path.join(ROOT, 'desktop', 'installer.nsi')],
   { stdio: 'inherit', env: { ...process.env, NSISDIR: NSIS } },
 )
 const sha256 = createHash('sha256').update(fs.readFileSync(setup)).digest('hex')
-// The same installer under a plain name, for installing by hand.
-fs.copyFileSync(setup, path.join(path.dirname(UPDATES), 'FlintNotes-Setup.exe'))
-// Older installers go; the newest-but-one stays, should the newest have to be taken back.
-const older = fs.readdirSync(UPDATES).filter((name) => /^FlintNotes-Setup-.*\.exe$/.test(name) && name !== setupName).sort()
-for (const name of older.slice(0, -1)) fs.rmSync(path.join(UPDATES, name), { force: true })
-// Written last: an app that reads it finds the installer complete.
-fs.writeFileSync(path.join(UPDATES, 'latest.json'), JSON.stringify({ shell, version: pkg.version, electron: ELECTRON, build, file: setupName, sha256 }, null, 2))
+fs.writeFileSync(path.join(PUBLISH, 'latest.json'), JSON.stringify({ version: pkg.version, electron: ELECTRON, build, file: setupName, sha256 }, null, 2))
+// The app's folder was only the installer's material.
+fs.rmSync(path.dirname(STAGE), { recursive: true, force: true })
 
 const size = (fs.statSync(setup).size / 1024 / 1024).toFixed(0)
-console.log(`Готово: FlintNotes-Setup.exe (${size} МБ) — установка двойным щелчком; updates/${setupName} и latest.json — для обновления уже установленного приложения`)
+console.log(`Готово: publish/${setupName} (${size} МБ) и publish/latest.json — их выкладывают в релиз v${pkg.version} на GitHub`)

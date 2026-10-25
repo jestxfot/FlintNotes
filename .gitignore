@@ -2,6 +2,4 @@ node_modules
 dist
 /release
 /vault
-/FlintNotes.vbs
-/updates
-/FlintNotes-Setup.exe
+/publish
