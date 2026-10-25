@@ -1,5 +1,5 @@
 import { errorMessage, expr, path as paths, plural, setProperties, type App } from '../../api'
-import { createRecord } from './create'
+import { createRecord, recordTemplate, setRecordTemplate, templatesOf } from './create'
 import { h } from './dom'
 import { BaseEngine, groupRule, noteKey, type Row, type ViewResult } from './engine'
 import { editBase, parseBase, VIEW_TYPES, viewLabel, viewsOf, type BaseConfig, type FilterNode, type SortRule, type ViewConfig } from './model'
@@ -104,6 +104,8 @@ export interface BaseHost {
   initialView?: string
   /** Names this showing of the base (which note it is in, which file it is). The view chosen in it is remembered under this name. */
   memory?: string
+  /** The base's own name for what is kept outside its text (its template): a `.base` file's path. A base written in a note goes by the note and its first view. */
+  id?: string
 }
 
 export interface MountedBase {
@@ -294,6 +296,30 @@ export function mountBase(el: HTMLElement, host: BaseHost, initial: string): Mou
         }
 
     const icon = (name: string) => app.icons.draw(name)
+    // ---- the template new records are made from, kept outside the base's text
+    const baseId = host.id ?? `${host.sourcePath}|${views[0]?.name ?? ''}`
+    const template = recordTemplate(app, baseId)
+    const templateName = (path: string) => paths.stripExt(paths.basename(path))
+    const pickTemplate = () => {
+      const templates = templatesOf(app)
+      if (!templates) return app.notice('Шаблоны берутся из плагина «Шаблоны» — включите его')
+      app.suggest<string>({
+        placeholder: 'Шаблон новых записей этой базы…',
+        items: (query) => templates.list().filter((path) => templateName(path).toLowerCase().includes(query.trim().toLowerCase())),
+        label: templateName,
+        detail: (path) => (path === template ? 'сейчас' : undefined),
+        icon: (path) => app.icons.look('file', path) ?? { icon: 'layout-template' },
+        onChoose: (path) => {
+          setRecordTemplate(app, baseId, path)
+          draw()
+        },
+      })
+    }
+    const templateMenu = (event: MouseEvent) =>
+      app.menus.show(event, 'base-template', baseId, [
+        { section: 'open', icon: 'layout-template', title: template ? `Шаблон: ${templateName(template)} — сменить…` : 'Выбрать шаблон новых записей…', onClick: pickTemplate },
+        ...(template ? [{ section: 'action', icon: 'x', title: 'Без шаблона', onClick: () => (setRecordTemplate(app, baseId, null), draw()) }] : []),
+      ])
     const tool = (id: Exclude<typeof open, null>, glyph: string, label: string, on = false) =>
       h('button', { class: `base-tool${open === id ? ' active' : ''}${on ? ' on' : ''}`, title: label, onclick: () => ((open = open === id ? null : id), draw()) }, icon(glyph), label)
     const searchBox = h('input', {
@@ -323,20 +349,26 @@ export function mountBase(el: HTMLElement, host: BaseHost, initial: string): Mou
       tool('props', 'list', 'Свойства'),
       searching || search ? searchBox : h('button', { class: 'base-tool', title: 'Поиск', onclick: () => ((searching = true), draw(), el.querySelector<HTMLInputElement>('.base-search')?.focus()) }, icon('search'), 'Поиск'),
       h(
-        'button',
-        {
-          class: 'base-tool',
-          title: 'Создать заметку, которая попадёт в эту базу',
-          onclick: () => {
-            // On a board, a new note should land in a column rather than outside the board.
-            const group = view.type === 'board' ? groupRule(view) : null
-            const key = group ? noteKey(group.property) : null
-            const first = result.groups.find((g) => g.key !== null && g.key !== undefined)?.key
-            void createRecord(app, [config.filters, view.filters], key && first !== undefined ? { [key]: first } : {})
+        'span',
+        { class: 'base-create' },
+        h(
+          'button',
+          {
+            class: `base-tool${template ? ' on' : ''}`,
+            title: template ? `Создать заметку по шаблону «${templateName(template)}», которая попадёт в эту базу` : 'Создать заметку, которая попадёт в эту базу',
+            oncontextmenu: templateMenu,
+            onclick: () => {
+              // On a board, a new note should land in a column rather than outside the board.
+              const group = view.type === 'board' ? groupRule(view) : null
+              const key = group ? noteKey(group.property) : null
+              const first = result.groups.find((g) => g.key !== null && g.key !== undefined)?.key
+              void createRecord(app, [config.filters, view.filters], key && first !== undefined ? { [key]: first } : {}, template)
+            },
           },
-        },
-        icon('plus'),
-        'Создать',
+          icon('plus'),
+          'Создать',
+        ),
+        h('button', { class: 'base-tool base-create-more', title: template ? `Шаблон новых записей: «${templateName(template)}»` : 'Шаблон новых записей', onclick: templateMenu }, icon('chevron-down')),
       ),
     )
 

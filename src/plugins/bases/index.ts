@@ -1,5 +1,6 @@
 import { errorMessage, Plugin, type App } from '../../api'
 import { h } from './dom'
+import { recordTemplates } from './create'
 import { mountBase } from './render'
 import './style.css'
 
@@ -34,6 +35,7 @@ async function fileBase(app: App, path: string, el: HTMLElement, initialView?: s
       sourcePath: embeddedIn,
       initialView,
       memory: `${embeddedIn}|${path}|${initialView ?? ''}`,
+      id: path,
       setSource: (source) =>
         void app.vault.write(path, `${source}\n`).catch((err) => app.notice(`Не удалось сохранить базу: ${errorMessage(err)}`)),
     },
@@ -45,6 +47,20 @@ async function fileBase(app: App, path: string, el: HTMLElement, initialView?: s
 export default class Bases extends Plugin {
   onload() {
     const { app } = this
+    // The templates of bases follow their notes, their files and the templates themselves when renamed.
+    this.register(
+      app.vault.on('rename', (entry, from) => {
+        const moved = (path: string) => (path === from ? entry.path : path.startsWith(`${from}/`) ? entry.path + path.slice(from.length) : path)
+        const all = recordTemplates(app)
+        const next = Object.fromEntries(
+          Object.entries(all).map(([base, template]) => {
+            const bar = base.indexOf('|')
+            return [bar < 0 ? moved(base) : moved(base.slice(0, bar)) + base.slice(bar), moved(template)]
+          }),
+        )
+        if (JSON.stringify(next) !== JSON.stringify(all)) app.settings.set('bases', 'recordTemplates', next)
+      }),
+    )
 
     this.registerCodeBlockProcessor('base', (source, el, ctx) =>
       mountBase(el, { app, sourcePath: ctx.path, setSource: ctx.setSource }, source),

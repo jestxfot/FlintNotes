@@ -5,7 +5,7 @@
   import { drag } from './drag.svelte'
   import { watch } from './reactive.svelte'
 
-  let { side, footer, floating = false }: { side: Side; footer?: Snippet; floating?: boolean } = $props()
+  let { side, footer, floating = false, onmenu }: { side: Side; footer?: Snippet; floating?: boolean; onmenu?: (event: MouseEvent) => void } = $props()
   let resizing = $state(false)
 
   const MIN = 180
@@ -82,6 +82,7 @@
   style:flex-basis="{width}px"
   style:width={floating ? `${width}px` : null}
   ondragleave={() => (target = null)}
+  oncontextmenu={(event) => onmenu?.(event)}
 >
   {#each groups.current as group, i (group.index)}
     {@const activeDef = group.entries.find((entry) => entry.def.id === group.active)?.def}
@@ -209,10 +210,6 @@
 
   .left {
     border-right: 1px solid var(--border);
-  }
-
-  .right {
-    border-left: 1px solid var(--border);
   }
 
   .group {

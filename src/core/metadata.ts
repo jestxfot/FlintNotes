@@ -222,13 +222,10 @@ export class MetadataCache extends Events<MetadataEvents> {
     this.ready = new Promise((resolve) => (this.markReady = resolve))
   }
 
-  /**
-   * Opens the index the browser kept, as early as the vault is known. Its notes are read only with `load`:
-   * taking tens of megabytes out of the browser's store holds the page up for a moment, and that moment
-   * must not come before the first note is on screen.
-   */
+  /** Starts reading the index the browser kept, as early as the vault is known: it arrives, a part at a time, while the rest starts. */
   prefetch(): void {
     this.stored ??= new IndexCache(this.vault.urlName || 'vault')
+    this.stored.prefetch()
   }
 
   /** Starts following the vault. Links by name resolve from here on; contents come with `load`. */
@@ -237,10 +234,10 @@ export class MetadataCache extends Events<MetadataEvents> {
     // Files come and go in bursts (a folder copied in, a sync, the server finding what changed while it was off):
     // a link to the new file resolves at once, the maps of links are worked out once the burst is over.
     vault.on('create', (entry) => {
-      if (isNote(entry)) return void this.index(entry.path)
       if (entry.kind !== 'file') return
       this.addName(entry.path)
-      this.rebuildSoon()
+      if (isNote(entry)) void this.index(entry.path)
+      else this.rebuildSoon()
     })
     // Text saved by the app itself is taken as is; only changes made elsewhere are read from disk.
     vault.on('written', (entry, text) => {
@@ -254,7 +251,9 @@ export class MetadataCache extends Events<MetadataEvents> {
       this.cache.delete(entry.path)
       this.texts.delete(entry.path)
       this.stored?.remove(entry.path)
-      if (entry.kind === 'file') this.rebuildSoon()
+      if (entry.kind !== 'file') return
+      this.namesStale = true
+      this.rebuildSoon()
     })
     vault.on('rename', (entry, oldPath) => this.onRename(entry, oldPath))
     this.rebuild()
@@ -298,6 +297,12 @@ export class MetadataCache extends Events<MetadataEvents> {
   resolve(target: string, source: string): string | null {
     const text = this.expandTarget(target, source).trim()
     if (!text) return source
+    if (this.namesStale) this.makeNames()
+    // A bare name that one file has (or none) leads there from any note: most links are such.
+    if (!text.includes('/') && text !== '.' && text !== '..') {
+      const named = this.names.get(text.toLowerCase())
+      if (!named || named.length === 1) return named?.[0] ?? null
+    }
     // The answer depends on the target and on the folder of the linking note.
     const key = `${dirname(source)}\n${text}`
     let answer = this.resolved.get(key)
@@ -482,6 +487,8 @@ export class MetadataCache extends Events<MetadataEvents> {
       const targets = links.filter((link) => this.resolve(link.target, source) === oldPath).map((l) => l.target)
       return { source, targets: [...new Set(targets)] }
     })
+    // Only now are the names made again: the links above were read as they led before the rename.
+    this.namesStale = true
     const meta = this.cache.get(oldPath)
     if (meta) {
       this.cache.delete(oldPath)
@@ -507,6 +514,23 @@ export class MetadataCache extends Events<MetadataEvents> {
     this.resolved.clear()
   }
 
+  /** The files' names and paths are to be made again (a file went or was renamed); a new file is added to them as it comes. */
+  private namesStale = true
+
+  private makeNames(): void {
+    this.namesStale = false
+    this.resolved.clear()
+    this.paths.clear()
+    this.names.clear()
+    for (const file of this.vault.files()) {
+      const lower = file.path.toLowerCase()
+      const name = basename(lower)
+      this.paths.set(lower, file.path)
+      push(this.names, name, file.path)
+      if (name.endsWith('.md')) push(this.names, name.slice(0, -3), file.path)
+    }
+  }
+
   private rebuildTimer: ReturnType<typeof setTimeout> | undefined
   private rebuildSoon(): void {
     clearTimeout(this.rebuildTimer)
@@ -518,16 +542,8 @@ export class MetadataCache extends Events<MetadataEvents> {
   private rebuild(): void {
     clearTimeout(this.rebuildTimer)
     this.generation++
-    this.resolved.clear()
-    this.paths.clear()
-    this.names.clear()
-    for (const file of this.vault.files()) {
-      const lower = file.path.toLowerCase()
-      const name = basename(lower)
-      this.paths.set(lower, file.path)
-      push(this.names, name, file.path)
-      if (name.endsWith('.md')) push(this.names, name.slice(0, -3), file.path)
-    }
+    // Which file a link leads to changes only when files come, go or are renamed; a note's own text does not change it.
+    if (this.namesStale) this.makeNames()
     this.resolvedLinks = new Map()
     this.unresolvedLinks = new Map()
     this.backlinkIndex = new Map()

@@ -19,6 +19,8 @@ const STORE = 'buckets'
 const VERSION = 2
 /** Notes are kept in this many blocks: one record per note made reading thousands of them slow. */
 const BUCKETS = 64
+/** The blocks are read in this many parts. */
+const PARTS = 8
 
 function bucketOf(path: string): number {
   let hash = 0
@@ -64,22 +66,39 @@ export class IndexCache {
   }
 
   private reading: Promise<Map<number, Bucket>> | null = null
-  /** The blocks as stored, read the first time they are needed. */
+  /**
+   * The blocks as stored, read from the first time they are asked for. They are asked for in a few parts:
+   * the browser hands each part to the page as one piece, and one piece of tens of megabytes would hold
+   * the page up for most of a second; parts of a few megabytes go by between other work.
+   */
   private get buckets(): Promise<Map<number, Bucket>> {
-    return (this.reading ??= this.db.then(
-      (db) =>
-        new Promise((resolve) => {
-          const empty = () => resolve(new Map())
-          if (!db) return empty()
-          try {
-            const request = db.transaction(STORE, 'readonly').objectStore(STORE).getAll()
-            request.onsuccess = () => resolve(new Map((request.result as Bucket[]).map((bucket) => [bucket.id, bucket])))
-            request.onerror = empty
-          } catch {
-            empty()
-          }
-        }),
-    ))
+    return (this.reading ??= this.db.then(async (db) => {
+      const all = new Map<number, Bucket>()
+      if (!db) return all
+      try {
+        const store = db.transaction(STORE, 'readonly').objectStore(STORE)
+        const parts = Array.from({ length: PARTS }, (_, part) => {
+          const size = BUCKETS / PARTS
+          const request = store.getAll(IDBKeyRange.bound(part * size, part * size + size - 1))
+          return new Promise<void>((resolve) => {
+            request.onsuccess = () => {
+              for (const bucket of request.result as Bucket[]) all.set(bucket.id, bucket)
+              resolve()
+            }
+            request.onerror = () => resolve()
+          })
+        })
+        await Promise.all(parts)
+      } catch {
+        // Nothing kept can be read: the index is made from the notes themselves.
+      }
+      return all
+    }))
+  }
+
+  /** Starts reading what is kept, to have it by the time the index asks for it. */
+  prefetch(): void {
+    void this.buckets
   }
 
   /** Everything stored for this vault, by path. */

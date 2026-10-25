@@ -137,22 +137,33 @@
 .cm-editor .lp-block-edit {
   position: absolute;
   top: 4px;
-  right: 0;
+  right: 4px;
   z-index: 2;
   display: flex;
   align-items: center;
   justify-content: center;
-  width: 28px;
+  width: 26px;
   height: 26px;
-  border-radius: var(--radius-m);
-  color: var(--text-muted);
-  font: 600 12px var(--font-mono);
-  letter-spacing: -0.5px;
+  padding: 0;
+  border: 1px solid transparent;
+  border-radius: var(--radius-s);
+  background: transparent;
+  color: var(--text-faint);
+  cursor: pointer;
   opacity: 0;
-  transition: opacity 0.1s;
+  transition:
+    opacity 0.12s,
+    color 0.12s,
+    background-color 0.12s;
+}
+
+.cm-editor .lp-block-edit svg {
+  width: 16px;
+  height: 16px;
 }
 
 .cm-editor .lp-block-edit:hover {
+  border-color: var(--border);
   background: var(--bg-hover);
   color: var(--text);
 }

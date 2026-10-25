@@ -57,6 +57,7 @@
     // A window opened over the app (settings, vaults, help) sends the floating sidebars away.
     if (!(settingsOpen || vaultsOpen || helpOpen) || !floating) return
     for (const side of ['left', 'right'] as const) {
+      if (!floats[side]) continue
       clearTimeout(peekTimers[side])
       over[side] = false
       if (!pinned[side]) peek[side] = false
@@ -65,6 +66,7 @@
   function trackPointer(event: MouseEvent) {
     if (!floating || settingsOpen || vaultsOpen || helpOpen) return
     for (const side of ['left', 'right'] as const) {
+      if (!floats[side]) continue
       const box = document.querySelector(`aside.${side}.floating`)?.getBoundingClientRect()
       // A generous strip: the pointer thrown at the edge of the window does not have to hit a hairline.
       const atEdge = side === 'left' ? event.clientX <= 14 : event.clientX >= innerWidth - 14
@@ -97,8 +99,50 @@
   const hasRightPanels = watch(app.panels, ['change'], () => app.panels.has('right'))
   const theme = watch(settings, ['change'], () => settings.get<string>('core', 'theme'))
   const fontSize = watch(settings, ['change'], () => settings.get<number>('core', 'fontSize'))
-  const floatingSetting = watch(settings, ['change'], () => settings.get<boolean>('core', 'floatingSidebars'))
-  const floating = $derived(!!floatingSetting.current)
+  // Each sidebar floats or stays in place on its own: a setting of each, also switched with a right click.
+  const floatOf = (side: 'left' | 'right') => !!settings.get<boolean>('core', side === 'left' ? 'floatingLeft' : 'floatingRight')
+  const floatSetting = watch(settings, ['change'], () => ({ left: floatOf('left'), right: floatOf('right') }))
+  const floats = $derived(floatSetting.current)
+  const floating = $derived(floats.left || floats.right)
+  function setFloating(side: 'left' | 'right', on: boolean) {
+    settings.set('core', side === 'left' ? 'floatingLeft' : 'floatingRight', on)
+    clearTimeout(peekTimers[side])
+    pinned[side] = false
+    // Made floating, it is left out on the screen until the pointer leaves it; fixed in place, it stays open.
+    peek[side] = on
+    over[side] = on
+    if (!on) {
+      if (side === 'left') leftOpen = true
+      else rightOpen = true
+    }
+  }
+  function fromCommonSetting() {
+    const both = settings.get<boolean | undefined>('core', 'floatingSidebars')
+    if (both === undefined) return
+    settings.set('core', 'floatingSidebars', undefined)
+    settings.set('core', 'floatingLeft', both)
+    settings.set('core', 'floatingRight', both)
+  }
+  fromCommonSetting()
+  const toggleSide = (side: 'left' | 'right') => (floats[side] ? pin(side) : side === 'left' ? (leftOpen = !leftOpen) : (rightOpen = !rightOpen))
+  function hideSide(side: 'left' | 'right') {
+    if (floats[side]) {
+      clearTimeout(peekTimers[side])
+      peek[side] = pinned[side] = over[side] = false
+    } else if (side === 'left') leftOpen = false
+    else rightOpen = false
+  }
+  /** The menu of a sidebar and of its button: whether it floats over the note or stays in place beside it. */
+  function sideMenu(event: MouseEvent, side: 'left' | 'right') {
+    // Fields and notes in a sidebar keep their own menus (spelling, copy and paste).
+    if ((event.target as Element | null)?.closest?.('input, textarea, [contenteditable], .cm-editor')) return
+    const floats_ = floats[side]
+    const name = side === 'left' ? 'левую' : 'правую'
+    app.menus.show(event, 'sidebar', side, [
+      { section: 'open', icon: floats_ ? `panel-${side}` : `panel-${side}-dashed`, title: floats_ ? 'Прикрепить панель' : 'Сделать панель плавающей', onClick: () => setFloating(side, !floats_) },
+      { section: 'action', icon: `panel-${side}-close`, title: `Скрыть ${name} панель`, onClick: () => hideSide(side) },
+    ])
+  }
   const readableWidth = watch(settings, ['change'], () => settings.get<boolean>('core', 'readableWidth'))
   const inlineTitle = watch(settings, ['change'], () => settings.get<boolean>('core', 'inlineTitle'))
   const look = watch(settings, ['change'], () => ({
@@ -256,7 +300,7 @@
       app.panels.on('reveal', (id) => {
         const side = app.panels.sideOf(id) === 'left' ? 'left' : 'right'
         // Shown on request, it stays until the pointer has been on it and left, or Esc is pressed; it is not pinned.
-        if (floating) {
+        if (floats[side]) {
           peek[side] = true
           over[side] = true
         }
@@ -289,14 +333,23 @@
         id: 'core:toggle-sidebar',
         name: 'Показать или скрыть левую панель',
         hotkey: 'Mod+Backslash',
-        callback: () => (floating ? pin('left') : (leftOpen = !leftOpen)),
+        callback: () => toggleSide('left'),
       }),
       app.commands.add({
         id: 'core:toggle-right-sidebar',
         name: 'Показать или скрыть правую панель',
         hotkey: 'Mod+Shift+Backslash',
-        callback: () => (floating ? pin('right') : (rightOpen = !rightOpen)),
+        callback: () => toggleSide('right'),
       }),
+      // A widget's tab in a sidebar has the sidebar's choice too.
+      app.menus.register('panel', (id: string, add) => {
+        const side = app.panels.sideOf(id) === 'left' ? 'left' : 'right'
+        add({ section: 'system', icon: floats[side] ? `panel-${side}` : `panel-${side}-dashed`, title: floats[side] ? 'Прикрепить панель' : 'Сделать панель плавающей', onClick: () => setFloating(side, !floats[side]) })
+      }),
+      // The one setting for both sidebars of earlier versions becomes the setting of each.
+      settings.on('change', (scope, key) => scope === 'core' && key === 'floatingSidebars' && fromCommonSetting()),
+      app.commands.add({ id: 'core:float-left-sidebar', name: 'Левая панель: плавающая или прикреплённая', icon: 'panel-left-dashed', callback: () => setFloating('left', !floats.left) }),
+      app.commands.add({ id: 'core:float-right-sidebar', name: 'Правая панель: плавающая или прикреплённая', icon: 'panel-right-dashed', callback: () => setFloating('right', !floats.right) }),
       app.commands.add({ id: 'core:new-note', name: 'Новая заметка', hotkey: 'Alt+N', callback: () => void newNote() }),
       app.commands.add({
         id: 'core:close-tab',
@@ -357,8 +410,9 @@
     // Capture phase: app shortcuts take priority over the focused editor's keymap.
     const onKey = (event: KeyboardEvent) => {
       // Esc always sends the floating sidebars away, pinned or not, whatever was keeping them.
-      if (event.key === 'Escape' && floating && (peek.left || peek.right) && !menu && !document.querySelector('dialog[open]')) {
+      if (event.key === 'Escape' && ((floats.left && peek.left) || (floats.right && peek.right)) && !menu && !document.querySelector('dialog[open]')) {
         for (const side of ['left', 'right'] as const) {
+          if (!floats[side]) continue
           clearTimeout(peekTimers[side])
           peek[side] = pinned[side] = over[side] = false
         }
@@ -441,12 +495,12 @@
 <div class="app">
   <!-- The strips show while they have buttons, and while something is dragged that could become one. -->
   {#if (ribbons.current.left || drag.note || drag.panel) && look.current.ribbon}<Toolbar place="left-ribbon" vertical floating={!ribbons.current.left} />{/if}
-  {#if floating}
+  {#if floats.left}
     <!-- A thin strip along the edge of the window: the pointer on it brings the sidebar out over the note. -->
     <div class="edge left" role="presentation"></div>
   {/if}
-  {#if floating ? peek.left : leftOpen}
-    <Sidebar side="left" {floating}>
+  {#if floats.left ? peek.left : leftOpen}
+    <Sidebar side="left" floating={floats.left} onmenu={(event) => sideMenu(event, 'left')}>
       {#snippet footer()}
         <MainMenu onvaults={() => (vaultsOpen = true)} onhelp={() => (helpOpen = true)} onsettings={() => (settingsOpen = true)} />
       {/snippet}
@@ -455,7 +509,7 @@
 
   <main>
     <div class="tabbar">
-      <button class="bar-button" title="Левая панель" aria-label="Левая панель" aria-pressed={floating ? peek.left : leftOpen} onclick={() => (floating ? pin('left') : (leftOpen = !leftOpen))}>
+      <button class="bar-button" title="Левая панель" aria-label="Левая панель" aria-pressed={floats.left ? peek.left : leftOpen} onclick={() => toggleSide('left')} oncontextmenu={(event) => sideMenu(event, 'left')}>
         <svg viewBox="0 0 16 16" aria-hidden="true"><rect x="1.5" y="2.5" width="13" height="11" rx="2" /><path d="M6 2.5v11" /></svg>
       </button>
       <div class="tabs" role="tablist">
@@ -524,7 +578,7 @@
         </button>
       </div>
       <Toolbar place="tab-bar" />
-      <button class="bar-button" title="Правая панель" aria-label="Правая панель" aria-pressed={floating ? peek.right : rightOpen} onclick={() => (floating ? pin('right') : (rightOpen = !rightOpen))}>
+      <button class="bar-button" title="Правая панель" aria-label="Правая панель" aria-pressed={floats.right ? peek.right : rightOpen} onclick={() => toggleSide('right')} oncontextmenu={(event) => sideMenu(event, 'right')}>
         <svg viewBox="0 0 16 16" aria-hidden="true"><rect x="1.5" y="2.5" width="13" height="11" rx="2" /><path d="M10 2.5v11" /></svg>
       </button>
     </div>
@@ -581,10 +635,10 @@
   </main>
 
   <!-- An empty right sidebar appears while a widget is dragged, so it can be dropped there. -->
-  {#if (floating ? peek.right : rightOpen) && (hasRightPanels.current || drag.panel || drag.note)}
-    <Sidebar side="right" {floating} />
+  {#if (floats.right ? peek.right : rightOpen) && (hasRightPanels.current || drag.panel || drag.note)}
+    <Sidebar side="right" floating={floats.right} onmenu={(event) => sideMenu(event, 'right')} />
   {/if}
-  {#if floating}
+  {#if floats.right}
     <div class="edge right" role="presentation"></div>
   {/if}
   {#if (ribbons.current.right || drag.note || drag.panel) && look.current.ribbon}<Toolbar place="right-ribbon" vertical floating={!ribbons.current.right} />{/if}

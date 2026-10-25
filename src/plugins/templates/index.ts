@@ -19,6 +19,8 @@ export interface TemplatesService {
    * note has been written.
    */
   render(template: string, target: string, options?: { date?: Moment }): Promise<{ text: string; target: string; done(): Promise<void> }>
+  /** The folder chosen in the settings for notes made from this template, if any. */
+  folderOf(template: string): string | null
 }
 
 const CURSOR = /<%\s*tp\.file\.cursor\(\s*(-?\d*\.?\d*)\s*\)\s*%>/g
@@ -113,6 +115,7 @@ export default class Templates extends Plugin {
     const service: TemplatesService = {
       list: () => this.list(),
       resolve: (name) => this.resolve(name),
+      folderOf: (template) => this.folderFor(template),
       render: async (template, target, options) => {
         const path = this.resolve(template)
         if (!path) throw new TemplateError(`шаблон «${template}» не найден`)
@@ -187,37 +190,97 @@ export default class Templates extends Plugin {
     return folder ? paths.normalize(folder) : null
   }
 
-  /** The settings' list of templates, each with a field for its folder. */
+  /** Sets (or with `''` clears) the folder for a template's notes. */
+  private setFolder(template: string, folder: string): void {
+    const all = this.folders()
+    const clean = paths.normalize(folder.trim())
+    if (clean) all[template] = clean
+    else delete all[template]
+    this.setSetting('folders', all)
+  }
+
+  /** Asks which folder a template's notes go to: one of the vault's folders, or a new one typed in. */
+  private chooseFolder(template: string, done: () => void): void {
+    const { app } = this
+    const title = paths.stripExt(paths.basename(template))
+    const current = this.folders()[template]
+    app.suggest<string>({
+      placeholder: `Папка для заметок «${title}»…`,
+      items: (query) => {
+        const typed = query.trim().toLowerCase()
+        const folders = app.vault
+          .all()
+          .filter((entry) => entry.kind === 'folder' && entry.path !== this.folder && !entry.path.startsWith(`${this.folder}/`))
+          .map((entry) => entry.path)
+          .sort((a, b) => a.localeCompare(b, undefined, { numeric: true }))
+        return folders.filter((folder) => !typed || folder.toLowerCase().includes(typed)).slice(0, 100)
+      },
+      label: (folder) => folder,
+      detail: (folder) => (folder === current ? 'сейчас' : undefined),
+      icon: () => ({ icon: 'folder' }),
+      onChoose: (folder) => (this.setFolder(template, folder), done()),
+      // A folder that does not exist yet is made with the first note.
+      onCreate: (name) => (this.setFolder(template, name), done()),
+      createLabel: (name) => `Новая папка «${paths.normalize(name)}»`,
+    })
+  }
+
+  /**
+   * The settings' list of templates with the folder of each one's notes. Templates with a folder stand first;
+   * a click on the folder chooses another, the cross brings back the usual place.
+   */
   private drawFolders(el: HTMLElement): () => void {
+    const { app } = this
     const box = el.appendChild(document.createElement('div'))
     box.className = 'tpl-folders'
-    const templates = this.list()
-    if (!templates.length) box.textContent = `В папке «${this.folder}» пока нет шаблонов`
-    const hints = box.appendChild(document.createElement('datalist'))
-    hints.id = 'tpl-folder-hints'
-    for (const entry of this.app.vault.all()) {
-      if (entry.kind !== 'folder' || entry.path === this.folder || entry.path.startsWith(`${this.folder}/`)) continue
-      hints.appendChild(document.createElement('option')).value = entry.path
-    }
-    for (const template of templates) {
-      const row = box.appendChild(document.createElement('label'))
-      row.className = 'tpl-folder'
-      const name = row.appendChild(document.createElement('span'))
-      name.textContent = paths.stripExt(template.slice(this.folder.length + 1))
-      const input = row.appendChild(document.createElement('input'))
-      input.type = 'text'
-      input.setAttribute('list', hints.id)
-      input.placeholder = 'как обычно'
-      input.value = this.folders()[template] ?? ''
-      input.onchange = () => {
-        const all = this.folders()
-        const folder = paths.normalize(input.value.trim()).replace(/^\/+|\/+$/g, '')
-        if (folder) all[template] = folder
-        else delete all[template]
-        input.value = folder
-        this.setSetting('folders', all)
+    const head = box.appendChild(document.createElement('div'))
+    head.className = 'tpl-folders-head'
+    const search = head.appendChild(document.createElement('input'))
+    search.type = 'search'
+    search.placeholder = 'Найти шаблон…'
+    const count = head.appendChild(document.createElement('span'))
+    count.className = 'tpl-folders-count'
+    const list = box.appendChild(document.createElement('div'))
+    list.className = 'tpl-folders-list'
+
+    const draw = () => {
+      const templates = this.list()
+      const chosen = this.folders()
+      const set = templates.filter((template) => chosen[template]).length
+      count.textContent = templates.length ? `с папкой ${set} из ${templates.length}` : ''
+      const name = (template: string) => paths.stripExt(template.slice(this.folder.length + 1))
+      const typed = search.value.trim().toLowerCase()
+      const shown = templates
+        .filter((template) => !typed || name(template).toLowerCase().includes(typed) || (chosen[template] ?? '').toLowerCase().includes(typed))
+        .sort((a, b) => Number(!chosen[a]) - Number(!chosen[b]))
+      list.replaceChildren()
+      if (!templates.length) list.append(Object.assign(document.createElement('div'), { className: 'tpl-folders-empty', textContent: `В папке «${this.folder}» пока нет шаблонов` }))
+      else if (!shown.length) list.append(Object.assign(document.createElement('div'), { className: 'tpl-folders-empty', textContent: 'Ничего не найдено' }))
+      for (const template of shown) {
+        const folder = chosen[template]
+        const row = list.appendChild(document.createElement('div'))
+        row.className = folder ? 'tpl-folder is-set' : 'tpl-folder'
+        row.dataset.template = template
+        const label = row.appendChild(document.createElement('span'))
+        label.className = 'tpl-folder-name'
+        const look = app.icons.look('file', template)
+        label.append(app.icons.draw(look?.icon ?? 'layout-template', look?.color), name(template))
+        const pick = row.appendChild(document.createElement('button'))
+        pick.className = 'tpl-folder-pick'
+        pick.title = folder ? `Заметки по шаблону ложатся в «${folder}». Выбрать другую папку` : 'Выбрать папку для заметок по этому шаблону'
+        pick.append(app.icons.draw(folder ? 'folder' : 'folder-plus'), Object.assign(document.createElement('span'), { textContent: folder ?? 'как обычно' }))
+        pick.onclick = () => this.chooseFolder(template, draw)
+        if (folder) {
+          const clear = row.appendChild(document.createElement('button'))
+          clear.className = 'tpl-folder-clear'
+          clear.title = 'Как обычно: без своей папки'
+          clear.append(app.icons.draw('x'))
+          clear.onclick = () => (this.setFolder(template, ''), draw())
+        }
       }
     }
+    search.oninput = draw
+    draw()
     return () => box.remove()
   }
 

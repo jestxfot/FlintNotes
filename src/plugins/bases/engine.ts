@@ -93,20 +93,35 @@ export class BaseEngine {
     private sourcePath: string,
   ) {
     const self = fileRef(app, sourcePath)
-    this.all = app.vault.files().map((entry) => {
-      const file = fileRef(app, entry.path)
-      const props = file.info.properties()
-      const formulas = this.formulas(() => row.scope)
-      const names: Record<string, unknown> = { file, note: props, formula: formulas, this: self }
-      const row: Row = {
-        path: entry.path,
-        file,
-        props,
-        // A bare name is a property of the note.
-        scope: { get: (name) => (Object.hasOwn(names, name) ? names[name] : Object.hasOwn(props, name) ? props[name] : undefined) },
-      }
-      return row
-    })
+    this.all = app.vault.files().map((entry) => this.row(entry.path, self))
+  }
+
+  /**
+   * One file as a record. A vault has tens of thousands of files and a filter mostly looks at one thing of each
+   * (its folder, a tag): the file's value, its properties and formulas are made only when something asks for them.
+   */
+  private row(path: string, self: expr.FileRef): Row {
+    const { app } = this
+    let file: expr.FileRef | undefined
+    let props: Record<string, unknown> | undefined
+    let names: Record<string, unknown> | undefined
+    const row: Row = {
+      path,
+      get file() {
+        return (file ??= fileRef(app, path))
+      },
+      get props() {
+        return (props ??= row.file.info.properties())
+      },
+      // A bare name is a property of the note.
+      scope: {
+        get: (name) => {
+          names ??= { file: row.file, note: row.props, formula: this.formulas(() => row.scope), this: self }
+          return Object.hasOwn(names, name) ? names[name] : Object.hasOwn(row.props, name) ? row.props[name] : undefined
+        },
+      },
+    }
+    return row
   }
 
   /** `formula.<name>` for one row: each formula is computed when first read. */

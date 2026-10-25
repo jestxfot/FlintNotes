@@ -239,7 +239,8 @@ class BlockWidget extends WidgetType {
     const edit = el.appendChild(document.createElement('button'))
     edit.className = 'lp-block-edit'
     edit.title = 'Редактировать исходный текст'
-    edit.textContent = '</>'
+    edit.setAttribute('aria-label', 'Редактировать исходный текст')
+    edit.append(this.app.icons.draw('code-xml'))
     edit.onclick = () => {
       const firstLine = view.state.doc.lineAt(view.posAtDOM(el))
       view.dispatch({ selection: { anchor: Math.min(firstLine.to + 1, view.state.doc.length) } })

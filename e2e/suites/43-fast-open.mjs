@@ -77,7 +77,7 @@ export async function run(t) {
   try {
     const first = await tree(port)
     await stopServer(server)
-    const kept = fs.readdirSync(path.join(cache, 'trees'))
+    const kept = fs.readdirSync(path.join(cache, 'trees')).filter((file) => file.endsWith('.json'))
     ok('a stopping server writes its list of files into its temporary folder', kept.length === 1 && first.includes('Gone.md'), kept.join(', '))
     // While it is off, a file comes and another goes.
     t.write('New.md', 'new\n')
@@ -150,12 +150,18 @@ export async function run(t) {
   await page.locator('nav button', { hasText: 'Шаблоны' }).click()
   await wait(500)
   const rows = page.locator('.tpl-folder')
-  ok('the settings list every template with a field for its folder', (await rows.count()) === 2 && (await rows.allInnerTexts()).join('|').includes('Встреча'), await rows.allInnerTexts())
-  await rows.filter({ hasText: 'Встреча' }).locator('input').fill('/Встречи/')
-  await rows.filter({ hasText: 'Встреча' }).locator('input').dispatchEvent('change')
+  ok('the settings list every template with the folder of its notes', (await rows.count()) === 2 && (await rows.allInnerTexts()).join('|').includes('Встреча') && (await rows.first().innerText()).includes('как обычно'), await rows.allInnerTexts())
+  await rows.filter({ hasText: 'Встреча' }).locator('.tpl-folder-pick').click()
+  await page.locator('dialog:has([role=option]) input').last().fill('/Встречи/')
+  await wait(300)
+  await page.keyboard.press('Enter')
   await wait(900)
   const saved = JSON.parse(t.read('.flint/settings.json')).templates?.folders
-  ok('the folder is kept by the template', saved?.['Templates/Встреча.md'] === 'Встречи', `${JSON.stringify(saved)} ${t.read('.flint/settings.json').slice(0, 300)}`)
+  ok('a folder typed that does not exist yet is taken, kept by the template', saved?.['Templates/Встреча.md'] === 'Встречи', JSON.stringify(saved))
+  ok('a template with a folder stands first, marked', (await rows.first().getAttribute('class')).includes('is-set') && (await rows.first().innerText()).includes('Встречи'), await rows.allInnerTexts())
+  await page.locator('.tpl-folders-head input').fill('plain')
+  ok('the list can be searched', (await rows.count()) === 1, await rows.allInnerTexts())
+  await page.locator('.tpl-folders-head input').fill('')
   await page.keyboard.press('Escape')
   await wait(300)
 

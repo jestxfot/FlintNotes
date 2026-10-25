@@ -29,7 +29,10 @@ export const vault = {
 export async function run(t) {
   const { page, ok, wait, read, leaf } = t
 
-  await wait(2500)
+  // The rules are drawn once the index has read the notes; under a loaded machine that takes a while.
+  await page.waitForFunction(() => document.querySelector('.tree')?.textContent.includes('Tagged') && app.metadata.get('Tagged.md'), null, { timeout: 10_000 }).catch(() => {})
+  await page.evaluate(() => app.metadata.ready)
+  await wait(1500)
   ok('a rule may ask about the tags of a note', (await t.row('Tagged').locator('.row-icon svg').count()) === 1 && (await t.row('Untagged').locator('.row-icon').count()) === 0)
   // ---- tags among the properties
   await t.open('TextTag')

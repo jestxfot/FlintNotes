@@ -1,6 +1,30 @@
 import { stringify } from 'yaml'
-import { errorMessage, expr, type App } from '../../api'
+import { errorMessage, expr, parseMarkdown, setProperties, type App } from '../../api'
 import type { FilterNode } from './model'
+
+/** What the Templates plugin lends to bases. */
+interface Templates {
+  list(): string[]
+  render(template: string, target: string): Promise<{ text: string; target: string; done(): Promise<void> }>
+  folderOf(template: string): string | null
+}
+
+export const templatesOf = (app: App) => app.services.get<Templates>('templates') ?? null
+
+/**
+ * The template each base makes its new records from. It is kept in FlintNotes' own settings, not in the
+ * base's YAML: Obsidian reads that YAML too and knows no such key. A `.base` file goes by its path; a base
+ * written in a note, by the note and the name of its first view.
+ */
+const KEY = 'recordTemplates'
+export const recordTemplates = (app: App): Record<string, string> => ({ ...(app.settings.get<Record<string, string> | undefined>('bases', KEY) ?? {}) })
+export const recordTemplate = (app: App, base: string): string | null => recordTemplates(app)[base] ?? null
+export function setRecordTemplate(app: App, base: string, template: string | null): void {
+  const all = recordTemplates(app)
+  if (template) all[base] = template
+  else delete all[base]
+  app.settings.set('bases', KEY, all)
+}
 
 interface Defaults {
   folder: string
@@ -45,7 +69,7 @@ function learn(node: expr.Node, into: Defaults): void {
  * and property values that the base's filters ask for. Conditions it cannot
  * read (`or`, comparisons, formulas) are left to the user.
  */
-export async function createRecord(app: App, filters: (FilterNode | undefined)[], extra: Record<string, unknown> = {}): Promise<void> {
+export async function createRecord(app: App, filters: (FilterNode | undefined)[], extra: Record<string, unknown> = {}, template: string | null = null): Promise<void> {
   const defaults: Defaults = { folder: '', tags: [], props: {} }
   for (const source of filters.flatMap(required)) {
     try {
@@ -56,11 +80,26 @@ export async function createRecord(app: App, filters: (FilterNode | undefined)[]
   }
   const data: Record<string, unknown> = { ...defaults.props, ...extra }
   if (defaults.tags.length) data.tags = defaults.tags
-  const text = Object.keys(data).length ? `---\n${stringify(data)}---\n\n` : ''
+  const templates = template ? templatesOf(app) : null
+  if (template && !templates) app.notice('Шаблон базы не применён: плагин «Шаблоны» выключен')
   try {
-    // The folder the base's filters ask for is the base's word; a plugin may still choose where new notes go.
-    const path = await app.creation.place({ origin: 'base', name: 'Без названия', folder: defaults.folder, explicit: !!defaults.folder })
+    // The folder the base's filters ask for is the base's word; then the template's own folder; a plugin may still choose where new notes go.
+    const folder = defaults.folder || (templates && template ? (templates.folderOf(template) ?? '') : '')
+    const path = await app.creation.place({ origin: 'base', name: 'Без названия', folder, explicit: !!folder })
     if (!path) return
+    if (templates && template) {
+      // The note is the template's; what the base's filters ask for is written over its properties, its tags added to the template's.
+      const made = await templates.render(template, path)
+      const entry = await app.vault.create(made.target, made.text)
+      const own = parseMarkdown(made.text).frontmatter?.tags
+      const tags = [...new Set([...(Array.isArray(own) ? own.map(String) : typeof own === 'string' ? own.split(/[,\s]+/).filter(Boolean) : []), ...defaults.tags])]
+      const wanted = { ...defaults.props, ...extra, ...(defaults.tags.length ? { tags } : {}) }
+      if (Object.keys(wanted).length) await setProperties(app, entry.path, wanted)
+      app.workspace.openFile(entry.path)
+      await made.done()
+      return
+    }
+    const text = Object.keys(data).length ? `---\n${stringify(data)}---\n\n` : ''
     const entry = await app.vault.create(path, text)
     app.workspace.openFile(entry.path)
   } catch (err) {

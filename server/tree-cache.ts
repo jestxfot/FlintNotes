@@ -40,6 +40,10 @@ export class TreeCache {
   private touched = new Map<string, Set<string>>()
   private reading = new Map<string, Promise<VaultEntry[] | null>>()
   private saving = new Map<string, ReturnType<typeof setTimeout>>()
+  /** Writes of lists under way: a server that stops waits for them, or the next start would find only half a file. */
+  private writing = new Set<Promise<void>>()
+  /** The list as the pages get it, written out once until it changes: tens of thousands of files take a while to write out. */
+  private written = new Map<string, string>()
 
   constructor(
     private walk: (dir: string) => Promise<VaultEntry[]>,
@@ -58,12 +62,24 @@ export class TreeCache {
       tree = this.trees.get(dir)
       if (!tree && kept) {
         this.trees.set(dir, (tree = { entries: new Map(kept.map((entry) => [entry.path, entry])), at: 0 }))
+        this.written.delete(dir)
         setTimeout(() => void this.load(dir).catch(() => {}), this.settle)
       }
     }
     if (!tree || (!this.watched.has(dir) && tree.at)) return this.load(dir)
     if (tree.at && Date.now() - tree.at > this.maxAge) void this.load(dir).catch(() => {})
     return [...tree.entries.values()]
+  }
+
+  /** The list as JSON, for the pages. */
+  async json(dir: string): Promise<string> {
+    const list = await this.list(dir)
+    let text = this.written.get(dir)
+    if (text === undefined) {
+      text = JSON.stringify(list)
+      if (this.trees.has(dir)) this.written.set(dir, text)
+    }
+    return text
   }
 
   private load(dir: string): Promise<VaultEntry[]> {
@@ -75,6 +91,7 @@ export class TreeCache {
     const walk = this.walk(dir)
       .then((entries) => {
         const tree = this.trees.get(dir)
+        this.written.delete(dir)
         if (tree) this.merge(dir, tree, entries, touched)
         // A change that came while walking may or may not be in the result: then the next request walks again.
         else if (!touched.size) this.trees.set(dir, { entries: new Map(entries.map((entry) => [entry.path, entry])), at })
@@ -121,10 +138,18 @@ export class TreeCache {
       dir,
       setTimeout(() => {
         this.saving.delete(dir)
-        const tree = this.trees.get(dir)
-        if (tree) void this.store!.write(dir, [...tree.entries.values()]).catch(() => {})
+        this.write(dir)
       }, delay),
     )
+  }
+
+  private write(dir: string): Promise<void> {
+    const tree = this.trees.get(dir)
+    if (!tree || !this.store) return Promise.resolve()
+    const writing = this.store.write(dir, [...tree.entries.values()]).catch(() => {})
+    this.writing.add(writing)
+    void writing.finally(() => this.writing.delete(writing))
+    return writing
   }
 
   /** Writes down at once the lists that changed since they were last written (the server is stopping). */
@@ -132,11 +157,12 @@ export class TreeCache {
     const dirs = [...this.saving.keys()]
     for (const dir of dirs) clearTimeout(this.saving.get(dir))
     this.saving.clear()
-    await Promise.all(dirs.map((dir) => this.trees.get(dir) && this.store?.write(dir, [...this.trees.get(dir)!.entries.values()]).catch(() => {})))
+    await Promise.all([...this.writing, ...dirs.map((dir) => this.write(dir))])
   }
 
   private seen(dir: string, path: string): void {
     this.touched.get(dir)?.add(path)
+    this.written.delete(dir)
     if (this.trees.has(dir)) this.keep(dir)
   }
 
@@ -162,6 +188,7 @@ export class TreeCache {
   /** The vault is no longer watched. */
   forget(dir: string): void {
     this.trees.delete(dir)
+    this.written.delete(dir)
     this.watched.delete(dir)
     clearTimeout(this.saving.get(dir))
     this.saving.delete(dir)

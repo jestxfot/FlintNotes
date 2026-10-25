@@ -920,3 +920,22 @@
   background: var(--bg-hover);
   color: var(--text);
 }
+
+/* «Создать» and, beside it, the template its records are made from. */
+.base-create {
+  display: inline-flex;
+  align-items: center;
+}
+.base-create .base-tool:first-child {
+  border-top-right-radius: 0;
+  border-bottom-right-radius: 0;
+}
+.base-create .base-create-more {
+  padding-inline: 2px;
+  border-top-left-radius: 0;
+  border-bottom-left-radius: 0;
+  opacity: 0.7;
+}
+.base-create .base-create-more:hover {
+  opacity: 1;
+}

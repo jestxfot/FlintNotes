@@ -297,7 +297,7 @@ api.post('/vaults/forget', async (c) => {
   return c.json(config.vaults.map(vaultInfo))
 })
 
-api.get('/tree', async (c) => c.json(await trees.list(root())))
+api.get('/tree', async (c) => c.body(await trees.json(root()), 200, { 'content-type': 'application/json; charset=utf-8' }))
 
 // Every note's text in one response, one JSON object per line. The app reads
 // this once at start to build its index; a request per note would be far slower.
