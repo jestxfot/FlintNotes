@@ -774,13 +774,49 @@
   color: #e5484d;
 }
 
+/* A reminder: its day and time in a narrow column on the left, one over the other; the text beside them
+   with the most of the width, and how long is left under the text. Where a group is wide (the page of
+   reminders), how long is left goes to the end of the line. */
+.reminders-group {
+  container-type: inline-size;
+}
+
 .reminder-row {
-  display: flex;
-  gap: 8px;
+  display: grid;
+  grid-template-areas:
+    'time text tools'
+    'time meta tools';
+  grid-template-columns: 3.4em 1fr auto;
+  align-items: start;
+  gap: 3px 8px;
   width: 100%;
-  padding: 3px 4px;
+  padding: 6px 6px;
   border-radius: var(--radius-m);
   text-align: left;
+}
+
+.reminder-row + .reminder-row {
+  border-top: 1px solid color-mix(in srgb, var(--border) 60%, transparent);
+}
+
+.reminder-meta {
+  display: flex;
+  flex-wrap: wrap;
+  grid-area: meta;
+  align-items: center;
+  gap: 4px 6px;
+  min-width: 0;
+}
+
+.reminder-meta:empty {
+  display: none;
+}
+
+@container (min-width: 460px) {
+  .reminder-row {
+    grid-template-areas: 'time text meta tools';
+    grid-template-columns: 3.6em 1fr auto auto;
+  }
 }
 
 .reminder-row:hover {
@@ -788,13 +824,30 @@
 }
 
 .reminder-time {
-  flex: none;
+  display: flex;
+  flex-direction: column;
+  grid-area: time;
+  padding-top: 1px;
   color: var(--text-muted);
+  font-size: 12px;
+  line-height: 1.3;
   font-variant-numeric: tabular-nums;
+  white-space: nowrap;
+}
+
+.reminder-day {
+  font-size: 11px;
+  font-weight: 600;
+}
+
+.reminders-group.overdue .reminder-time {
+  color: var(--color-red);
 }
 
 .reminder-text {
+  grid-area: text;
   min-width: 0;
+  line-height: 1.4;
   overflow-wrap: anywhere;
 }
 
@@ -889,7 +942,6 @@
 }
 
 .reminder-row {
-  align-items: baseline;
   cursor: pointer;
 }
 
@@ -897,22 +949,16 @@
   opacity: 0.5;
 }
 
-.reminder-text {
-  flex: 1;
-  min-width: 0;
-}
-
 .reminder-snoozed {
-  flex: none;
   color: var(--color-orange);
   font-size: 11.5px;
+  white-space: nowrap;
 }
 
 .reminder-tools {
   display: none;
-  flex: none;
+  grid-area: tools;
   gap: 1px;
-  align-self: center;
 }
 
 .reminder-row:hover .reminder-tools {
@@ -980,19 +1026,16 @@
 }
 
 .panel-tab .reminder-row {
-  align-items: flex-start;
-  gap: 10px;
-  padding: 6px 6px;
+  column-gap: 10px;
+  padding: 7px 6px;
 }
 
 .panel-tab .reminder-time {
-  min-width: 44px;
   color: var(--text);
   font-weight: 600;
 }
 
 .panel-tab .reminders-group.overdue .reminder-time {
-  min-width: 96px;
   color: var(--color-red);
   font-weight: 500;
 }
@@ -1066,6 +1109,9 @@
 .reminder-row .task-chip.days,
 .alert-text .task-chip.days {
   flex: none;
-  margin-left: 0.4em;
   white-space: nowrap;
+}
+
+.alert-text .task-chip.days {
+  margin-left: 0.4em;
 }

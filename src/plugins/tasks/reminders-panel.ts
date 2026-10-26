@@ -96,14 +96,18 @@ export function mountReminders(app: App, store: TaskStore, reminders: Reminders,
         const row = el(part, 'div', `reminder-row${due.closed ? ' closed' : ''}`)
         row.title = task.path
         const until = reminders.snoozedUntil(due)
-        el(row, 'span', 'reminder-time', late ? at.toLocaleString('ru', { day: 'numeric', month: 'short', hour: '2-digit', minute: '2-digit' }) : clock(at))
+        // The day over the time, in a narrow column: the text has the width.
+        const time = el(row, 'span', 'reminder-time')
+        if (late) el(time, 'span', 'reminder-day', at.toLocaleDateString('ru', { day: 'numeric', month: 'short' }))
+        el(time, 'span', '', clock(at))
         const text = el(row, 'span', 'reminder-text')
         // A line of the day plan says its hours itself; the time before it is enough.
         text.append(renderInline(app, task.description.replace(/^\d{1,2}:\d{2}(?:\s*[-–—]\s*\d{1,2}:\d{2})?\s+(?=\S)/, ''), task.path))
         el(text, 'span', 'reminder-source', task.path.replace(/^.*\//, '').replace(/\.md$/, ''))
-        // How long is left: to the task's own day, or to the reminder's if the line has no day of its own.
-        if (!due.closed) row.append(daysChip(task.due ?? task.scheduled ?? iso(at), task.due || task.scheduled ? undefined : 'Напоминание'))
-        if (until) el(row, 'span', 'reminder-snoozed', `отложено до ${clock(new Date(until))}`)
+        // How long is left (to the task's own day, or to the reminder's if the line has no day of its own), and until when it waits.
+        const meta = el(row, 'span', 'reminder-meta')
+        if (!due.closed) meta.append(daysChip(task.due ?? task.scheduled ?? iso(at), task.due || task.scheduled ? undefined : 'Напоминание'))
+        if (until) el(meta, 'span', 'reminder-snoozed', `отложено до ${clock(new Date(until))}`)
         const tools = el(row, 'span', 'reminder-tools')
         const tool = (icon: string, label: string, action: (event: MouseEvent) => void) => {
           const button = el(tools, 'button')
