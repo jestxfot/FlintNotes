@@ -570,9 +570,14 @@ const sameKey = (given: string, key: string) => given.length === key.length && c
 /** The addresses of this computer in the home network: the usual home ranges first, the virtual adapters of WSL, VPNs and virtual machines last. */
 function homeAddresses(): string[] {
   const VIRTUAL = /vEthernet|WSL|Hyper-V|VirtualBox|VMware|docker|br-|veth|tun|tap|wg|zt|Tailscale|VPN/i
-  const rank = (name: string, ip: string) => (VIRTUAL.test(name) ? 10 : 0) + (ip.startsWith('192.168.') ? 0 : ip.startsWith('10.') ? 1 : ip.startsWith('172.') ? 2 : 3)
+  // Windows often names a virtual machine's adapter «Ethernet 2»: its maker's MAC prefix, or the subnet its program
+  // gives by default (VirtualBox 192.168.56.*, Docker Machine 192.168.99.*), tells it apart from the real network.
+  const VIRTUAL_MAC = /^(0a:00:27|08:00:27|00:50:56|00:0c:29|00:05:69|00:1c:14|00:15:5d|02:42:)/i
+  const VIRTUAL_NET = /^192\.168\.(56|99)\./
+  const virtual = (name: string, ip: string, mac: string) => VIRTUAL.test(name) || VIRTUAL_MAC.test(mac) || VIRTUAL_NET.test(ip)
+  const rank = (name: string, ip: string, mac: string) => (virtual(name, ip, mac) ? 10 : 0) + (ip.startsWith('192.168.') ? 0 : ip.startsWith('10.') ? 1 : ip.startsWith('172.') ? 2 : 3)
   return Object.entries(os.networkInterfaces())
-    .flatMap(([name, list]) => (list ?? []).filter((one) => one.family === 'IPv4' && !one.internal && !one.address.startsWith('169.254.')).map((one) => ({ ip: one.address, rank: rank(name, one.address) })))
+    .flatMap(([name, list]) => (list ?? []).filter((one) => one.family === 'IPv4' && !one.internal && !one.address.startsWith('169.254.')).map((one) => ({ ip: one.address, rank: rank(name, one.address, one.mac) })))
     .sort((a, b) => a.rank - b.rank)
     .map((one) => one.ip)
 }

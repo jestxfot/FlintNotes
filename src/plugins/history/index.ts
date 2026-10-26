@@ -128,7 +128,7 @@ export default class NoteHistory extends Plugin {
       },
     })
     this.registerMenu('file', (entry: VaultEntry | null, add) => {
-      if (entry?.kind === 'file' && watched(entry.path)) add({ icon: 'history', title: 'История заметки', onClick: () => open(entry.path) })
+      if (entry?.kind === 'file' && watched(entry.path)) add({ icon: 'history', title: 'История заметки', command: 'history:show', onClick: () => open(entry.path) })
     })
   }
 

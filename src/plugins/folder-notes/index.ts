@@ -145,7 +145,7 @@ export default class FolderNotes extends Plugin {
           add({ icon: 'file-x', title: 'Удалить заметку папки', onClick: () => void this.remove(note) })
         } else add({ icon: 'file-plus', title: 'Создать заметку папки', onClick: () => void this.create(entry.path) })
       } else if (paths.extname(entry.path) === 'md' && this.folderOf(entry.path) === null) {
-        add({ icon: 'folder-input', title: 'Сделать заметкой папки', onClick: () => void this.turnIntoFolder(entry.path) })
+        add({ icon: 'folder-input', title: 'Сделать заметкой папки', command: 'folder-notes:turn-into-folder', onClick: () => void this.turnIntoFolder(entry.path) })
       }
     })
 

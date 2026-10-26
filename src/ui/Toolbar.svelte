@@ -127,14 +127,14 @@
     border-radius: var(--radius-m);
   }
 
-  /* While something is dragged that can land here, the strip shows it is a place for it. */
-  .toolbar.receiving {
-    outline: 2px dashed color-mix(in srgb, var(--accent) 55%, transparent);
-    outline-offset: -3px;
+  /* While something is dragged that can land here, the strip shows it is a place for it; a strip along an edge says it as a whole (Ribbon.svelte). */
+  .toolbar.receiving:not(.vertical) {
+    outline: 1.5px dashed color-mix(in srgb, var(--accent) 50%, transparent);
+    outline-offset: -2px;
   }
 
   .toolbar.over {
-    background: color-mix(in srgb, var(--accent) 18%, transparent);
+    background: color-mix(in srgb, var(--accent) 16%, transparent);
   }
 
   button {

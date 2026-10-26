@@ -25,6 +25,7 @@ if (location.protocol === 'flint:') {
     updates: () => ipcRenderer.invoke('updates'),
     setUpdates: (enabled: boolean) => ipcRenderer.invoke('set-updates', !!enabled),
     checkUpdates: () => ipcRenderer.invoke('check-updates'),
+    installUpdate: () => ipcRenderer.invoke('install-update'),
     onFlush: (handler: () => Promise<unknown>) => void (save = handler),
     onCommand: (handler: (id: string) => void) => void (run = handler),
   })

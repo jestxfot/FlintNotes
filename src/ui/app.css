@@ -501,6 +501,7 @@ input[type='checkbox']:disabled {
   appearance: none;
   position: relative;
   flex: 0 0 38px;
+  width: 38px;
   height: 22px;
   margin: 0;
   border-radius: 11px;
@@ -831,6 +832,21 @@ input[type='checkbox']:disabled {
   user-select: none;
 }
 
+/* While something is dragged in the page, nothing moves the window: the system would take the drop for itself
+   wherever the window can be moved by, and a strip shown over a sidebar for the drop lies on such a place. */
+.desktop.dragging .tabbar,
+.desktop.dragging aside,
+.desktop.dragging aside > section.group:first-of-type > .tabs,
+.desktop .ribbon {
+  -webkit-app-region: no-drag;
+}
+
+/* What opens over those places is clicked too: the system would take a click on a drag place for itself,
+   whatever is drawn over it, and a menu or a dialog may open over a sidebar or the bar of tabs. */
+.desktop :is(.menu, .sheet-menu, dialog, [popover], .notices, .base-pop, .props-suggest, .ft-menu, .task-alert, .cm-tooltip, .edge, [role='menu'], [role='listbox'], [role='dialog'], [role='tooltip']) {
+  -webkit-app-region: no-drag;
+}
+
 /* What lies on those places is clicked, not dragged by. */
 .desktop .tabbar :is(button, .tab, a, input),
 .desktop aside:not(.floating) > *,
@@ -908,7 +924,7 @@ html.mobile .cm-tooltip.cm-tooltip-autocomplete > ul {
   min-width: min(360px, 92vw);
 }
 
-/* Access from a phone, in the settings: the switch, then the QR code beside the steps, the link and the port. */
+/* Access from a phone, in the settings: the switch, then a card with the QR code beside the steps, the link and the port. */
 .phone-setting {
   display: flex;
   flex-direction: column;
@@ -928,15 +944,19 @@ html.mobile .cm-tooltip.cm-tooltip-autocomplete > ul {
 .phone-body {
   display: flex;
   flex-wrap: wrap;
-  gap: 18px;
+  gap: 20px;
+  padding: 16px;
+  border: 1px solid var(--border);
+  border-radius: var(--radius-l);
+  background: var(--bg);
 }
 
 .phone-qr {
   flex: none;
-  width: 196px;
-  height: 196px;
+  width: 168px;
+  height: 168px;
   padding: 6px;
-  border-radius: var(--radius-l);
+  border-radius: var(--radius-m);
   background: #fff;
   color: #000;
 }
@@ -949,18 +969,66 @@ html.mobile .cm-tooltip.cm-tooltip-autocomplete > ul {
 
 .phone-steps {
   display: flex;
-  flex: 1 1 260px;
+  flex: 1 1 280px;
   flex-direction: column;
-  gap: 10px;
+  gap: 12px;
   min-width: 0;
 }
 
 .phone-steps ol {
+  display: flex;
+  flex-direction: column;
+  gap: 6px;
   margin: 0;
-  padding-left: 1.3em;
+  padding: 0;
+  list-style: none;
+  counter-reset: step;
 }
 
-.phone-link-row,
+.phone-steps li {
+  display: flex;
+  align-items: baseline;
+  gap: 8px;
+  counter-increment: step;
+}
+
+.phone-steps li::before {
+  content: counter(step);
+  display: inline-flex;
+  flex: none;
+  align-items: center;
+  justify-content: center;
+  width: 18px;
+  height: 18px;
+  border-radius: 50%;
+  background: color-mix(in srgb, var(--accent) 22%, transparent);
+  color: var(--accent);
+  font-size: 11px;
+  font-weight: 600;
+}
+
+/* The link as a field to copy: the address in one line, the button at its end. */
+.phone-link-row {
+  display: flex;
+  align-items: center;
+  gap: 4px;
+  padding: 3px 3px 3px 10px;
+  border: 1px solid var(--border);
+  border-radius: var(--radius-m);
+  background: var(--bg-alt);
+}
+
+.phone-link {
+  flex: 1;
+  min-width: 0;
+  overflow: hidden;
+  color: var(--text-muted);
+  font-family: var(--font-mono);
+  font-size: 12px;
+  text-overflow: ellipsis;
+  white-space: nowrap;
+}
+
 .phone-row {
   display: flex;
   flex-wrap: wrap;
@@ -968,13 +1036,183 @@ html.mobile .cm-tooltip.cm-tooltip-autocomplete > ul {
   gap: 8px;
 }
 
-.phone-link {
-  min-width: 0;
-  overflow-wrap: anywhere;
-  font-family: var(--font-mono);
-  font-size: 12px;
+.phone-row > span {
+  min-width: 9em;
+  color: var(--text-muted);
 }
 
 .phone-row input {
-  width: 7em;
+  width: 6.5em;
+}
+
+.phone-note {
+  display: flex;
+  gap: 8px;
+  color: var(--text-muted);
+  font-size: 12px;
+}
+
+.phone-note svg {
+  flex: none;
+  margin-top: 1px;
+}
+
+/* A button of a setting the core draws itself. */
+.setting-button {
+  display: inline-flex;
+  flex: none;
+  align-items: center;
+  justify-content: center;
+  gap: 6px;
+  height: 28px;
+  padding: 0 12px;
+  border: 1px solid var(--border);
+  border-radius: var(--radius-m);
+  background: var(--bg-hover);
+  font-size: 13px;
+  white-space: nowrap;
+  transition: border-color 0.12s, background 0.12s;
+}
+
+.setting-button:hover:not(:disabled) {
+  border-color: color-mix(in srgb, var(--accent) 55%, var(--border));
+}
+
+.setting-button:disabled {
+  opacity: 0.5;
+  cursor: default;
+}
+
+.setting-button.primary {
+  border-color: var(--accent);
+  background: var(--accent);
+  color: var(--accent-text);
+  font-weight: 600;
+}
+
+.setting-button.primary:hover:not(:disabled) {
+  filter: brightness(1.08);
+}
+
+.setting-button.icon-only {
+  width: 28px;
+  padding: 0;
+}
+
+/* Fields of the settings the core draws itself look as those of the settings screen. */
+.custom-body :is(select, input[type='number'], input[type='text']) {
+  height: 28px;
+  padding: 0 10px;
+  border: 1px solid var(--border);
+  border-radius: var(--radius-m);
+  background: var(--bg-hover);
+}
+
+.custom-body :is(select, input):focus-visible {
+  border-color: var(--accent);
+  outline: none;
+}
+
+/* The app's version and its updates: a card with what is going on, its buttons, the progress of a download. */
+.update-box {
+  display: flex;
+  flex-direction: column;
+  gap: 12px;
+  padding: 14px 16px;
+  border: 1px solid var(--border);
+  border-radius: var(--radius-l);
+  background: var(--bg);
+}
+
+.update-head {
+  display: flex;
+  flex-wrap: wrap;
+  align-items: center;
+  gap: 12px;
+}
+
+.update-mark {
+  display: flex;
+  flex: none;
+  align-items: center;
+  justify-content: center;
+  width: 36px;
+  height: 36px;
+  border-radius: var(--radius-m);
+  background: color-mix(in srgb, var(--accent) 16%, transparent);
+  color: var(--accent);
+  font-size: 18px;
+}
+
+.update-box[data-tone='ok'] .update-mark {
+  background: color-mix(in srgb, var(--color-green, #4caf50) 18%, transparent);
+  color: var(--color-green, #4caf50);
+}
+
+.update-box[data-tone='error'] .update-mark {
+  background: color-mix(in srgb, var(--color-red) 18%, transparent);
+  color: var(--color-red);
+}
+
+.update-what {
+  display: flex;
+  flex: 1 1 220px;
+  flex-direction: column;
+  gap: 2px;
+  min-width: 0;
+}
+
+.update-what b {
+  font-size: 14px;
+  font-weight: 600;
+}
+
+.update-what small {
+  color: var(--text-muted);
+  font-size: 12.5px;
+  overflow-wrap: anywhere;
+}
+
+.update-actions {
+  display: flex;
+  gap: 8px;
+}
+
+.update-bar {
+  height: 4px;
+  overflow: hidden;
+  border-radius: 2px;
+  background: var(--bg-hover);
+}
+
+.update-bar > div {
+  width: 0;
+  height: 100%;
+  border-radius: 2px;
+  background: var(--accent);
+  transition: width 0.3s;
+}
+
+/* Not known how much is left: the bar runs to and fro. */
+.update-bar.unknown > div {
+  width: 30%;
+  animation: update-run 1.2s ease-in-out infinite;
+}
+
+@keyframes update-run {
+  from {
+    translate: -100% 0;
+  }
+  to {
+    translate: 340% 0;
+  }
+}
+
+.update-auto {
+  display: flex;
+  align-items: center;
+  gap: 10px;
+  padding-top: 12px;
+  border-top: 1px solid var(--border);
+  font-size: 13px;
 }

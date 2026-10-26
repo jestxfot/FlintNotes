@@ -1,6 +1,7 @@
 // Builds FlintNotes for Windows and Linux from WSL (no Windows tools, no Wine), ready to publish:
 //   publish/FlintNotes-Setup-<version>.exe         the Windows installer (NSIS): for the current user, no administrator
 //   publish/FlintNotes-<version>-x86_64.AppImage   the Linux app in one file
+//   publish/FlintNotes-<version>-app.pack          the app's own files alone: a light update for an app of the same Electron
 //   publish/latest.json                            the version, and each system's file with its checksum
 // Both go to a release of the project on GitHub (tag v<version>); installed apps look for the newest
 // release's latest.json and update themselves from it (desktop/main.ts). A new release needs a new
@@ -14,6 +15,7 @@ import { createHash } from 'node:crypto'
 import fs from 'node:fs'
 import os from 'node:os'
 import path from 'node:path'
+import zlib from 'node:zlib'
 import * as ResEdit from 'resedit'
 
 const ROOT = path.resolve(import.meta.dirname, '..')
@@ -91,7 +93,23 @@ function appFolder(resources) {
   }
 }
 
-const published = (file) => ({ file: path.basename(file), sha256: createHash('sha256').update(fs.readFileSync(file)).digest('hex') })
+const published = (file) => ({ file: path.basename(file), sha256: createHash('sha256').update(fs.readFileSync(file)).digest('hex'), size: fs.statSync(file).size })
+
+/**
+ * The app's own files (its build and shell.json) in one file, for an installed app whose Electron is the same:
+ * it unpacks them beside itself and starts them (desktop/main.ts, desktop/stub.cjs) instead of running a whole
+ * installer. A line with the list of files and their sizes, then the files one after another, all gzipped.
+ */
+function lightPack() {
+  const stage = path.join(STAGES, 'light')
+  appFolder(stage)
+  const app = path.join(stage, 'app')
+  const files = [...walk(path.join(app, 'release')), path.join(app, 'shell.json')].map((file) => ({ path: path.relative(app, file).split(path.sep).join('/'), bytes: fs.readFileSync(file) }))
+  const head = Buffer.from(`${JSON.stringify(files.map((file) => ({ path: file.path, size: file.bytes.length })))}\n`)
+  const pack = path.join(PUBLISH, `FlintNotes-${pkg.version}-app.pack`)
+  fs.writeFileSync(pack, zlib.gzipSync(Buffer.concat([head, ...files.map((file) => file.bytes)]), { level: 9 }))
+  return pack
+}
 
 // ---- Windows: FlintNotes.exe (Electron renamed, with our icon and name) and its installer
 async function windows() {
@@ -184,10 +202,11 @@ exec "$HERE/usr/lib/flintnotes/flintnotes" --no-sandbox "$@"
 
 const setup = await windows()
 const image = await linux()
-// Written last: the note installed apps read, once both files are complete.
-fs.writeFileSync(path.join(PUBLISH, 'latest.json'), JSON.stringify({ version: pkg.version, electron: ELECTRON, build, windows: published(setup), linux: published(image) }, null, 2))
+const pack = lightPack()
+// Written last: the note installed apps read, once all files are complete.
+fs.writeFileSync(path.join(PUBLISH, 'latest.json'), JSON.stringify({ version: pkg.version, electron: ELECTRON, build, app: published(pack), windows: published(setup), linux: published(image) }, null, 2))
 // The apps' folders were only the packages' material.
 fs.rmSync(STAGES, { recursive: true, force: true })
 
 const size = (file) => `${(fs.statSync(file).size / 1024 / 1024).toFixed(0)} МБ`
-console.log(`Готово: publish/${path.basename(setup)} (${size(setup)}), publish/${path.basename(image)} (${size(image)}) и publish/latest.json — их выкладывают в релиз v${pkg.version} на GitHub`)
+console.log(`Готово: publish/${path.basename(setup)} (${size(setup)}), publish/${path.basename(image)} (${size(image)}), publish/${path.basename(pack)} (${(fs.statSync(pack).size / 1024 / 1024).toFixed(1)} МБ) и publish/latest.json — их выкладывают в релиз v${pkg.version} на GitHub`)

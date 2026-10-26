@@ -14,7 +14,7 @@ export const phoneSetting = (app: App): SettingsSection['defs'][number] => ({
   group: 'Программа',
   section: 'Телефон',
   name: 'Доступ с телефона',
-  desc: 'FlintNotes на телефоне или планшете в той же сети Wi‑Fi, что и этот компьютер. Заметки остаются здесь: телефон открывает их, пока компьютер включён и FlintNotes запущен. На телефоне — свой вид: панели выдвигаются пальцем, меню поднимаются снизу, над клавиатурой — кнопки правки',
+  desc: 'Заметки на телефоне или планшете в той же сети Wi‑Fi. Они остаются на этом компьютере: телефон открывает их, пока FlintNotes здесь запущен',
   type: 'custom',
   render: (el) => {
     const box = el.appendChild(document.createElement('div'))
@@ -67,21 +67,27 @@ export const phoneSetting = (app: App): SettingsSection['defs'][number] => ({
       const steps = body.appendChild(document.createElement('div'))
       steps.className = 'phone-steps'
       const list = steps.appendChild(document.createElement('ol'))
-      list.append(text('li', 'Подключите телефон к той же сети Wi‑Fi'), text('li', 'Наведите камеру телефона на код или откройте ссылку'), text('li', 'В меню браузера выберите «Добавить на главный экран» — FlintNotes откроется как приложение'))
+      list.append(text('li', 'Подключите телефон к той же сети Wi‑Fi'), text('li', 'Наведите камеру на код или откройте ссылку'), text('li', 'В меню браузера — «Добавить на главный экран»'))
       const row = steps.appendChild(document.createElement('div'))
       row.className = 'phone-link-row'
       const anchor = row.appendChild(document.createElement('a'))
       anchor.className = 'phone-link'
       anchor.href = link
       anchor.target = '_blank'
-      anchor.textContent = link
+      anchor.title = link
+      anchor.textContent = link.replace(/^https?:\/\//, '')
       const copy = row.appendChild(document.createElement('button'))
-      copy.textContent = 'Копировать'
-      copy.onclick = () => void navigator.clipboard.writeText(link).then(() => (copy.textContent = 'Скопировано'), () => (copy.textContent = 'Не удалось'))
+      copy.className = 'setting-button'
+      copy.append(app.icons.draw('copy'), 'Копировать')
+      copy.onclick = () =>
+        void navigator.clipboard.writeText(link).then(
+          () => copy.replaceChildren(app.icons.draw('check'), 'Скопировано'),
+          () => copy.replaceChildren('Не удалось'),
+        )
       if (next.addresses.length > 1) {
         const pick = steps.appendChild(document.createElement('label'))
         pick.className = 'phone-row'
-        pick.append('Адрес компьютера ')
+        pick.append(text('span', 'Адрес компьютера'))
         const select = pick.appendChild(document.createElement('select'))
         next.addresses.forEach((address, i) => select.append(new Option(address.replace(/^http:\/\//, ''), String(i), false, i === chosen)))
         select.onchange = () => {
@@ -91,22 +97,26 @@ export const phoneSetting = (app: App): SettingsSection['defs'][number] => ({
       }
       const portRow = steps.appendChild(document.createElement('div'))
       portRow.className = 'phone-row'
-      portRow.append('Порт ')
+      portRow.append(text('span', 'Порт'))
       const port = portRow.appendChild(document.createElement('input'))
       port.type = 'number'
       port.min = '1024'
       port.max = '65535'
       port.value = String(next.port)
       const apply = portRow.appendChild(document.createElement('button'))
+      apply.className = 'setting-button'
       apply.textContent = 'Применить'
-      apply.disabled = true
-      port.oninput = () => (apply.disabled = Number(port.value) === next.port)
+      apply.hidden = true
+      port.oninput = () => (apply.hidden = Number(port.value) === next.port)
       apply.onclick = () => change({ port: Number(port.value) }, 'Перехожу на новый порт…')
       const renew = portRow.appendChild(document.createElement('button'))
-      renew.textContent = 'Новый ключ'
+      renew.className = 'setting-button'
+      renew.append(app.icons.draw('key-round'), 'Новый ключ')
       renew.title = 'Телефоны, которые входили раньше, больше не войдут, пока снова не откроют код'
       renew.onclick = () => change({ newKey: true }, 'Делаю новый ключ…')
-      steps.append(text('small', 'Ключ в ссылке пускает в заметки: не пересылайте её. Не открывается на телефоне — проверьте, что сеть одна и та же, и разрешите FlintNotes в брандмауэре Windows для частных сетей'))
+      const warn = steps.appendChild(document.createElement('div'))
+      warn.className = 'phone-note'
+      warn.append(app.icons.draw('shield'), text('span', 'Ссылка с ключом открывает заметки — не пересылайте её. Не открывается? Проверьте, что сеть одна, и разрешите FlintNotes в брандмауэре Windows для частных сетей'))
     }
 
     toggle.onchange = () => change({ on: toggle.checked }, toggle.checked ? 'Включаю…' : 'Выключаю…')

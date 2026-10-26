@@ -188,6 +188,10 @@
     root.classList.toggle('no-inline-title', !inlineTitle.current)
   })
   $effect(() => {
+    // While a tab, a widget or a button is dragged, the places that move the window are places to drop on (see app.css).
+    root.classList.toggle('dragging', !!(drag.note || drag.panel || drag.button))
+  })
+  $effect(() => {
     root.classList.toggle('no-properties', look.current.properties === 'hidden')
     root.style.zoom = look.current.zoom && look.current.zoom !== 100 ? String(look.current.zoom / 100) : ''
   })
@@ -247,7 +251,7 @@
     const entry = path && !path.startsWith('view:') ? app.vault.get(path) : null
     if (!entry) return
     const commands = app.commands.list()
-    const item = (command: Command): MenuItem => ({ icon: command.icon, title: command.name, onClick: () => command.callback() })
+    const item = (command: Command): MenuItem => ({ icon: command.icon, title: command.name, command: command.id, onClick: () => command.callback() })
     const items: MenuItem[] = commands
       .filter((command) => command.scope === 'note')
       .map((command) => ({ ...item(command), section: NOTE_SECTIONS[command.id] ?? 'plugin', danger: NOTE_SECTIONS[command.id] === 'danger' }))
@@ -1146,7 +1150,7 @@
 
   .tab.compact .tab-title {
     justify-content: center;
-    padding: 0 10px;
+    padding: 6px 10px 0;
   }
 
   .tab-sign {
@@ -1161,11 +1165,14 @@
   }
 
   /* The name has the whole tab: the close button lies over its end and only where it is shown.
-     A name too long for the tab fades out at the edge instead of losing three letters to dots. */
+     A name too long for the tab fades out at the edge instead of losing three letters to dots.
+     The whole height of the tab is its button, and the strip's edge above it too: a click there does not move the window. */
   .tab-title {
     flex: 1;
+    align-self: stretch;
     min-width: 0;
-    padding: 0 8px 0 10px;
+    margin-top: -6px;
+    padding: 6px 8px 0 10px;
     overflow: hidden;
     text-align: left;
     white-space: nowrap;

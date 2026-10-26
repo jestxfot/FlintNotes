@@ -240,6 +240,7 @@ const portSetting = (app: App): SettingsSection['defs'][number] => ({
     input.max = '65535'
     input.disabled = true
     const apply = row.appendChild(document.createElement('button'))
+    apply.className = 'setting-button'
     apply.textContent = 'Применить'
     apply.disabled = true
     const note = row.appendChild(document.createElement('small'))
@@ -296,8 +297,10 @@ const proxySetting = (app: App): SettingsSection['defs'][number] => ({
     input.placeholder = 'socks5://127.0.0.1:1080'
     input.spellcheck = false
     const apply = row.appendChild(document.createElement('button'))
+    apply.className = 'setting-button'
     apply.textContent = 'Применить'
     const check = row.appendChild(document.createElement('button'))
+    check.className = 'setting-button'
     check.textContent = 'Проверить'
     const note = row.appendChild(document.createElement('small'))
     let saved = ''
@@ -404,38 +407,119 @@ const buildSetting = (): SettingsSection['defs'][number] => ({
 })
 
 /** The installed desktop app's updates from the project's releases: by themselves, or only when asked. */
-const appUpdatesSetting = (): SettingsSection['defs'][number] => ({
+const appUpdatesSetting = (app: App): SettingsSection['defs'][number] => ({
   key: 'appUpdates',
   group: 'Программа',
   section: 'Обновление',
-  name: 'Обновлять автоматически',
-  desc: 'FlintNotes сам смотрит новые версии на GitHub — при запуске и раз в 3 часа, загружает их в фоне и спрашивает, обновиться ли сейчас; если отложить, новая версия установится при следующем запуске. Выключено — ничего само не загружается и не ставится, проверить можно кнопкой',
+  name: 'Версия и обновления',
+  desc: 'Новые версии приходят с GitHub: FlintNotes загружает их в фоне и спрашивает, перезапуститься ли сейчас. Небольшие обновления ставятся за пару секунд',
   type: 'custom',
   render: (el) => {
-    const row = el.appendChild(document.createElement('div'))
-    row.className = 'app-updates'
-    const label = row.appendChild(document.createElement('label'))
-    const box = label.appendChild(document.createElement('input'))
-    box.type = 'checkbox'
-    box.className = 'switch app-updates-switch'
-    box.disabled = true
-    const check = row.appendChild(document.createElement('button'))
-    check.textContent = 'Проверить сейчас'
-    const note = row.appendChild(document.createElement('small'))
-    const show = (info: DesktopUpdates, result?: string) => {
-      box.disabled = check.disabled = !info.supported
-      box.checked = info.enabled
-      note.textContent = result || (!info.supported ? 'Обновления приходят только установленному приложению' : info.ready ? `Загружена версия ${info.ready}: она установится при следующем запуске` : `Версия ${info.version}`)
+    const box = el.appendChild(document.createElement('div'))
+    box.className = 'update-box'
+    const head = box.appendChild(document.createElement('div'))
+    head.className = 'update-head'
+    const mark = head.appendChild(document.createElement('span'))
+    mark.className = 'update-mark'
+    const what = head.appendChild(document.createElement('div'))
+    what.className = 'update-what'
+    const title = what.appendChild(document.createElement('b'))
+    const status = what.appendChild(document.createElement('small'))
+    const actions = head.appendChild(document.createElement('div'))
+    actions.className = 'update-actions'
+    const check = actions.appendChild(document.createElement('button'))
+    check.className = 'setting-button'
+    check.textContent = 'Проверить'
+    const install = actions.appendChild(document.createElement('button'))
+    install.className = 'setting-button primary'
+    install.textContent = 'Перезапустить и обновить'
+    install.hidden = true
+    const bar = box.appendChild(document.createElement('div'))
+    bar.className = 'update-bar'
+    bar.hidden = true
+    const fill = bar.appendChild(document.createElement('div'))
+    const auto = box.appendChild(document.createElement('label'))
+    auto.className = 'update-auto'
+    const toggle = auto.appendChild(document.createElement('input'))
+    toggle.type = 'checkbox'
+    toggle.className = 'switch app-updates-switch'
+    toggle.disabled = true
+    auto.append('Обновляться автоматически')
+
+    let shownIcon = ''
+    const icon = (name: string) => {
+      if (name === shownIcon) return
+      shownIcon = name
+      mark.replaceChildren(app.icons.draw(name))
     }
-    const fail = (err: unknown) => (note.textContent = err instanceof Error ? err.message : String(err))
-    void desktop?.updates().then((info) => show(info), fail)
-    box.onchange = () => void desktop?.setUpdates(box.checked).then((info) => show(info), fail)
+    const mb = (bytes: number) => `${(bytes / 1048576).toFixed(bytes < 10 * 1048576 ? 1 : 0)} МБ`
+    const at = (time?: number) => (time ? new Date(time).toLocaleTimeString('ru', { hour: '2-digit', minute: '2-digit' }) : '')
+    let timer: ReturnType<typeof setTimeout> | undefined
+    let gone = false
+
+    const show = (info: DesktopUpdates, said?: string) => {
+      toggle.disabled = !info.supported
+      toggle.checked = info.enabled
+      title.textContent = info.version ? `FlintNotes ${info.version}` : 'FlintNotes'
+      const built = `сборка ${builtAt(__FLINT_BUILD__)}`
+      install.hidden = !info.ready || !!info.checking
+      check.disabled = !info.supported || !!info.checking
+      bar.hidden = !info.progress
+      let tone = ''
+      if (!info.supported) {
+        icon('package')
+        status.textContent = `${built}. Обновления приходят только установленному приложению`
+      } else if (info.progress) {
+        icon('download')
+        const { loaded, total } = info.progress
+        bar.classList.toggle('unknown', !total)
+        fill.style.width = total ? `${Math.min(100, (loaded / total) * 100)}%` : ''
+        status.textContent = `Загружаю версию ${info.progress.version}${info.progress.light ? '' : ' (установщик)'}: ${mb(loaded)}${total ? ` из ${mb(total)}` : ''}`
+      } else if (info.checking) {
+        icon('refresh-cw')
+        status.textContent = 'Проверяю…'
+      } else if (info.ready) {
+        icon('circle-arrow-up')
+        tone = 'ready'
+        status.textContent = `Версия ${info.ready} загружена. ${info.light ? 'Перезапуск займёт пару секунд' : 'Установка займёт около минуты'}; если отложить — при следующем запуске`
+      } else {
+        // The version is in the title already.
+        const result = (said || info.result || '').replace(/\s*\([\d.]+\)$/, '')
+        tone = result.startsWith('Не удалось') ? 'error' : 'ok'
+        icon(tone === 'error' ? 'circle-alert' : 'circle-check')
+        const checked = info.checkedAt ? `проверено в ${at(info.checkedAt)}` : ''
+        status.textContent = [result || (checked ? 'Установлена последняя версия' : built), checked].filter(Boolean).join(' · ')
+      }
+      box.dataset.tone = tone
+      // While something goes on, the settings follow it.
+      clearTimeout(timer)
+      if (!gone && (info.checking || info.progress)) timer = setTimeout(() => void desktop?.updates().then((next) => show(next), fail), 400)
+    }
+    const fail = (err: unknown) => {
+      box.dataset.tone = 'error'
+      icon('circle-alert')
+      status.textContent = err instanceof Error ? err.message : String(err)
+      check.disabled = false
+    }
+    if (!desktop) return () => box.remove()
+    void desktop.updates().then((info) => show(info), fail)
+    toggle.onchange = () => void desktop?.setUpdates(toggle.checked).then((info) => show(info), fail)
     check.onclick = () => {
       check.disabled = true
-      note.textContent = 'Проверяю…'
+      icon('refresh-cw')
+      status.textContent = 'Проверяю…'
       void desktop?.checkUpdates().then((info) => show(info, info.result), fail)
     }
-    return () => row.remove()
+    install.onclick = () => {
+      install.disabled = true
+      status.textContent = 'Сохраняю и перезапускаю…'
+      void desktop?.installUpdate().then((started) => !started && ((install.disabled = false), (status.textContent = 'Загруженная версия пропала: проверьте ещё раз')), fail)
+    }
+    return () => {
+      gone = true
+      clearTimeout(timer)
+      box.remove()
+    }
   },
 })
 
@@ -527,7 +611,7 @@ export class App {
     if (!coreSettings.defs.some((def) => def.key === 'panels')) coreSettings.defs.splice(coreSettings.defs.findIndex((def) => def.key === 'zoom'), 0, panelsSetting(this))
     if (!coreSettings.defs.some((def) => def.key === 'autostart')) coreSettings.defs.push(
         // The desktop app has no port and no addresses to open in a browser.
-        ...(desktop ? [autostartSetting(this), proxySetting(this), phoneSetting(this), appUpdatesSetting(), buildSetting()] : [autostartSetting(this), portSetting(this), proxySetting(this), phoneSetting(this), buildSetting(), vaultsSetting(this)]),
+        ...(desktop ? [autostartSetting(this), proxySetting(this), phoneSetting(this), appUpdatesSetting(this)] : [autostartSetting(this), portSetting(this), proxySetting(this), phoneSetting(this), buildSetting(), vaultsSetting(this)]),
       )
     this.settings.addSection(coreSettings)
     // One plain sign that the server is not answering, instead of an error from every part that asks it something.

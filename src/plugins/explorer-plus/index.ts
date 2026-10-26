@@ -105,8 +105,8 @@ export default class ExplorerPlus extends Plugin {
     this.registerMenu('file', (entry: VaultEntry | null, add) => {
       if (!entry) return
       const pinned = this.matches('pinFilters', entry)
-      add({ icon: pinned ? 'pin-off' : 'pin', title: pinned ? 'Открепить' : 'Закрепить наверху', onClick: () => void toggle('pinFilters', entry) })
-      add({ icon: 'eye-off', title: 'Скрыть в списке файлов', onClick: () => void toggle('hideFilters', entry) })
+      add({ icon: pinned ? 'pin-off' : 'pin', title: pinned ? 'Открепить' : 'Закрепить наверху', command: 'explorer-plus:pin-active', onClick: () => void toggle('pinFilters', entry) })
+      add({ icon: 'eye-off', title: 'Скрыть в списке файлов', command: 'explorer-plus:hide-active', onClick: () => void toggle('hideFilters', entry) })
     })
 
     const flip = (kind: Kind, name: string) => async () => {

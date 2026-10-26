@@ -53,9 +53,14 @@
     justify-content: flex-end;
   }
 
-  /* While something is dragged, the bottom grows into a place of its own to drop on. */
+  /* While something is dragged, the strip is tinted as a place to drop on, and the bottom grows into a place of its own. */
+  .ribbon.dragging {
+    background: color-mix(in srgb, var(--accent) 6%, var(--bg-alt));
+  }
+
   .ribbon.dragging .end > :global(.toolbar) {
     min-height: 120px;
+    border-top: 1px dashed color-mix(in srgb, var(--accent) 45%, transparent);
   }
 
   /* A strip with no buttons yet appears over the page while something is dragged, so nothing moves under the pointer. */
@@ -64,7 +69,7 @@
     top: 0;
     bottom: 0;
     z-index: 40;
-    opacity: 0.92;
+    box-shadow: 0 0 18px rgb(0 0 0 / 0.28);
   }
 
   .ribbon.floating.left {

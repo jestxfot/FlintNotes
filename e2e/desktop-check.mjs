@@ -209,9 +209,56 @@ try {
   const shown = await page2.locator('.app-updates-switch').isChecked({ timeout: 10000 }).catch(() => null)
   ok('updates can be switched off in the settings, and «Проверить сейчас» still looks', off.enabled === false && shown === false && /9\.9\.9/.test(checked.result), JSON.stringify({ off, checked, shown }))
 
-  // The sandbox: with no vault of one's own the app opens a vault of examples, and it is made anew at every start.
+  // A light update: a release made for the same Electron brings only the app's own files. The installed app (its stub,
+  // desktop/stub.cjs, beside its own copy of the build) unpacks them into the user's folder and, on «Обновить», only
+  // starts again: the stub then runs the new build.
   await app.evaluate(({ app }) => app.exit(0))
   await exited(app.process())
+  const installedDir = path.join(dir, 'installed')
+  fs.cpSync(out, path.join(installedDir, 'release'), { recursive: true })
+  fs.copyFileSync(path.join(ROOT, 'desktop', 'stub.cjs'), path.join(installedDir, 'main.cjs'))
+  const electronVersion = JSON.parse(fs.readFileSync(path.join(ROOT, 'node_modules', 'electron', 'package.json'), 'utf8')).version
+  fs.writeFileSync(path.join(installedDir, 'shell.json'), JSON.stringify({ version: '1.0.0', electron: electronVersion }))
+  const files = []
+  const walk = (folder) => fs.readdirSync(folder, { withFileTypes: true }).flatMap((entry) => (entry.isDirectory() ? walk(path.join(folder, entry.name)) : [path.join(folder, entry.name)]))
+  for (const file of walk(out)) {
+    const name = `release/${path.relative(out, file).split(path.sep).join('/')}`
+    files.push({ path: name, bytes: name === 'release/build.json' ? Buffer.from(JSON.stringify({ ...build, id: 'light-build' })) : fs.readFileSync(file) })
+  }
+  files.push({ path: 'shell.json', bytes: Buffer.from(JSON.stringify({ version: '1.0.1', electron: electronVersion })) })
+  const { gzipSync } = await import('node:zlib')
+  const pack = gzipSync(Buffer.concat([Buffer.from(`${JSON.stringify(files.map((file) => ({ path: file.path, size: file.bytes.length })))}\n`), ...files.map((file) => file.bytes)]))
+  const light = { file: 'FlintNotes-1.0.1-app.pack', sha256: createHash('sha256').update(pack).digest('hex'), size: pack.length }
+  feed.close()
+  feed = http.createServer((req, res) => {
+    if (req.url.endsWith('/latest.json')) return res.end(JSON.stringify({ version: '1.0.1', electron: electronVersion, app: light, linux, windows: latest.windows }))
+    if (req.url.endsWith(`/${light.file}`)) return res.end(pack)
+    res.statusCode = 404
+    res.end()
+  })
+  await new Promise((resume) => feed.listen(0, '127.0.0.1', resume))
+  const stubbed = { FLINT_UPDATE_FEED: `http://127.0.0.1:${feed.address().port}/releases/latest/download/latest.json`, FLINT_UPDATE_DELAY: '3000' }
+  const startsBefore = starts()
+  app = await _electron.launch({ executablePath: electron, args: [path.join(installedDir, 'main.cjs')], env: { ...env, ...stubbed } })
+  await app.evaluate(({ dialog }) => {
+    dialog.showMessageBox = async (...args) => ((globalThis.asked = args.at(-1)), { response: 0, checkboxChecked: false })
+  })
+  const lightPage = await app.firstWindow()
+  await lightPage.waitForSelector('.tabbar', { timeout: 30000 })
+  // Switched off above: on again, which looks at once.
+  await lightPage.evaluate(() => window.flintDesktop.setUpdates(true))
+  const relaunched = await Promise.race([exited(app.process()).then(() => true), new Promise((resume) => setTimeout(() => resume(false), 30000))])
+  const builds = path.join(userData, 'builds')
+  ok(
+    'a light update is downloaded, unpacked beside the app, and «Обновить» only starts it again',
+    relaunched && fs.existsSync(path.join(builds, '1.0.1', 'release', 'desktop.mjs')) && JSON.parse(fs.readFileSync(path.join(builds, 'current.json'), 'utf8')).version === '1.0.1' && readLog().includes('Загружаю обновление 1.0.0 → 1.0.1'),
+    readLog().slice(-600),
+  )
+  ok('the stub starts the new build after the restart', await until(() => starts() >= startsBefore + 2 && readLog().split('Запуск:').at(-1).includes('сборка light-build'), 30000), readLog().slice(-600))
+  spawn(electron, ['--no-sandbox', path.join(installedDir, 'main.cjs'), '--quit'], { env: { ...env, ...stubbed }, stdio: 'ignore' })
+  await until(() => readLog().split('Запуск:').at(-1).includes('остановился'), 20000)
+
+  // The sandbox: with no vault of one's own the app opens a vault of examples, and it is made anew at every start.
   const sandbox = path.join(userData, 'Песочница')
   const withoutVault = Object.fromEntries(Object.entries({ ...env, FLINT_CONFIG: path.join(dir, 'fresh-config.json') }).filter(([key]) => key !== 'FLINT_VAULT'))
   const startFresh = async () => {

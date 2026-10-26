@@ -114,7 +114,7 @@
     display: flex;
     flex-direction: column;
     min-width: 170px;
-    max-width: 300px;
+    max-width: 380px;
     max-height: calc(100vh - 12px);
     padding: 4px;
     font-family: var(--font-ui, inherit);

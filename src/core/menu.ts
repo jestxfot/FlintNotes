@@ -12,6 +12,8 @@ export interface MenuItem {
   onClick?: () => void
   /** Items of a submenu that opens beside this one. */
   submenu?: MenuItem[]
+  /** The command the item runs, or does the same as: of items for one command, a plugin's own (made for the thing) is kept. */
+  command?: string
 }
 
 /** The order of sections in a menu; items of unknown sections go before `edit`. */
@@ -37,8 +39,11 @@ export class Menus extends Events<{ show: [menu: { x: number; y: number; items: 
 
   /** Opens a menu at the pointer with the given items plus those that plugins add for the kind. */
   show(event: MouseEvent | { x: number; y: number }, kind: string, target: unknown, items: MenuItem[] = []): boolean {
-    const all = [...items]
-    for (const provider of this.providers.get(kind) ?? []) provider(target, (item) => all.push({ section: 'plugin', ...item }))
+    const added: MenuItem[] = []
+    for (const provider of this.providers.get(kind) ?? []) provider(target, (item) => added.push({ section: 'plugin', ...item }))
+    // A command the plugins offer for this very thing is not offered a second time in general words.
+    const offered = new Set(added.flatMap((item) => item.command ?? []))
+    const all = [...items.filter((item) => !item.command || !offered.has(item.command)), ...added]
     // With nothing to offer, or when the user prefers it, the browser's own menu is left alone.
     if (!all.length || (this.native() && event instanceof MouseEvent)) return false
     if (event instanceof MouseEvent) {

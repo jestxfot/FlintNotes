@@ -21,6 +21,7 @@ import os from 'node:os'
 import path from 'node:path'
 import { Readable } from 'node:stream'
 import { fileURLToPath } from 'node:url'
+import zlib from 'node:zlib'
 
 const self = fileURLToPath(import.meta.url)
 const here = path.dirname(self)
@@ -212,8 +213,8 @@ interface WindowState {
   updateTried?: string
   /** Updates are looked for, downloaded and put in by themselves (Программа → Обновление); on unless switched off. */
   autoUpdate?: boolean
-  /** A newer version downloaded and checked, waiting for the user's word or the next start. */
-  ready?: { setup: string; version: string; sha256: string }
+  /** A newer version downloaded and checked, waiting for the user's word or the next start: an installer, or the folder of a light update. */
+  ready?: { version: string; sha256: string; setup?: string; dir?: string }
 }
 const STATE = path.join(app.getPath('userData'), 'window.json')
 const state: WindowState = (() => {
@@ -513,7 +514,18 @@ ipcMain.handle('set-updates', (event, enabled: unknown) => {
   if (enabled) void checkForUpdate()
   return updateInfo()
 })
-ipcMain.handle('check-updates', async (event) => (trusted(event) ? { ...updateInfo(), result: await checkForUpdate(true) } : null))
+// The answer comes as soon as it is known whether there is something new; the settings follow a download by asking again.
+ipcMain.handle('check-updates', async (event) => {
+  if (!trusted(event)) return null
+  const done = checkForUpdate(true)
+  const result = await Promise.race([done, new Promise<null>((resolve) => setTimeout(() => resolve(null), 3000))])
+  return { ...updateInfo(), result: result ?? lastResult }
+})
+ipcMain.handle('install-update', (event) => {
+  if (!trusted(event) || !state.ready || !readyUsable(state.ready)) return false
+  install(state.ready, false)
+  return true
+})
 
 // ---- new builds: the server is replaced; a new app (this file, the preload) means starting again
 const buildId = () => {
@@ -543,25 +555,33 @@ function restart(): void {
 }
 
 // ---- updates of the installed app: the newest release of the project on GitHub (scripts/installer.mjs makes
-// its installer and latest.json). The app looks soon after start and every few hours; a newer version is
-// downloaded and checked against its checksum, and the user is asked: one click on «Обновить» saves what is
-// typed, installs it silently and starts the app again the way it was.
+// its files and latest.json). The app looks soon after start, every hour and when its window comes forward
+// after a while. A release made for the same Electron brings only the app's own files (a pack of a few
+// megabytes): it is unpacked into the user's folder, where the stub (desktop/stub.cjs) starts it from, and
+// «Обновить» only starts the app again. Otherwise the new installer is downloaded and run silently. Either is
+// checked against its checksum first, and the user is asked; one click saves what is typed and puts it in.
 interface Asset {
   file: string
   sha256: string
+  size?: number
 }
-/** The newest release: its version and, for each system, the file that brings it. */
+/** The newest release: its version, the Electron it was made with, and the files that bring it. */
 interface Latest {
   version: string
+  electron?: string
+  /** The app's own files, for an app whose Electron is the same. */
+  app?: Asset
   windows?: Asset
   linux?: Asset
 }
 /**
- * What a new version comes as here: on Windows an installer (run silently), on Linux the AppImage itself,
- * which takes the place of the one running (its path is in APPIMAGE). Elsewhere nothing updates itself.
+ * What a whole new version comes as here: on Windows an installer (run silently), on Linux the AppImage itself,
+ * which takes the place of the one running (its path is in APPIMAGE). Elsewhere only light updates come.
  */
 const SYSTEM = process.platform === 'win32' ? ({ key: 'windows', file: /^FlintNotes-Setup-[\w.-]+\.exe$/ } as const) : process.platform === 'linux' && process.env.APPIMAGE ? ({ key: 'linux', file: /^FlintNotes-[\w.-]+\.AppImage$/ } as const) : undefined
 const FEED = process.env.FLINT_UPDATE_FEED ?? 'https://github.com/jestxfot/FlintNotes/releases/latest/download/latest.json'
+/** Where light updates are unpacked; the stub of an installed app says it (a run from the sources has none). */
+const BUILDS = process.env.FLINT_BUILDS
 /** The installed app's version (desktop/stub.cjs says where it is written); a run from the sources has none and updates nothing. */
 const ownVersion = (() => {
   try {
@@ -581,74 +601,166 @@ const DOWNLOADS = path.join(app.getPath('userData'), 'updates')
 const sha256Of = (file: string) => createHash('sha256').update(fs.readFileSync(file)).digest('hex')
 const autoUpdates = () => state.autoUpdate !== false
 const saveStateNow = () => fs.writeFileSync(STATE, JSON.stringify(state, null, 2))
-
-/** What the settings show about updates. */
-const updateInfo = () => ({ supported: !!ownVersion && !!SYSTEM, enabled: autoUpdates(), version: ownVersion, ready: state.ready?.version })
+const updatable = () => !!ownVersion && (!!SYSTEM || !!BUILDS)
 
 let checking = false
+/** The download under way, for the settings to show. */
+let progress: { version: string; loaded: number; total: number; light: boolean } | null = null
+/** What the last look found, in words. */
+let lastResult = ''
+let lastChecked = 0
+
+/** What the settings show about updates. */
+const updateInfo = () => ({
+  supported: updatable(),
+  enabled: autoUpdates(),
+  version: ownVersion,
+  ready: state.ready?.version,
+  light: !!state.ready?.dir,
+  checking,
+  progress,
+  result: lastResult,
+  checkedAt: lastChecked || undefined,
+})
+
+/** A downloaded version is still there as it was checked. */
+const readyUsable = (ready: NonNullable<WindowState['ready']>) =>
+  ready.dir ? fs.existsSync(path.join(ready.dir, 'release', 'desktop.mjs')) : !!ready.setup && fs.existsSync(ready.setup) && sha256Of(ready.setup) === ready.sha256
+
 /**
  * Looks for a newer release and downloads it (once). The app's own looks happen only with updates on;
  * the user's «Проверить» always. The answer is for the settings: what was found.
  */
 async function checkForUpdate(manual = false): Promise<string> {
-  if (!ownVersion || !SYSTEM) return 'Обновления приходят только установленному приложению'
-  if ((!manual && !autoUpdates()) || checking || quitting) return ''
+  if (!updatable()) return 'Обновления приходят только установленному приложению'
+  if ((!manual && !autoUpdates()) || quitting) return ''
+  if (checking) return lastResult
   checking = true
+  const said = (text: string) => (lastResult = text)
+  said('Проверяю…')
   try {
     // Through the app's own session: the same proxy as the window's.
     const answer = await net.fetch(FEED, { cache: 'no-store' })
-    if (answer.status === 404) return 'Опубликованных версий пока нет'
+    lastChecked = Date.now()
+    if (answer.status === 404) return said('Опубликованных версий пока нет')
     if (!answer.ok) throw new Error(`${FEED} ответил ${answer.status}`)
     const latest = (await answer.json()) as Latest
-    if (typeof latest?.version !== 'string' || !isNewer(latest.version, ownVersion)) return `Установлена последняя версия (${ownVersion})`
-    // A version that was installed and did not take (the app is still the old one) is not tried again and again.
-    if (state.updateTried === latest.version && !manual) return void note(`Версия ${latest.version} уже ставилась и не встала: работаю на ${ownVersion}`), ''
-    const asset = latest[SYSTEM.key]
-    if (!asset) return `Версия ${latest.version} вышла без сборки для этой системы`
-    if (!SYSTEM.file.test(asset.file) || !/^[0-9a-f]{64}$/.test(asset.sha256)) throw new Error(`непонятный latest.json ${JSON.stringify(latest)}`)
-    // Downloaded once: a «later» is asked again from the same file, and the next start puts it in.
-    const setup = path.join(DOWNLOADS, asset.file)
-    if (state.ready?.version !== latest.version || !fs.existsSync(setup) || sha256Of(setup) !== asset.sha256) {
-      note(`Загружаю обновление ${ownVersion} → ${latest.version}`)
-      const download = await net.fetch(new URL(asset.file, FEED).href)
-      if (!download.ok) throw new Error(`новая версия не загрузилась (${download.status})`)
-      const bytes = Buffer.from(await download.arrayBuffer())
-      if (createHash('sha256').update(bytes).digest('hex') !== asset.sha256) throw new Error('контрольная сумма новой версии не сошлась')
-      fs.rmSync(DOWNLOADS, { recursive: true, force: true })
+    if (typeof latest?.version !== 'string' || !isNewer(latest.version, ownVersion!)) return said(`Установлена последняя версия (${ownVersion})`)
+    // A version that was put in and did not take (the app is still the old one) is not tried again and again.
+    if (state.updateTried === latest.version && !manual) return note(`Версия ${latest.version} уже ставилась и не встала: работаю на ${ownVersion}`), said('')
+    // Downloaded already: asked again, and the next start puts it in.
+    if (state.ready?.version === latest.version && readyUsable(state.ready)) return offerUpdate(), said(`Версия ${latest.version} загружена`)
+    const light = !!BUILDS && !!latest.app && latest.electron === process.versions.electron
+    const asset = light ? latest.app : SYSTEM ? latest[SYSTEM.key] : undefined
+    if (!asset) return said(`Версия ${latest.version} вышла без сборки для этой системы`)
+    const named = light ? /^FlintNotes-[\w.-]+-app\.pack$/ : SYSTEM!.file
+    if (!named.test(asset.file) || !/^[0-9a-f]{64}$/.test(asset.sha256)) throw new Error(`непонятный latest.json ${JSON.stringify(latest)}`)
+    note(`Загружаю ${light ? 'обновление' : 'установщик'} ${ownVersion} → ${latest.version}`)
+    said(`Загружаю версию ${latest.version}…`)
+    const bytes = await download(new URL(asset.file, FEED).href, latest.version, asset.size ?? 0, light)
+    if (createHash('sha256').update(bytes).digest('hex') !== asset.sha256) throw new Error('контрольная сумма новой версии не сошлась')
+    fs.rmSync(DOWNLOADS, { recursive: true, force: true })
+    if (light) {
+      const dir = path.join(BUILDS!, latest.version)
+      unpack(bytes, dir)
+      // The next start runs it, whether or not the user says «Обновить» now.
+      fs.writeFileSync(path.join(BUILDS!, 'current.json'), JSON.stringify({ version: latest.version, dir: latest.version }))
+      state.ready = { version: latest.version, sha256: asset.sha256, dir }
+    } else {
       fs.mkdirSync(DOWNLOADS, { recursive: true })
+      const setup = path.join(DOWNLOADS, asset.file)
       fs.writeFileSync(setup, bytes, { mode: 0o755 })
       state.ready = { setup, version: latest.version, sha256: asset.sha256 }
-      saveStateNow()
-      buildTrayMenu()
     }
+    saveStateNow()
+    buildTrayMenu()
     offerUpdate()
-    return `Загружена версия ${latest.version}`
+    return said(`Загружена версия ${latest.version}`)
   } catch (err) {
     note(`Обновление не удалось: ${(err as Error).message}`)
-    return `Не удалось: ${(err as Error).message}`
+    return said(`Не удалось: ${(err as Error).message}`)
   } finally {
     checking = false
+    progress = null
   }
 }
 
+/** Downloads a file of a release, counting what came for the settings. */
+async function download(url: string, version: string, size: number, light: boolean): Promise<Buffer> {
+  const answer = await net.fetch(url)
+  if (!answer.ok || !answer.body) throw new Error(`новая версия не загрузилась (${answer.status})`)
+  const counting = { version, loaded: 0, total: Number(answer.headers.get('content-length')) || size, light }
+  progress = counting
+  const parts: Uint8Array[] = []
+  const reader = answer.body.getReader()
+  for (;;) {
+    const { done, value } = await reader.read()
+    if (done) break
+    parts.push(value)
+    counting.loaded += value.length
+  }
+  return Buffer.concat(parts)
+}
+
 /**
- * At start, before anything else: a newer version downloaded earlier and not taken then («Позже», or the
+ * Unpacks the app's own files (scripts/installer.mjs packs them: a line with the list of files and their sizes,
+ * then the files one after another, all gzipped) into `dir`, beside it first, so a half-written build is never there.
+ */
+function unpack(packed: Buffer, dir: string): void {
+  const all = zlib.gunzipSync(packed)
+  const end = all.indexOf(10)
+  const files = JSON.parse(all.subarray(0, end).toString('utf8')) as { path: string; size: number }[]
+  const part = `${dir}.part`
+  fs.rmSync(part, { recursive: true, force: true })
+  let at = end + 1
+  for (const file of files) {
+    const target = path.resolve(part, file.path)
+    if (!target.startsWith(part + path.sep) || !Number.isInteger(file.size) || file.size < 0) throw new Error(`непонятный файл в обновлении: ${file.path}`)
+    fs.mkdirSync(path.dirname(target), { recursive: true })
+    fs.writeFileSync(target, all.subarray(at, at + file.size))
+    at += file.size
+  }
+  if (at !== all.length || !fs.existsSync(path.join(part, 'release', 'desktop.mjs'))) throw new Error('обновление пришло не целым')
+  fs.rmSync(dir, { recursive: true, force: true })
+  fs.renameSync(part, dir)
+}
+
+/**
+ * At start, before anything else: a newer installer downloaded earlier and not taken then («Позже», or the
  * computer was turned off) is put in now, with no question; the app comes back the way it was started.
+ * A light update needs nothing: the stub has started it already.
  */
 function installWaiting(): boolean {
+  // The stub could not start a light update: it is not tried again by itself.
+  const failed = BUILDS ? (JSON.parse(readText(path.join(BUILDS, 'failed.json')) || 'null') as { version?: string; error?: string } | null) : null
+  if (failed?.version) {
+    note(`Обновление ${failed.version} не запустилось, работаю на ${ownVersion}: ${failed.error ?? ''}`)
+    state.updateTried = failed.version
+    if (state.ready?.version === failed.version) delete state.ready
+    fs.rmSync(path.join(BUILDS!, 'failed.json'), { force: true })
+    saveStateNow()
+  }
   const waiting = state.ready
-  if (!waiting || !ownVersion || !SYSTEM) return false
-  const usable = isNewer(waiting.version, ownVersion) && fs.existsSync(waiting.setup) && sha256Of(waiting.setup) === waiting.sha256
-  if (!usable) {
+  if (!waiting || !ownVersion) return false
+  if (!isNewer(waiting.version, ownVersion) || !readyUsable(waiting)) {
     // Put in already (this is the new version), or spoilt: it goes.
     delete state.ready
     saveStateNow()
     fs.rmSync(DOWNLOADS, { recursive: true, force: true })
     return false
   }
-  if (!autoUpdates() || state.updateTried === waiting.version) return false
-  install(waiting.setup, waiting.version, process.argv.includes('--hidden'))
+  if (waiting.dir || !autoUpdates() || state.updateTried === waiting.version) return false
+  install(waiting, process.argv.includes('--hidden'))
   return true
+}
+
+/** Builds of light updates that are neither running nor waiting go. */
+function cleanBuilds(): void {
+  if (!BUILDS || !fs.existsSync(BUILDS)) return
+  const keep = new Set([path.basename(path.dirname(here)), state.ready?.dir ? path.basename(state.ready.dir) : ''])
+  for (const entry of fs.readdirSync(BUILDS, { withFileTypes: true })) {
+    if (entry.isDirectory() && !keep.has(entry.name)) fs.rmSync(path.join(BUILDS, entry.name), { recursive: true, force: true })
+  }
 }
 
 let asking = false
@@ -673,7 +785,9 @@ async function askToUpdate(): Promise<void> {
     type: 'info' as const,
     title: 'Обновление FlintNotes',
     message: `Доступна новая версия FlintNotes ${waiting.version}`,
-    detail: `Сейчас у вас ${ownVersion}. Новая версия уже загружена и проверена: FlintNotes сохранит набранное, установит её и откроется снова. Если отложить, она установится сама при следующем запуске.`,
+    detail: waiting.dir
+      ? `Сейчас у вас ${ownVersion}. Новая версия загружена и проверена: FlintNotes сохранит набранное и перезапустится за пару секунд. Если отложить, она запустится сама при следующем запуске.`
+      : `Сейчас у вас ${ownVersion}. Новая версия уже загружена и проверена: FlintNotes сохранит набранное, установит её и откроется снова. Если отложить, она установится сама при следующем запуске.`,
     buttons: ['Обновить', 'Позже'],
     defaultId: 0,
     cancelId: 1,
@@ -681,30 +795,35 @@ async function askToUpdate(): Promise<void> {
   }
   const { response } = await (win ? dialog.showMessageBox(win, options) : dialog.showMessageBox(options))
   asking = false
-  if (response === 0 && state.ready?.version === waiting.version) return install(waiting.setup, waiting.version, !win?.isVisible())
+  if (response === 0 && state.ready?.version === waiting.version) return install(waiting, !win?.isVisible())
   note(`Обновление ${waiting.version} отложено до следующего запуска`)
 }
 
 /**
- * Puts the new version in and starts it the way this one was (with its window, or in the tray). On Windows the
- * installer does it, silently, closing this app (which saves first); on Linux the new AppImage takes the old one's place.
+ * Puts the new version in and starts it the way this one was (with its window, or in the tray). A light update
+ * is in place already: the app only starts again. On Windows the installer does it, silently, closing this app
+ * (which saves first); on Linux the new AppImage takes the old one's place.
  */
-function install(setup: string, version: string, hidden: boolean): void {
-  note(`Ставлю обновление ${version}`)
-  state.updateTried = version
+function install(ready: NonNullable<WindowState['ready']>, hidden: boolean): void {
+  note(`Ставлю обновление ${ready.version}`)
+  state.updateTried = ready.version
   saveStateNow()
+  if (ready.dir) {
+    app.relaunch({ args: [...process.argv.slice(1).filter((arg) => arg !== '--hidden'), ...(hidden ? ['--hidden'] : [])] })
+    return void quit()
+  }
   const appImage = process.env.APPIMAGE
   if (process.platform === 'linux' && appImage) {
     try {
       // Beside it first, then in its place at once: a half-written AppImage would not start.
-      fs.copyFileSync(setup, `${appImage}.new`)
+      fs.copyFileSync(ready.setup!, `${appImage}.new`)
       fs.chmodSync(`${appImage}.new`, 0o755)
       fs.renameSync(`${appImage}.new`, appImage)
     } catch (err) {
       return void note(`Обновление не встало: ${(err as Error).message}`)
     }
     app.relaunch({ execPath: appImage, args: hidden ? ['--hidden'] : [] })
-  } else spawn(setup, ['/S', '--run', ...(hidden ? ['--hidden'] : [])], { detached: true, stdio: 'ignore' }).unref()
+  } else spawn(ready.setup!, ['/S', '--run', ...(hidden ? ['--hidden'] : [])], { detached: true, stdio: 'ignore' }).unref()
   void quit()
 }
 
@@ -759,7 +878,16 @@ void app.whenReady().then(async () => {
   })
   createTray()
   // A few seconds after start, not to compete with opening the vault; then every few hours.
-  setTimeout(() => void checkForUpdate(), Number(process.env.FLINT_UPDATE_DELAY ?? 5000))
-  setInterval(() => void checkForUpdate(), 3 * 3_600_000)
+  setTimeout(() => void checkForUpdate(), Number(process.env.FLINT_UPDATE_DELAY ?? 3000))
+  setInterval(() => void checkForUpdate(), 3_600_000)
+  setTimeout(() => {
+    try {
+      cleanBuilds()
+    } catch (err) {
+      note(`Старые сборки не убраны: ${(err as Error).message}`)
+    }
+  }, 60_000)
   win = createWindow()
+  // The window brought forward after a while looks again: a release made meanwhile is found at once.
+  win.on('focus', () => lastChecked && Date.now() - lastChecked > 20 * 60_000 && void checkForUpdate())
 })
