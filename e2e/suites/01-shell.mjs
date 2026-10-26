@@ -103,7 +103,7 @@ export async function run(t) {
   await wait(200)
   ok('vault plugin command shows notice', (await page.locator('.notice').innerText().catch(() => '')).includes('Привет'))
 
-  await page.locator('button[title="Новая заметка"]').click()
+  await page.locator('button[aria-label="Новая заметка"]').click()
   await page.waitForSelector('input.rename')
   await wait(500)
   ok('rename field keeps focus after create', await focused('rename'))
@@ -118,7 +118,7 @@ export async function run(t) {
   ok('Enter in the name field does not leak into the note', read('Мой план.md') === 'текст заметки', JSON.stringify(read('Мой план.md')))
   ok('word count follows active tab', /2 слова/.test(await status()), await status())
 
-  await page.locator('button[title="Новая папка"]').click()
+  await page.locator('button[aria-label="Новая папка"]').click()
   await page.waitForSelector('input.rename')
   await page.keyboard.type('Проекты')
   await page.keyboard.press('Enter')

@@ -31,7 +31,7 @@ export default class WordCount extends Plugin {
     }
 
     this.addSettings([
-      { key: 'characters', name: 'Показывать число символов', type: 'toggle', default: false },
+      { key: 'characters', name: 'Показывать число символов', desc: 'Рядом с числом слов в строке состояния', type: 'toggle', default: false },
     ])
     // Counting a long note takes a while; while typing goes on it is counted once, when the typing pauses.
     let later: ReturnType<typeof setTimeout> | undefined

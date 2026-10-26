@@ -21,9 +21,9 @@ export default class NoteHistory extends Plugin {
   async onload() {
     const { app, store } = this
     this.addSettings([
-      { key: 'merge', name: 'Одна версия за правку подряд, минут', desc: 'Сохранения этой программы, идущие чаще, считаются одной версией: при наборе текста заметка сохраняется постоянно. Изменения другими программами записываются всегда отдельно', type: 'number', default: 5, min: 0, max: 120 },
+      { key: 'merge', name: 'Одна версия за правку подряд, минут', desc: 'Пока вы печатаете, заметка сохраняется постоянно: сохранения в пределах этого времени считаются одной версией. Изменения другими программами всегда идут отдельно', type: 'number', default: 5, min: 0, max: 120 },
       { key: 'keep', name: 'Сколько версий хранить у заметки', desc: 'Когда версий больше, самые старые сливаются в одну', type: 'number', default: 200, min: 5, max: 5000, step: 5 },
-      { key: 'excluded', name: 'Папки без истории', desc: 'По одной в строке', type: 'lines', default: '' },
+      { key: 'excluded', name: 'Папки без истории', desc: 'По папке в строке: заметки в этих папках и в их подпапках в историю не попадают', type: 'lines', default: '' },
     ])
     await store.load()
     const watched = (path: string) => paths.extname(path) === 'md' && !listed(this.getSetting<string>('excluded') ?? '').some((folder) => path.startsWith(`${folder}/`))

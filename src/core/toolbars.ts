@@ -8,6 +8,8 @@ export interface ToolbarButton {
   /** A Lucide icon name, a custom icon, or an emoji; see `Icons.draw`. */
   icon: string
   title: string
+  /** The hint shown on hover, if more than the title (its shortcut, say). */
+  hint?: string
   /** A colour name of the palette or any CSS colour. */
   color?: string
   onClick(event: MouseEvent): void

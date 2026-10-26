@@ -197,6 +197,14 @@
   })
 
   const title = (path: string) => (extname(path) === 'md' ? stripExt(basename(path)) : basename(path))
+  /** A button's hint with the shortcut of its command, if it has one; drawn again when commands or their keys change. */
+  const commandsNow = watch(app.commands, ['change'], () => ({}))
+  const tip = (text: string, id: string) => {
+    void commandsNow.current
+    const command = app.commands.get(id)
+    const hotkey = command && app.commands.hotkeyOf(command)
+    return hotkey ? `${text} (${formatHotkey(hotkey)})` : text
+  }
   const leafById = (id: number) => workspace.leaves.find((leaf) => leaf.id === id)!
   // The strips along the edges take room only when something was put on them.
   const ribbons = watch(app.toolbars, ['change'], () => ({
@@ -596,6 +604,14 @@
     // The desktop app has no such slip: Ctrl+W is the app's own, and it saves before it closes.
     if (!desktop) window.addEventListener('beforeunload', onLeave)
     offs.push(() => window.removeEventListener('beforeunload', onLeave))
+    // A button drawn as a sign alone (×, ‹, an icon) that has a name for screen readers but no hint shows that name as its hint.
+    const hint = (event: PointerEvent) => {
+      const button = (event.target as Element | null)?.closest?.('button, [role="button"]')
+      const name = button?.getAttribute('aria-label')
+      if (button && name && !button.hasAttribute('title') && !button.textContent?.match(/[A-Za-zА-Яа-яЁё]{2}/)) button.setAttribute('title', name)
+    }
+    document.addEventListener('pointerover', hint, true)
+    offs.push(() => document.removeEventListener('pointerover', hint, true))
     // Buttons may be put into the status bar too: its first item.
     const statusButtons = mount(Toolbar, { target: app.statusBar.buttons, props: { place: 'status-bar' } })
     offs.push(() => void unmount(statusButtons))
@@ -791,7 +807,7 @@
 
   <main>
     <div class="tabbar">
-      <button class="bar-button" title="Левая панель" aria-label="Левая панель" aria-pressed={floats.left ? peek.left : leftOpen} onclick={() => toggleSide('left')} oncontextmenu={(event) => sideMenu(event, 'left')}>
+      <button class="bar-button" title={`${tip('Показать или скрыть левую панель', 'core:toggle-sidebar')}. Правый щелчок — плавающая или закреплённая`} aria-label="Левая панель" aria-pressed={floats.left ? peek.left : leftOpen} onclick={() => toggleSide('left')} oncontextmenu={(event) => sideMenu(event, 'left')}>
         <svg viewBox="0 0 16 16" aria-hidden="true"><rect x="1.5" y="2.5" width="13" height="11" rx="2" /><path d="M6 2.5v11" /></svg>
       </button>
       <div class="tabs" role="tablist">
@@ -855,21 +871,21 @@
             {/if}
           </div>
         {/each}
-        <button class="bar-button" title="Новая вкладка с новой заметкой" aria-label="Новая вкладка" onclick={() => newNote(true)}>
+        <button class="bar-button" title="Новая заметка в новой вкладке" aria-label="Новая вкладка" onclick={() => newNote(true)}>
           <svg viewBox="0 0 16 16" aria-hidden="true"><path d="M8 3v10M3 8h10" /></svg>
         </button>
       </div>
       <Toolbar place="tab-bar" />
-      <button class="bar-button" title="Правая панель" aria-label="Правая панель" aria-pressed={floats.right ? peek.right : rightOpen} onclick={() => toggleSide('right')} oncontextmenu={(event) => sideMenu(event, 'right')}>
+      <button class="bar-button" title={`${tip('Показать или скрыть правую панель', 'core:toggle-right-sidebar')}. Правый щелчок — плавающая или закреплённая`} aria-label="Правая панель" aria-pressed={floats.right ? peek.right : rightOpen} onclick={() => toggleSide('right')} oncontextmenu={(event) => sideMenu(event, 'right')}>
         <svg viewBox="0 0 16 16" aria-hidden="true"><rect x="1.5" y="2.5" width="13" height="11" rx="2" /><path d="M10 2.5v11" /></svg>
       </button>
     </div>
     {#if crumbs.current.length && look.current.header}
       <div class="view-header">
-        <button class="bar-button" title="Назад" aria-label="Назад" onclick={() => history.back()}>
+        <button class="bar-button" title={tip('Назад, к прежнему месту', 'core:go-back')} aria-label="Назад" onclick={() => history.back()}>
           <svg viewBox="0 0 16 16" aria-hidden="true"><path d="M13 8H3M7 4L3 8l4 4" /></svg>
         </button>
-        <button class="bar-button" title="Вперёд" aria-label="Вперёд" onclick={() => history.forward()}>
+        <button class="bar-button" title={tip('Вперёд', 'core:go-forward')} aria-label="Вперёд" onclick={() => history.forward()}>
           <svg viewBox="0 0 16 16" aria-hidden="true"><path d="M3 8h10M9 4l4 4-4 4" /></svg>
         </button>
         <div class="crumbs">
@@ -897,7 +913,7 @@
             {/if}
           </button>
         {/if}
-        <button class="bar-button note-menu" title="Действия с заметкой" aria-label="Действия с заметкой" onclick={(event) => (event.stopPropagation(), noteMenu(event))}>
+        <button class="bar-button note-menu" title="Меню заметки: вставить, переименовать, история, удалить и другое" aria-label="Действия с заметкой" onclick={(event) => (event.stopPropagation(), noteMenu(event))}>
           <svg viewBox="0 0 16 16" aria-hidden="true"><path d="M8 3.2v.01M8 8v.01M8 12.800v.01" stroke-width="2.200" /></svg>
         </button>
       </div>

@@ -101,7 +101,7 @@ export async function run(t) {
   await wait(800)
   ok('and it is not stuck afterwards', (await t.count('aside')) === 0)
   // Esc sends it away at once, also when it was pinned with its button or shown by a command.
-  await page.locator('.bar-button[title="Левая панель"]').click()
+  await page.locator('.bar-button[aria-label="Левая панель"]').click()
   await page.mouse.move(800, 400)
   await wait(700)
   ok('a pinned floating sidebar stays while the pointer is away', (await t.count('aside.left.floating')) === 1)

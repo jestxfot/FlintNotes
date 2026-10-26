@@ -46,18 +46,18 @@ export default class DayPlanner extends Plugin {
   async onload() {
     const { app } = this
     this.addSettings([
-      { key: 'plannerHeading', section: 'Заметка дня', name: 'Заголовок плана', desc: 'Под ним в заметке дня появляются новые блоки. Блоками считаются строки со временем в любом месте заметки', type: 'text', default: 'Day planner' },
-      { key: 'plannerHeadingLevel', section: 'Заметка дня', name: 'Уровень заголовка', type: 'number', default: 1, min: 1, max: 6 },
-      { key: 'taskStatusOnCreation', section: 'Заметка дня', name: 'Новый блок — задача с флажком', type: 'toggle', default: true },
-      { key: 'defaultDurationMinutes', section: 'Заметка дня', name: 'Длительность блока по умолчанию, минут', type: 'number', default: 30, min: 5, max: 480, step: 5 },
-      { key: 'startHour', section: 'Шкала', name: 'С какого часа начинается шкала', type: 'number', default: 6, min: 0, max: 23 },
+      { key: 'plannerHeading', section: 'Заметка дня', name: 'Заголовок плана', desc: 'Под этим заголовком в заметке дня появляются новые блоки. Блоком считается любая строка со временем в заметке', type: 'text', default: 'Day planner' },
+      { key: 'plannerHeadingLevel', section: 'Заметка дня', name: 'Уровень заголовка', desc: 'Сколько знаков # у заголовка плана: 1 — «#», 2 — «##» и так далее', type: 'number', default: 1, min: 1, max: 6 },
+      { key: 'taskStatusOnCreation', section: 'Заметка дня', name: 'Новый блок — задача с флажком', desc: 'Новый блок записывается задачей «- [ ] 10:00 - 11:00 …», которую можно отметить выполненной', type: 'toggle', default: true },
+      { key: 'defaultDurationMinutes', section: 'Заметка дня', name: 'Длительность блока по умолчанию, минут', desc: 'Сколько длится блок, созданный щелчком по шкале', type: 'number', default: 30, min: 5, max: 480, step: 5 },
+      { key: 'startHour', section: 'Шкала', name: 'С какого часа начинается шкала', desc: 'Первый час на шкале дня', type: 'number', default: 6, min: 0, max: 23 },
       { key: 'zoomLevel', section: 'Шкала', name: 'Масштаб', desc: '1 — весь день на экране, 4 — крупно', type: 'number', default: 2, min: 1, max: 4 },
-      { key: 'snapStepMinutes', section: 'Шкала', name: 'Шаг при перетаскивании, минут', type: 'number', default: 10, min: 1, max: 60 },
-      { key: 'minimalDurationMinutes', section: 'Шкала', name: 'Наименьшая длительность блока, минут', type: 'number', default: 10, min: 5, max: 120 },
-      { key: 'centerNeedle', section: 'Шкала', name: 'Держать текущее время на виду', type: 'toggle', default: true },
-      { key: 'showCompletedTasks', section: 'Шкала', name: 'Показывать выполненные блоки', type: 'toggle', default: true },
-      { key: 'showUncheduledTasks', section: 'Шкала', name: 'Показывать над шкалой задачи дня без времени', type: 'toggle', default: true },
-      { key: 'showActiveClockInStatusBar', section: 'Строка состояния', name: 'Показывать текущий и следующий блок', type: 'toggle', default: true },
+      { key: 'snapStepMinutes', section: 'Шкала', name: 'Шаг при перетаскивании, минут', desc: 'Перетаскиваемый блок встаёт на время, кратное этому шагу', type: 'number', default: 10, min: 1, max: 60 },
+      { key: 'minimalDurationMinutes', section: 'Шкала', name: 'Наименьшая длительность блока, минут', desc: 'Короче блок не сжать, когда меняете его длину', type: 'number', default: 10, min: 5, max: 120 },
+      { key: 'centerNeedle', section: 'Шкала', name: 'Держать текущее время на виду', desc: 'Шкала сама прокручивается так, чтобы линия текущего времени была на виду', type: 'toggle', default: true },
+      { key: 'showCompletedTasks', section: 'Шкала', name: 'Показывать выполненные блоки', desc: 'Отмеченные блоки остаются на шкале', type: 'toggle', default: true },
+      { key: 'showUncheduledTasks', section: 'Шкала', name: 'Показывать над шкалой задачи дня без времени', desc: 'Задачи заметки дня без времени — списком над шкалой', type: 'toggle', default: true },
+      { key: 'showActiveClockInStatusBar', section: 'Строка состояния', name: 'Показывать текущий и следующий блок', desc: 'В строке состояния внизу окна: что идёт сейчас и что дальше', type: 'toggle', default: true },
     ])
     await this.importFromObsidian(false)
     const get = <T>(key: string) => this.getSetting<T>(key)

@@ -66,7 +66,7 @@ export default class Buttons extends Plugin {
       {
         key: 'webHome',
         name: 'Страница для кнопок «Web viewer»',
-        desc: 'Кнопка с командой Obsidian «Web viewer: Open web viewer» открывает эту страницу в новой вкладке браузера',
+        desc: 'Её открывает кнопка с командой Obsidian «Web viewer: Open web viewer» — в новой вкладке браузера',
         type: 'text',
         default: 'https://www.google.com',
       },

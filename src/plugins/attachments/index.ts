@@ -19,6 +19,7 @@ export default class Attachments extends Plugin {
       {
         key: 'location',
         name: 'Куда сохранять вложения',
+        desc: 'Куда попадают картинки и файлы, вставленные или перетащенные в заметку',
         type: 'select',
         default: 'subfolder',
         options: [
@@ -28,11 +29,12 @@ export default class Attachments extends Plugin {
           { value: 'root', label: 'В корень хранилища' },
         ],
       },
-      { key: 'subfolder', name: 'Имя подпапки', desc: 'Для заметки life/Notes/people/test.md вложения лягут в life/Notes/people/attachments', type: 'text', default: 'attachments', placeholder: 'attachments' },
-      { key: 'folder', name: 'Указанная папка', desc: 'Используется, когда выше выбрано «В указанную папку хранилища»', type: 'text', default: 'Вложения' },
+      { key: 'subfolder', name: 'Имя подпапки', desc: 'Для варианта «В подпапку рядом с заметкой». Для life/people/Анна.md вложения лягут в life/people/attachments', type: 'text', default: 'attachments', placeholder: 'attachments' },
+      { key: 'folder', name: 'Указанная папка', desc: 'Для варианта «В указанную папку хранилища», например attachments', type: 'text', default: 'Вложения' },
       {
         key: 'format',
         name: 'Вид ссылки на вложение',
+        desc: 'Wiki-ссылки короче и привычны Obsidian; Markdown-ссылки понимают и другие редакторы',
         type: 'select',
         default: 'wiki',
         options: [
@@ -40,7 +42,7 @@ export default class Attachments extends Plugin {
           { value: 'markdown', label: 'Markdown: ![имя](путь)' },
         ],
       },
-      { key: 'pasteName', name: 'Имя вставленной картинки', desc: '{date} — дата и время вставки, 20251002153930', type: 'text', default: 'Pasted image {date}', placeholder: 'Pasted image {date}' },
+      { key: 'pasteName', name: 'Имя вставленной картинки', desc: 'Имя файла картинки из буфера обмена. {date} — дата и время вставки, например 20251002153930', type: 'text', default: 'Pasted image {date}', placeholder: 'Pasted image {date}' },
     ])
     void this.importFromObsidian()
 

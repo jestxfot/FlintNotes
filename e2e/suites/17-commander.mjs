@@ -30,15 +30,15 @@ export async function run(t) {
 
   // ---- taken over from Obsidian's Commander
   const ribbon = page.locator('.toolbar[data-place="left-ribbon"]')
-  ok('buttons of Commander appear, those of unknown commands are left out', (await ribbon.locator('button').count()) === 2 && (await ribbon.locator('button').first().getAttribute('title')) === 'Daily', await ribbon.locator('button').count())
+  ok('buttons of Commander appear, those of unknown commands are left out', (await ribbon.locator('button').count()) === 2 && (await ribbon.locator('button').first().getAttribute('aria-label')) === 'Daily', await ribbon.locator('button').count())
   ok('a button keeps its colour and icon', (await ribbon.locator('button').first().evaluate((b) => b.style.color)) === 'rgb(98, 184, 249)' && (await ribbon.locator('button svg').count()) === 2)
   const saved = () => JSON.parse(read('.flint/commander.json'))
   ok("the setup is stored in Commander's format with this app's command ids", saved().leftRibbon.map((p) => p.id).join() === 'daily-notes:today,graph:open' && saved().pageHeader[0].id === 'buttons:web-viewer' && saved().fileMenu.map((p) => p.id).join() === 'graph:open', JSON.stringify(saved()))
-  await ribbon.locator('button[title="Graph"]').click()
+  await ribbon.locator('button[aria-label="Graph"]').click()
   await wait(600)
   // The button is the tab of the view it opens: the graph is on screen, and the strip of tabs has no tab for it.
-  ok('a button runs its command, and is itself the tab of the view it opens', (await t.count(`${t.leaf} .graph-view`)) === 1 && (await t.tab('Граф').count()) === 0 && (await ribbon.locator('button[title="Graph"]').getAttribute('class')).includes('on'), `${await t.tab('Граф').count()} tabs`)
-  await ribbon.locator('button[title="Graph"]').click()
+  ok('a button runs its command, and is itself the tab of the view it opens', (await t.count(`${t.leaf} .graph-view`)) === 1 && (await t.tab('Граф').count()) === 0 && (await ribbon.locator('button[aria-label="Graph"]').getAttribute('class')).includes('on'), `${await t.tab('Граф').count()} tabs`)
+  await ribbon.locator('button[aria-label="Graph"]').click()
   await wait(300)
   ok('a second click on it goes back to the note', (await t.activeTab()) === 'Note' && (await t.count(`${t.leaf} .graph-view`)) === 0)
   await t.tab('Note').click()
@@ -103,7 +103,7 @@ export async function run(t) {
   await page.evaluate(() => app.commands.run('core:toggle-plugin:graph'))
   await wait(1200)
   // Switched on again, the plugin also puts its own main button on the strip, next to the user's.
-  ok('and comes back with the plugin', (await ribbon.locator('button').count()) === 3 && saved().leftRibbon.length === 2 && (await ribbon.locator('button[title="Граф связей"]').count()) === 1, String(await ribbon.locator('button').count()))
+  ok('and comes back with the plugin', (await ribbon.locator('button').count()) === 3 && saved().leftRibbon.length === 2 && (await ribbon.locator('button[aria-label="Граф связей"]').count()) === 1, String(await ribbon.locator('button').count()))
 
   // ---- macros
   await page.evaluate(() => app.commands.run('commander:new-macro'))

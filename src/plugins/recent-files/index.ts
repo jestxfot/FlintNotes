@@ -39,10 +39,11 @@ export default class RecentFiles extends Plugin {
   async onload() {
     const { app } = this
     this.addSettings([
-      { key: 'maxLength', name: 'Сколько заметок помнить', type: 'number', default: DEFAULT_LENGTH, min: 5, max: 500, step: 5 },
+      { key: 'maxLength', name: 'Сколько заметок помнить', desc: 'Когда список полон, самые давние заметки из него выпадают', type: 'number', default: DEFAULT_LENGTH, min: 5, max: 500, step: 5 },
       {
         key: 'updateOn',
         name: 'Заметка попадает в список, когда её',
+        desc: '«Открыли» — любая просмотренная заметка; «изменили» — только те, что вы правили',
         type: 'select',
         default: 'file-open',
         options: [

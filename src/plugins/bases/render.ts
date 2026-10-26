@@ -320,8 +320,8 @@ export function mountBase(el: HTMLElement, host: BaseHost, initial: string): Mou
         { section: 'open', icon: 'layout-template', title: template ? `Шаблон: ${templateName(template)} — сменить…` : 'Выбрать шаблон новых записей…', onClick: pickTemplate },
         ...(template ? [{ section: 'action', icon: 'x', title: 'Без шаблона', onClick: () => (setRecordTemplate(app, baseId, null), draw()) }] : []),
       ])
-    const tool = (id: Exclude<typeof open, null>, glyph: string, label: string, on = false) =>
-      h('button', { class: `base-tool${open === id ? ' active' : ''}${on ? ' on' : ''}`, title: label, onclick: () => ((open = open === id ? null : id), draw()) }, icon(glyph), label)
+    const tool = (id: Exclude<typeof open, null>, glyph: string, label: string, hint: string, on = false) =>
+      h('button', { class: `base-tool${open === id ? ' active' : ''}${on ? ' on' : ''}`, title: hint, onclick: () => ((open = open === id ? null : id), draw()) }, icon(glyph), label)
     const searchBox = h('input', {
       class: 'base-search',
       type: 'search',
@@ -340,14 +340,14 @@ export function mountBase(el: HTMLElement, host: BaseHost, initial: string): Mou
     const toolbar = h(
       'div',
       { class: 'base-toolbar' },
-      h('button', { class: `base-view-switch${open === 'views' || open === 'view' ? ' active' : ''}`, title: 'Представления', onclick: () => ((open = open === 'views' ? null : 'views'), draw()) }, icon(VIEW_ICONS[view.type] ?? 'table'), h('b', {}, view.name ?? viewLabel(view.type)), h('span', { class: 'base-chevrons' }, '⌄')),
+      h('button', { class: `base-view-switch${open === 'views' || open === 'view' ? ' active' : ''}`, title: 'Представления базы: сменить, добавить, настроить', onclick: () => ((open = open === 'views' ? null : 'views'), draw()) }, icon(VIEW_ICONS[view.type] ?? 'table'), h('b', {}, view.name ?? viewLabel(view.type)), h('span', { class: 'base-chevrons' }, '⌄')),
       h('span', { class: 'base-count' }, plural(shown.rows.length, ['запись', 'записи', 'записей'])),
       h('span', { class: 'base-spacer' }),
-      tool('sort', 'arrow-up-down', 'Сортировка', Array.isArray(view.sort) && view.sort.length > 0),
-      tool('group', 'rows-3', 'Группа', !!groupRule(view)),
-      tool('filter', 'list-filter', 'Фильтр', !!view.filters || !!config.filters),
-      tool('props', 'list', 'Свойства'),
-      searching || search ? searchBox : h('button', { class: 'base-tool', title: 'Поиск', onclick: () => ((searching = true), draw(), el.querySelector<HTMLInputElement>('.base-search')?.focus()) }, icon('search'), 'Поиск'),
+      tool('sort', 'arrow-up-down', 'Сортировка', 'В каком порядке идут записи', Array.isArray(view.sort) && view.sort.length > 0),
+      tool('group', 'rows-3', 'Группа', 'Разбить записи на группы по свойству', !!groupRule(view)),
+      tool('filter', 'list-filter', 'Фильтр', 'Какие заметки попадают в базу', !!view.filters || !!config.filters),
+      tool('props', 'list', 'Свойства', 'Какие свойства показывать и в каком порядке'),
+      searching || search ? searchBox : h('button', { class: 'base-tool', title: 'Найти запись по тексту', onclick: () => ((searching = true), draw(), el.querySelector<HTMLInputElement>('.base-search')?.focus()) }, icon('search'), 'Поиск'),
       h(
         'span',
         { class: 'base-create' },

@@ -70,7 +70,7 @@ export default class ExplorerPlus extends Plugin {
     }
     this.addSettings([
       { key: 'hide', section: 'Скрытые', name: 'Что скрывать в списке файлов', desc: 'Путь или имя файла либо папки. Шаблон: * — любые символы (например *.canvas или attachments). Скрытое остаётся в хранилище и находится поиском', type: 'custom', render: (el) => this.editor(el, 'hideFilters', changed) },
-      { key: 'pin', section: 'Закреплённые', name: 'Что закреплять наверху своей папки', type: 'custom', render: (el) => this.editor(el, 'pinFilters', changed) },
+      { key: 'pin', section: 'Закреплённые', name: 'Что закреплять наверху своей папки', desc: 'Путь или имя файла либо папки, можно с * (например Inbox или *.base). Закреплённое стоит первым в своей папке', type: 'custom', render: (el) => this.editor(el, 'pinFilters', changed) },
     ])
 
     this.register(app.explorer.hide((entry) => this.matches('hideFilters', entry)))

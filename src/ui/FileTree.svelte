@@ -273,10 +273,10 @@
 <div class="header">
   <span class="title">Файлы</span>
   <Toolbar place="explorer" />
-  <button title="Новая заметка" aria-label="Новая заметка" onclick={() => create('file', '')}>
+  <button title="Новая заметка. В нужной папке — правым щелчком по папке" aria-label="Новая заметка" onclick={() => create('file', '')}>
     <svg viewBox="0 0 16 16" aria-hidden="true"><path d="M8 3.5v9M3.5 8h9" /></svg>
   </button>
-  <button title="Новая папка" aria-label="Новая папка" onclick={() => create('folder', '')}>
+  <button title="Новая папка в корне хранилища" aria-label="Новая папка" onclick={() => create('folder', '')}>
     <svg viewBox="0 0 16 16" aria-hidden="true"><path d="M2 4.5h4l1.5 1.5H14v6.5H2z" /></svg>
   </button>
 </div>

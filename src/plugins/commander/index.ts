@@ -1,4 +1,4 @@
-import { errorMessage, pickLook, Plugin, type MenuItem, type ToolbarPlace, type VaultEntry } from '../../api'
+import { errorMessage, formatHotkey, pickLook, Plugin, type MenuItem, type ToolbarPlace, type VaultEntry } from '../../api'
 import { dropBuiltIn, emptyData, importData, PLACE_NAMES, PLACES, renameMoved, type CommanderData, type Macro, type Pair, type Place } from './data'
 import './style.css'
 
@@ -64,7 +64,7 @@ export default class Commander extends Plugin {
       {
         key: 'buttons',
         name: 'Кнопки',
-        desc: 'Правый щелчок по полосе или кнопке тоже открывает эти действия. Кнопка выключенного плагина скрыта, пока плагин не включат.',
+        desc: 'Кнопки перетаскиваются по полосам мышью; правый щелчок по кнопке — переместить, сменить значок или убрать. Кнопка выключенного плагина скрыта, пока плагин не включат',
         type: 'custom',
         render: (el) => {
           this.redrawSettings = () => this.drawSettings(el)
@@ -172,7 +172,9 @@ export default class Commander extends Plugin {
         this.ids.set(pair, id)
         if (!app.commands.get(pair.id)) continue
         this.shown.set(id, { place, pair })
-        this.placed.push(app.toolbars.add(toolbar, { id, icon: pair.icon, title: pair.name, color: pair.color, onClick: () => this.run(pair) }))
+        const command = app.commands.get(pair.id)!
+        const hotkey = app.commands.hotkeyOf(command)
+        this.placed.push(app.toolbars.add(toolbar, { id, icon: pair.icon, title: pair.name, hint: hotkey ? `${pair.name} (${formatHotkey(hotkey)})` : undefined, color: pair.color, onClick: () => this.run(pair) }))
       }
     }
     this.placing = false

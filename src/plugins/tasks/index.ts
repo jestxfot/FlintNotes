@@ -43,7 +43,7 @@ export default class Tasks extends Plugin {
       {
         key: 'panelQuery',
         name: 'Запрос для виджета задач',
-        desc: 'Те же инструкции, что в блоке ```tasks',
+        desc: 'Какие задачи показывает виджет «Задачи»: те же инструкции, что в блоке ```tasks',
         type: 'lines',
         default: 'not done\ngroup by when\nsort by due\nsort by priority',
       },
@@ -51,7 +51,7 @@ export default class Tasks extends Plugin {
       {
         key: 'daysLeft',
         name: 'Сколько дней осталось у задачи',
-        desc: 'У невыполненной задачи с днём (📅 или ⏳) в конце строки в заметке пишется «осталось 5 дней», «завтра» или «просрочено на 2 дня»; то же — у задач и напоминаний в менеджере, на странице напоминаний и в окне напоминания. Сам текст заметки не меняется',
+        desc: 'У невыполненной задачи с датой (📅 или ⏳) в конце строки — «осталось 5 дней», «завтра» или «просрочено на 2 дня». Текст заметки не меняется',
         type: 'toggle',
         default: true,
       },
@@ -77,19 +77,20 @@ export default class Tasks extends Plugin {
       { key: 'leadMinutes', name: 'Напоминать заранее, минут', desc: '0 — точно в назначенное время', type: 'number', default: 0, min: 0, max: 240 },
       { key: 'planner', name: 'План дня из ежедневных заметок', desc: 'Строка задачи в заметке дня, которая начинается со времени — «- [ ] 17:00 - 17:10 Витамин D», как в плагине Day Planner, — напоминает о себе в это время', type: 'toggle', default: true },
       { key: 'plannerOverdueDays', name: 'Сколько дней помнить невыполненный план дня', desc: 'Неотмеченные строки плана старше этого срока не считаются просроченными и не показываются', type: 'number', default: 1, min: 0, max: 60 },
-      { key: 'quietFrom', name: 'Тихие часы: с', desc: 'В тихие часы напоминания не всплывают и не звучат, но остаются в списке. Пусто — без тихих часов', type: 'text', default: '', placeholder: '23:00' },
-      { key: 'quietTo', name: 'Тихие часы: до', type: 'text', default: '', placeholder: '08:00' },
+      { key: 'quietFrom', name: 'Тихие часы: с', desc: 'Время вида 22:00. В тихие часы напоминания не всплывают и не звучат, но остаются в списке. Пусто — без тихих часов', type: 'text', default: '', placeholder: '23:00' },
+      { key: 'quietTo', name: 'Тихие часы: до', desc: 'Время вида 08:00, когда тихие часы кончаются', type: 'text', default: '', placeholder: '08:00' },
       {
         key: 'remindPlain',
         name: 'Напоминать и по обычным строкам',
-        desc: 'Любая строка с «(@2026-10-10 14:00)» напомнит о себе, даже без флажка задачи. Сам Reminder в Obsidian напоминает только по строкам с флажком',
+        desc: 'Любая строка с «(@2026-10-10 14:00)» напомнит о себе, даже без флажка задачи. Reminder в Obsidian напоминает только по задачам',
         type: 'toggle',
         default: true,
       },
-      { key: 'defaultTime', name: 'Время таких напоминаний', type: 'text', default: '09:00', placeholder: '09:00' },
+      { key: 'defaultTime', name: 'Время таких напоминаний', desc: 'Для напоминания без времени, например (@2026-10-10). Время вида 09:00', type: 'text', default: '09:00', placeholder: '09:00' },
       {
         key: 'maxAgeDays',
         name: 'Не напоминать о просроченном старше, дней',
+        desc: 'Напоминание, просроченное дольше, больше не всплывает',
         type: 'number',
         default: 7,
         min: 1,
@@ -113,7 +114,7 @@ export default class Tasks extends Plugin {
           { value: 'at', label: '(@2026-10-10 14:00) (как Reminder)' },
         ],
       },
-      { key: 'sound', name: 'Звуковой сигнал', type: 'toggle', default: true },
+      { key: 'sound', name: 'Звуковой сигнал', desc: 'Звучит, когда приходит напоминание', type: 'toggle', default: true },
       {
         key: 'soundKind',
         name: 'Звук',
@@ -122,10 +123,11 @@ export default class Tasks extends Plugin {
         default: 'glass',
         options: SOUNDS.map(({ id, name }) => ({ value: id, label: name })),
       },
-      { key: 'volume', name: 'Громкость, %', type: 'number', default: 40, min: 0, max: 100, step: 5 },
+      { key: 'volume', name: 'Громкость, %', desc: 'Громкость сигнала напоминания', type: 'number', default: 40, min: 0, max: 100, step: 5 },
       {
         key: 'soundRepeat',
         name: 'Повторять сигнал',
+        desc: 'Что делать, если на напоминание не ответили',
         type: 'select',
         default: 'few',
         options: [
@@ -134,7 +136,7 @@ export default class Tasks extends Plugin {
           { value: 'until', label: 'Пока не отвечу' },
         ],
       },
-      { key: 'repeatSeconds', name: 'Пауза между сигналами, секунд', type: 'number', default: 15, min: 2, max: 300 },
+      { key: 'repeatSeconds', name: 'Пауза между сигналами, секунд', desc: 'Для повторяющегося сигнала', type: 'number', default: 15, min: 2, max: 300 },
       {
         key: 'system',
         name: 'Системные уведомления',

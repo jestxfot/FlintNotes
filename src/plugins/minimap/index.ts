@@ -14,9 +14,9 @@ import './style.css'
 export default class Minimap extends Plugin {
   onload() {
     this.addSettings([
-      { key: 'width', name: 'Ширина карты, точек', type: 'number', default: 90, min: 40, max: 200, step: 10 },
+      { key: 'width', name: 'Ширина карты, точек', desc: 'Ширина карты справа от текста, в точках экрана', type: 'number', default: 90, min: 40, max: 200, step: 10 },
       { key: 'minLines', name: 'Показывать в заметках длиннее, строк', desc: 'В коротких заметках карта не нужна и не показывается', type: 'number', default: 60, min: 0, max: 2000, step: 10 },
-      { key: 'headings', name: 'Выделять заголовки', type: 'toggle', default: true },
+      { key: 'headings', name: 'Выделять заголовки', desc: 'Заголовки на карте ярче: по ним легче найти нужный раздел', type: 'toggle', default: true },
     ])
     const get = <T>(key: string) => this.getSetting<T>(key)
     const idle = (work: () => void) => ('requestIdleCallback' in window ? requestIdleCallback(work, { timeout: 800 }) : setTimeout(work, 200))

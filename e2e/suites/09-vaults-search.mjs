@@ -78,7 +78,7 @@ export async function run(t) {
   await wait(900)
   ok('link completion inserts an alias as [[Note|alias]]', read('Draft.md').includes('[[Other|Roadmap]]'), read('Draft.md'))
 
-  await menu.locator('button[title="Справка"]').click()
+  await menu.locator('button[aria-label="Справка"]').click()
   await wait(300)
   const help = await t.flat(page.locator('dialog[aria-label="Справка"]'))
   ok('help lists shortcuts, including plugin ones', help.includes('Ctrl+P') && help.includes('Палитра команд') && help.includes('Поиск по всем заметкам'), help.slice(0, 200))

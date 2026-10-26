@@ -31,7 +31,7 @@ const format = (tabs: Tab[], split: string) => tabs.map((tab) => `${split} ${tab
 export default class Tabs extends Plugin {
   onload() {
     const { app } = this
-    this.addSettings([{ key: 'split', name: 'Начало вкладки', desc: 'Строка, с которой начинается вкладка', type: 'text', default: 'tab:' }])
+    this.addSettings([{ key: 'split', name: 'Начало вкладки', desc: 'Строка, с которой начинается вкладка в блоке ```tabs, например «tab: Первая»', type: 'text', default: 'tab:' }])
 
     const processor: CodeBlockProcessor = (source, el, { path, setSource }) => {
       el.classList.add('tabs-block')

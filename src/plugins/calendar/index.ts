@@ -11,14 +11,15 @@ export default class Calendar extends Plugin {
     const { app } = this
     // The daily note's are the «Ежедневные заметки» plugin's.
     const periodSettings = PERIODS.filter(({ period }) => period !== 'daily').flatMap(({ period, label, format }): SettingDef[] => [
-      { key: `${period}Format`, name: `${label} заметка: имя`, type: 'text', default: '', placeholder: format },
-      { key: `${period}Folder`, name: `${label} заметка: папка`, type: 'text', default: '' },
-      { key: `${period}Template`, name: `${label} заметка: шаблон`, type: 'text', default: '' },
+      { key: `${period}Format`, name: `${label} заметка: имя`, desc: `Дата в формате moment.js; может включать папки. Пусто — ${format}`, type: 'text', default: '', placeholder: format },
+      { key: `${period}Folder`, name: `${label} заметка: папка`, desc: 'Пусто — корень хранилища', type: 'text', default: '' },
+      { key: `${period}Template`, name: `${label} заметка: шаблон`, desc: 'Путь к шаблону новой заметки. Пусто — пустая заметка', type: 'text', default: '' },
     ])
     this.addSettings([
       {
         key: 'weekStart',
         name: 'Первый день недели',
+        desc: 'С какого дня начинается неделя в календаре',
         type: 'select',
         default: 'monday',
         options: [
@@ -26,23 +27,23 @@ export default class Calendar extends Plugin {
           { value: 'sunday', label: 'Воскресенье' },
         ],
       },
-      { key: 'weekNumbers', name: 'Номера недель', desc: 'Щелчок по номеру открывает заметку недели', type: 'toggle', default: true },
-      { key: 'confirm', name: 'Спрашивать перед созданием заметки', type: 'toggle', default: true },
+      { key: 'weekNumbers', name: 'Номера недель', desc: 'Столбец номеров недель слева. Щелчок по номеру открывает заметку недели', type: 'toggle', default: true },
+      { key: 'confirm', name: 'Спрашивать перед созданием заметки', desc: 'Щелчок по дню без заметки сначала спрашивает, создавать ли её', type: 'toggle', default: true },
       {
         key: 'wordsPerDot',
         name: 'Слов на одну точку',
-        desc: 'Точки под днём показывают, сколько написано в его заметке',
+        desc: 'Точки под днём показывают, сколько написано в его заметке: одна точка на столько слов',
         type: 'number',
         default: 250,
         min: 1,
         max: 5000,
       },
-      { key: 'boardField', section: 'Календарь во вкладке', name: 'На какой день ставить задачу', type: 'select', default: 'happens', options: [{ value: 'happens', label: 'Срок, иначе план, иначе начало' }, { value: 'due', label: 'Срок 📅' }, { value: 'scheduled', label: 'Запланировано ⏳' }, { value: 'start', label: 'Начало 🛫' }] },
-      { key: 'boardTasks', section: 'Календарь во вкладке', name: 'Показывать задачи с датой из всех заметок', desc: 'Нужен плагин «Задачи»', type: 'toggle', default: true },
-      { key: 'boardNote', section: 'Календарь во вкладке', name: 'Показывать задачи из заметки дня', type: 'toggle', default: true },
-      { key: 'boardPlan', section: 'Календарь во вкладке', name: 'Показывать строки плана дня (со временем)', type: 'toggle', default: true },
-      { key: 'boardDone', section: 'Календарь во вкладке', name: 'Показывать выполненное', type: 'toggle', default: true },
-      { key: 'boardLines', section: 'Календарь во вкладке', name: 'Строк в клетке месяца', type: 'number', default: 4, min: 1, max: 20 },
+      { key: 'boardField', section: 'Календарь во вкладке', name: 'На какой день ставить задачу', desc: 'По какой дате задача попадает в клетку календаря во вкладке', type: 'select', default: 'happens', options: [{ value: 'happens', label: 'Срок, иначе план, иначе начало' }, { value: 'due', label: 'Срок 📅' }, { value: 'scheduled', label: 'Запланировано ⏳' }, { value: 'start', label: 'Начало 🛫' }] },
+      { key: 'boardTasks', section: 'Календарь во вкладке', name: 'Показывать задачи с датой из всех заметок', desc: 'Задачи со сроком, планом или началом из всего хранилища. Нужен плагин «Задачи»', type: 'toggle', default: true },
+      { key: 'boardNote', section: 'Календарь во вкладке', name: 'Показывать задачи из заметки дня', desc: 'Задачи, записанные в самой заметке дня', type: 'toggle', default: true },
+      { key: 'boardPlan', section: 'Календарь во вкладке', name: 'Показывать строки плана дня (со временем)', desc: 'Строки плана дня вида «- [ ] 17:00 - 17:10 Дело»', type: 'toggle', default: true },
+      { key: 'boardDone', section: 'Календарь во вкладке', name: 'Показывать выполненное', desc: 'Выполненные задачи остаются в клетках дней', type: 'toggle', default: true },
+      { key: 'boardLines', section: 'Календарь во вкладке', name: 'Строк в клетке месяца', desc: 'Сколько строк задач помещается в клетку на виде месяца', type: 'number', default: 4, min: 1, max: 20 },
       ...periodSettings,
     ])
     await this.moveDailyNotes()

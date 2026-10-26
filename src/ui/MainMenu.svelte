@@ -1,7 +1,9 @@
 <script lang="ts">
+  import { formatHotkey } from '../core/commands'
   import { errorMessage } from '../core/notice'
   import { vaultAddress, type VaultInfo } from '../core/vault'
   import { app } from '../instance'
+  import { watch } from './reactive.svelte'
 
   let { onvaults, onhelp, onsettings }: { onvaults: () => void; onhelp: () => void; onsettings: () => void } = $props()
 
@@ -23,6 +25,15 @@
     } catch (err) {
       app.notice(`Не удалось открыть «${vault.name}»: ${errorMessage(err)}`)
     }
+  }
+
+  /** The shortcut of a command, for a button's hint; drawn again when commands or their keys change. */
+  const commandsNow = watch(app.commands, ['change'], () => ({}))
+  function hotkey(id: string): string {
+    void commandsNow.current
+    const command = app.commands.get(id)
+    const key = command && app.commands.hotkeyOf(command)
+    return key ? ` (${formatHotkey(key)})` : ''
   }
 </script>
 
@@ -54,16 +65,16 @@
     </div>
   {/if}
 
-  <button class="vault" aria-haspopup="menu" aria-expanded={open} title={app.vault.path} onclick={toggle}>
+  <button class="vault" aria-haspopup="menu" aria-expanded={open} title={`Хранилище: ${app.vault.path}\nЩелчок — другое хранилище или управление хранилищами`} onclick={toggle}>
     <svg viewBox="0 0 16 16" aria-hidden="true"><path d="M5 6l3-3 3 3M5 10l3 3 3-3" /></svg>
     <span class="name">{app.vault.name}</span>
   </button>
-  <button class="icon" title="Справка" aria-label="Справка" onclick={onhelp}>
+  <button class="icon" title="Справка и сочетания клавиш" aria-label="Справка" onclick={onhelp}>
     <svg viewBox="0 0 16 16" aria-hidden="true">
       <circle cx="8" cy="8" r="6" /><path d="M6.4 6.3a1.7 1.7 0 1 1 2.5 1.5c-.6.3-.9.7-.9 1.4M8 11.4v.1" />
     </svg>
   </button>
-  <button class="icon" title="Настройки" aria-label="Настройки" onclick={onsettings}>
+  <button class="icon" title={`Настройки${hotkey('core:settings')}`} aria-label="Настройки" onclick={onsettings}>
     <svg viewBox="0 0 16 16" aria-hidden="true">
       <circle cx="8" cy="8" r="2" />
       <path d="M8 1.8v1.7M8 12.5v1.7M1.8 8h1.7M12.5 8h1.7M3.6 3.6l1.2 1.2M11.2 11.2l1.2 1.2M12.4 3.6l-1.2 1.2M4.8 11.2l-1.2 1.2" />

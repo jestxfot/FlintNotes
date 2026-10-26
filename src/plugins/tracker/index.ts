@@ -102,6 +102,7 @@ export default class Tracker extends Plugin {
       const step = (label: string, by: number) => {
         const button = head.appendChild(document.createElement('button'))
         button.textContent = label
+        button.title = by < 0 ? 'Предыдущий месяц' : 'Следующий месяц'
         button.onclick = () => {
           state.month = first.clone().add(by, 'month').format('YYYY-MM')
           draw()

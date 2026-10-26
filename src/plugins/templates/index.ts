@@ -53,7 +53,7 @@ export default class Templates extends Plugin {
     this.registerMarkdownSyntax(templateSyntax)
     this.showCommands()
     this.addSettings([
-      { key: 'folder', name: 'Папка с шаблонами', type: 'text', default: 'Шаблоны' },
+      { key: 'folder', name: 'Папка с шаблонами', desc: 'Где лежат шаблоны. Их предлагают команды «Вставить шаблон» и «Создать заметку из шаблона»', type: 'text', default: 'Шаблоны' },
       {
         key: 'onCreate',
         name: 'Применять шаблон к новым заметкам',

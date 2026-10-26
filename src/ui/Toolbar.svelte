@@ -89,7 +89,7 @@
     {#each buttons.current as button (button.id)}
       {#key button.icon}
         <button
-          title={button.title}
+          title={button.hint ?? button.title}
           aria-label={button.title}
           data-id={button.id}
           style:color={app.icons.css(button.color)}

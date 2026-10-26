@@ -17,12 +17,12 @@ export default class Dataview extends Plugin {
     const env = (origin: string): DrawEnv => ({ app, pages, origin, dateFormat: this.getSetting<string>('dateFormat') || 'D MMMM YYYY' })
 
     this.addSettings([
-      { key: 'dateFormat', name: 'Формат дат', desc: 'В обозначениях moment.js', type: 'text', default: 'D MMMM YYYY', placeholder: 'D MMMM YYYY' },
-      { key: 'inlinePrefix', name: 'Начало встроенного запроса', desc: 'Код `= выражение` в тексте заметки показывает значение', type: 'text', default: '=' },
+      { key: 'dateFormat', name: 'Формат дат', desc: 'Как показывать даты в запросах, в обозначениях moment.js, например D MMMM YYYY', type: 'text', default: 'D MMMM YYYY', placeholder: 'D MMMM YYYY' },
+      { key: 'inlinePrefix', name: 'Начало встроенного запроса', desc: 'Код `= выражение` в тексте заметки показывает вычисленное значение. Здесь можно сменить «=» на другой знак', type: 'text', default: '=' },
       {
         key: 'js',
         name: 'Скрипты dataviewjs',
-        desc: 'Блоки ```dataviewjs и встроенные `$= выражения` выполняют JavaScript из заметок с полным доступом к хранилищу',
+        desc: 'Блоки ```dataviewjs и `$= выражения` выполняют JavaScript из заметок с полным доступом к хранилищу. Включайте, только если доверяете своим заметкам',
         type: 'toggle',
         default: true,
       },
