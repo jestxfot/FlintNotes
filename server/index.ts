@@ -727,7 +727,8 @@ api.get('/web', async (c) => {
   await openWeb(url)
   let res
   try {
-    res = await webFetch(url.href, { timeout: 15_000, limit: 25_000_000, headers: { accept: c.req.header('accept') ?? 'image/avif,image/webp,image/*,*/*;q=0.8' } })
+    // Up to a minute and 100 MB: a GIF of the web may be that large, and the page makes its light copy from it (plugin animations).
+    res = await webFetch(url.href, { timeout: 60_000, limit: 100_000_000, headers: { accept: c.req.header('accept') ?? 'image/avif,image/webp,image/*,*/*;q=0.8' } })
   } catch (err) {
     throw new HTTPException(502, { message: `Не ответил: ${describe(err)}` })
   }
