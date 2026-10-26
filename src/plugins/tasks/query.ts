@@ -82,42 +82,60 @@ function scope(app: App, task: Task): expr.Scope {
   return { get: (name) => (Object.hasOwn(values, name) ? values[name]() : undefined) }
 }
 
-/** A task's date as Obsidian Tasks exposes it to `filter by function`: `task.due.moment`. */
-const taskDate = (value?: string) => {
-  let parsed: Moment | null | undefined
-  return {
-    // Read by few queries, so it is only worked out when one asks.
-    get moment(): Moment | null {
-      if (parsed === undefined) parsed = value ? moment(value) : null
-      return parsed
-    },
-    /** The date written by a format of Moment.js; `fallback` for a task without this date. */
-    format: (format: string, fallback = '') => (value ? moment(value).format(format) : fallback),
-    /**
-     * How far the date is from now, in words, for grouping: groups of the past come first,
-     * the oldest first, then those of the future, the nearest first, as in Obsidian Tasks.
-     */
-    get fromNow() {
-      const date = this.moment
-      if (!date || !date.isValid()) return { name: '', sortOrder: 0, groupText: '' }
-      const { count, unit, past } = date.relative()
-      const start = past ? moment().subtract(count, unit) : moment().add(count, unit)
-      const sortOrder = Number((past ? '1' : '3') + start.format('YYYYMMDDHHmm'))
-      const name = date.fromNow()
-      return { name, sortOrder, groupText: `%%${sortOrder}%% ${name}` }
-    },
-    formatAsDate: (fallback = '') => value ?? fallback,
-    formatAsDateAndTime: (fallback = '') => value ?? fallback,
-    toISOString: () => (value ? moment(value).toISOString() : ''),
-    get category() {
-      const today = moment().startOf('day')
-      const date = this.moment
-      if (!date) return { name: 'Undated', sortOrder: 4, groupText: '%%4%% Undated' }
-      const diff = date.diff(today, 'days')
-      const name = diff < 0 ? 'Overdue' : diff === 0 ? 'Today' : 'Future'
-      const sortOrder = diff < 0 ? 1 : diff === 0 ? 2 : 3
-      return { name, sortOrder, groupText: `%%${sortOrder}%% ${name}` }
-    },
+/**
+ * A task's date as Obsidian Tasks exposes it to `filter by function`: `task.due.moment`.
+ * A class, as there: every task of the vault has several, and the ways are shared by all.
+ */
+class TaskDate {
+  private parsed: Moment | null | undefined
+
+  constructor(private value?: string) {}
+
+  // Read by few queries, so it is only worked out when one asks.
+  get moment(): Moment | null {
+    if (this.parsed === undefined) this.parsed = this.value ? moment(this.value) : null
+    return this.parsed
+  }
+
+  /** The date written by a format of Moment.js; `fallback` for a task without this date. */
+  format(format: string, fallback = ''): string {
+    return this.value ? moment(this.value).format(format) : fallback
+  }
+
+  /**
+   * How far the date is from now, in words, for grouping: groups of the past come first,
+   * the oldest first, then those of the future, the nearest first, as in Obsidian Tasks.
+   */
+  get fromNow() {
+    const date = this.moment
+    if (!date || !date.isValid()) return { name: '', sortOrder: 0, groupText: '' }
+    const { count, unit, past } = date.relative()
+    const start = past ? moment().subtract(count, unit) : moment().add(count, unit)
+    const sortOrder = Number((past ? '1' : '3') + start.format('YYYYMMDDHHmm'))
+    const name = date.fromNow()
+    return { name, sortOrder, groupText: `%%${sortOrder}%% ${name}` }
+  }
+
+  formatAsDate(fallback = ''): string {
+    return this.value ?? fallback
+  }
+
+  formatAsDateAndTime(fallback = ''): string {
+    return this.value ?? fallback
+  }
+
+  toISOString(): string {
+    return this.value ? moment(this.value).toISOString() : ''
+  }
+
+  get category() {
+    const today = moment().startOf('day')
+    const date = this.moment
+    if (!date) return { name: 'Undated', sortOrder: 4, groupText: '%%4%% Undated' }
+    const diff = date.diff(today, 'days')
+    const name = diff < 0 ? 'Overdue' : diff === 0 ? 'Today' : 'Future'
+    const sortOrder = diff < 0 ? 1 : diff === 0 ? 2 : 3
+    return { name, sortOrder, groupText: `%%${sortOrder}%% ${name}` }
   }
 }
 
@@ -148,13 +166,13 @@ function buildScriptTask(app: App, task: Task) {
     priorityName: PRIORITIES[task.priority].name.replace(/^./, (c) => c.toUpperCase()),
     priorityNumber: task.priority,
     tags: task.tags.map((tag) => `#${tag}`),
-    due: taskDate(task.due),
-    scheduled: taskDate(task.scheduled),
-    start: taskDate(task.start),
-    created: taskDate(task.created),
-    done: taskDate(task.done),
-    cancelled: taskDate(task.cancelled),
-    happens: taskDate(task.due ?? task.scheduled ?? task.start),
+    due: new TaskDate(task.due),
+    scheduled: new TaskDate(task.scheduled),
+    start: new TaskDate(task.start),
+    created: new TaskDate(task.created),
+    done: new TaskDate(task.done),
+    cancelled: new TaskDate(task.cancelled),
+    happens: new TaskDate(task.due ?? task.scheduled ?? task.start),
     isRecurring: !!task.recurrence,
     recurrenceRule: task.recurrence ?? '',
     heading: task.heading ?? null,

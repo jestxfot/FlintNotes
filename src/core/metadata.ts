@@ -4,6 +4,7 @@ import { IndexCache } from './index-cache'
 import { moment } from './moment'
 import { expandVariables } from './variables'
 import { Events } from './events'
+import { pause } from './pause'
 import { basename, dirname, extname, join, normalize, stripExt } from './path'
 import type { Vault, VaultEntry } from './vault'
 
@@ -386,7 +387,7 @@ export class MetadataCache extends Events<MetadataEvents> {
       this.indexed.set(entry.path, entry.mtime)
       this.trigger('changed', entry.path)
       if (performance.now() - sliceStart > 12) {
-        await new Promise((resume) => setTimeout(resume))
+        await pause()
         sliceStart = performance.now()
       }
     }

@@ -1,5 +1,5 @@
 import type { App } from './app'
-import { FileRef, Link, parseDate } from './expr'
+import { FileRef, Link, parseDate, type FileInfo } from './expr'
 
 const WIKILINK = /^\[\[([^\]|]+)(?:\|([^\]]+))?\]\]$/
 
@@ -20,42 +20,67 @@ export function propertyValue(raw: unknown): unknown {
 // Values of files for the current state of the index; rebuilt when links or properties change.
 let cached = { generation: -1, refs: new Map<string, FileRef>() }
 
+/**
+ * What expressions learn about a vault file, asked of the index each time. One small object per file,
+ * its ways shared: a base looks at every file of the vault, tens of thousands of them.
+ */
+class VaultFileInfo implements FileInfo {
+  private props: Record<string, unknown> | undefined
+
+  constructor(
+    private app: App,
+    readonly path: string,
+  ) {}
+
+  // Size and times are read when asked for, so they are current even for a cached value.
+  get size(): number {
+    return this.app.vault.get(this.path)?.size ?? 0
+  }
+
+  get ctime(): number {
+    return this.app.vault.get(this.path)?.ctime ?? 0
+  }
+
+  get mtime(): number {
+    return this.app.vault.get(this.path)?.mtime ?? 0
+  }
+
+  tags(): string[] {
+    return this.app.metadata.get(this.path)?.tags ?? []
+  }
+
+  links(): Link[] {
+    return (this.app.metadata.get(this.path)?.links ?? []).map((link) => new Link(link.target))
+  }
+
+  backlinks(): Link[] {
+    return [...this.app.metadata.backlinks(this.path).keys()].map((source) => new Link(source))
+  }
+
+  properties(): Record<string, unknown> {
+    if (!this.props) {
+      const data = this.app.metadata.get(this.path)?.frontmatter ?? {}
+      this.props = Object.fromEntries(Object.entries(data).map(([key, value]) => [key, propertyValue(value)]))
+    }
+    return this.props
+  }
+
+  resolve(target: string): string | null {
+    return this.app.metadata.resolve(target, this.path)
+  }
+
+  linksTo(target: string, subpath?: string): boolean {
+    const { metadata } = this.app
+    if (!subpath) return metadata.resolvedLinks.get(this.path)?.has(target) ?? false
+    const part = subpath.toLowerCase()
+    return (metadata.get(this.path)?.links ?? []).some((link) => link.subpath.toLowerCase() === part && metadata.resolve(link.target, this.path) === target)
+  }
+}
+
 /** A vault file as a value for expressions (`file.name`, `file.hasTag(...)`). */
 export function fileRef(app: App, path: string): FileRef {
-  const { metadata, vault } = app
-  if (cached.generation !== metadata.generation) cached = { generation: metadata.generation, refs: new Map() }
+  if (cached.generation !== app.metadata.generation) cached = { generation: app.metadata.generation, refs: new Map() }
   let ref = cached.refs.get(path)
-  if (ref) return ref
-  let properties: Record<string, unknown> | undefined
-  ref = new FileRef({
-    path,
-    // Size and times are read when asked for, so they are current even for a cached value.
-    get size() {
-      return vault.get(path)?.size ?? 0
-    },
-    get ctime() {
-      return vault.get(path)?.ctime ?? 0
-    },
-    get mtime() {
-      return vault.get(path)?.mtime ?? 0
-    },
-    tags: () => metadata.get(path)?.tags ?? [],
-    links: () => (metadata.get(path)?.links ?? []).map((link) => new Link(link.target)),
-    backlinks: () => [...metadata.backlinks(path).keys()].map((source) => new Link(source)),
-    properties: () => {
-      if (!properties) {
-        const data = metadata.get(path)?.frontmatter ?? {}
-        properties = Object.fromEntries(Object.entries(data).map(([key, value]) => [key, propertyValue(value)]))
-      }
-      return properties
-    },
-    resolve: (target) => metadata.resolve(target, path),
-    linksTo: (target, subpath) => {
-      if (!subpath) return metadata.resolvedLinks.get(path)?.has(target) ?? false
-      const part = subpath.toLowerCase()
-      return (metadata.get(path)?.links ?? []).some((link) => link.subpath.toLowerCase() === part && metadata.resolve(link.target, path) === target)
-    },
-  })
-  cached.refs.set(path, ref)
+  if (!ref) cached.refs.set(path, (ref = new FileRef(new VaultFileInfo(app, path))))
   return ref
 }

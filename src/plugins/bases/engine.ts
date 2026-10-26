@@ -82,9 +82,55 @@ const SUMMARIES: Record<string, Summary> = {
 
 const SUMMARY_NAMES = ['Sum', 'Average', 'Min', 'Max', 'Median', 'Range', 'Count', 'Filled', 'Empty', 'Unique', 'Checked', 'Unchecked']
 
+/** What every record of one base shares. */
+interface RowSource {
+  app: App
+  /** The note containing the base; `this` in expressions. */
+  self: expr.FileRef
+  formulas(scope: expr.Scope): Record<string, unknown>
+}
+
+/**
+ * One file as a record. A vault has tens of thousands of files and a filter mostly looks at one thing of each
+ * (its folder, a tag): the file's value, its properties and formulas are made only when something asks for them.
+ * The record is its own scope for expressions, where a bare name is a property of the note.
+ */
+class FileRow implements Row, expr.Scope {
+  private fileValue: expr.FileRef | undefined
+  private propsValue: Record<string, unknown> | undefined
+  private names: Record<string, unknown> | undefined
+
+  constructor(
+    readonly path: string,
+    private source: RowSource,
+  ) {}
+
+  get file(): expr.FileRef {
+    return (this.fileValue ??= fileRef(this.source.app, this.path))
+  }
+
+  get props(): Record<string, unknown> {
+    return (this.propsValue ??= this.file.info.properties())
+  }
+
+  get scope(): expr.Scope {
+    return this
+  }
+
+  get(name: string): unknown {
+    this.names ??= { file: this.file, note: this.props, formula: this.source.formulas(this), this: this.source.self }
+    return Object.hasOwn(this.names, name) ? this.names[name] : Object.hasOwn(this.props, name) ? this.props[name] : undefined
+  }
+}
+
 /** Turns a base's configuration into rows: applies filters, formulas, sorting and grouping. */
 export class BaseEngine {
-  private all: Row[]
+  /**
+   * The vault's files as they were when the base was worked out. Their records are made for each query and
+   * only those it keeps live on: a base is kept for a while after it is shown, and with it every record it holds.
+   */
+  private files: string[]
+  private source: RowSource
 
   constructor(
     private app: App,
@@ -92,36 +138,8 @@ export class BaseEngine {
     /** The note containing the base; `this` in expressions. */
     private sourcePath: string,
   ) {
-    const self = fileRef(app, sourcePath)
-    this.all = app.vault.files().map((entry) => this.row(entry.path, self))
-  }
-
-  /**
-   * One file as a record. A vault has tens of thousands of files and a filter mostly looks at one thing of each
-   * (its folder, a tag): the file's value, its properties and formulas are made only when something asks for them.
-   */
-  private row(path: string, self: expr.FileRef): Row {
-    const { app } = this
-    let file: expr.FileRef | undefined
-    let props: Record<string, unknown> | undefined
-    let names: Record<string, unknown> | undefined
-    const row: Row = {
-      path,
-      get file() {
-        return (file ??= fileRef(app, path))
-      },
-      get props() {
-        return (props ??= row.file.info.properties())
-      },
-      // A bare name is a property of the note.
-      scope: {
-        get: (name) => {
-          names ??= { file: row.file, note: row.props, formula: this.formulas(() => row.scope), this: self }
-          return Object.hasOwn(names, name) ? names[name] : Object.hasOwn(row.props, name) ? row.props[name] : undefined
-        },
-      },
-    }
-    return row
+    this.source = { app, self: fileRef(app, sourcePath), formulas: (scope) => this.formulas(() => scope) }
+    this.files = app.vault.files().map((entry) => entry.path)
   }
 
   /** `formula.<name>` for one row: each formula is computed when first read. */
@@ -213,7 +231,7 @@ export class BaseEngine {
       )
     }
 
-    let rows = this.all.filter((row) => matches(this.config.filters, row) && matches(view.filters, row))
+    let rows = this.files.map((path): Row => new FileRow(path, this.source)).filter((row) => matches(this.config.filters, row) && matches(view.filters, row))
     const sort = Array.isArray(view.sort) ? view.sort.filter((rule) => rule?.property) : []
     // Without an explicit sort, rows go by name so the order is stable.
     rows.sort((a, b) => {

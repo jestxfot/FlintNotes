@@ -2,6 +2,7 @@ import type { ExternalPluginInfo, RemoteEvent, VaultEntry, VaultInfo } from '../
 import { desktop } from './desktop'
 import { Events } from './events'
 import { join } from './path'
+import { pause } from './pause'
 
 export type { VaultEntry, VaultInfo }
 
@@ -332,7 +333,7 @@ export class Vault extends Events<VaultEvents> {
         // Megabytes of notes can arrive at once. Pausing every few milliseconds
         // lets the page answer clicks and typing while they are processed.
         if (performance.now() - sliceStart > 8) {
-          await new Promise((resume) => setTimeout(resume))
+          await pause()
           sliceStart = performance.now()
         }
       }

@@ -256,7 +256,10 @@ function createWindow(): BrowserWindow {
     // No frame of the system's: the bar of tabs is the title bar, and the system's buttons lie over its right end.
     titleBarStyle: 'hidden',
     titleBarOverlay: { ...colors, height: 40 },
-    webPreferences: { preload: PRELOAD, contextIsolation: true, sandbox: true, nodeIntegration: false, spellcheck: true, backgroundThrottling: false },
+    // A window in the tray, minimised or covered draws nothing: an animated picture in a note would
+    // otherwise go on being decoded frame by frame (a GIF of 50 MB took half a processor core).
+    // Reminders keep their time there all the same: their clock runs on a worker (tasks/reminders.ts).
+    webPreferences: { preload: PRELOAD, contextIsolation: true, sandbox: true, nodeIntegration: false, spellcheck: true },
   })
   if (state.maximized) window.maximize()
   // Started with Windows, the app waits in the tray; the page loads all the same, for the reminders.
