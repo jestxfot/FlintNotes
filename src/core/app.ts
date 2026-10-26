@@ -658,6 +658,22 @@ export class App {
       const def = this.panels.get(id)
       if (!def) return
       add({ icon: 'panel-top', title: 'Открыть во вкладке', onClick: () => this.workspace.openView(`panel-${id}`, def.title) })
+      // A sidebar holds any number of blocks one under another, each with its row of widgets.
+      const at = this.panels.where(id)
+      if (at) {
+        const place = at.blocks.indexOf(at.block)
+        const above = at.blocks[place - 1]
+        const below = at.blocks[place + 1]
+        const end = (block: number) => this.panels.groups(at.side).find((group) => group.index === block)?.entries.length ?? 0
+        if (at.mates > 1) {
+          add({ section: 'edit', icon: 'between-horizontal-start', title: 'Отдельным блоком ниже', onClick: () => this.panels.move(id, at.side, null, at.block + 1) })
+          add({ section: 'edit', icon: 'between-horizontal-end', title: 'Отдельным блоком выше', onClick: () => this.panels.move(id, at.side, null, at.block) })
+        }
+        if (above !== undefined) add({ section: 'edit', icon: 'arrow-up-to-line', title: 'В блок выше', onClick: () => this.panels.move(id, at.side, above, end(above)) })
+        if (below !== undefined) add({ section: 'edit', icon: 'arrow-down-to-line', title: 'В блок ниже', onClick: () => this.panels.move(id, at.side, below, end(below)) })
+        const other = at.side === 'left' ? 'right' : 'left'
+        add({ section: 'edit', icon: other === 'left' ? 'panel-left' : 'panel-right', title: other === 'left' ? 'В левую панель' : 'В правую панель', onClick: () => (this.panels.move(id, other, null, this.panels.groups(other).length ? Math.max(...this.panels.groups(other).map((group) => group.index)) + 1 : 0), this.panels.reveal(id)) })
+      }
       add({ icon: 'eye-off', title: 'Убрать из боковой панели', onClick: () => this.panels.setHidden(id, true) })
     })
     // Finding in the open note: the keys work in the editor itself; the commands are for the palette, menus and buttons.

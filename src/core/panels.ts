@@ -132,6 +132,15 @@ export class Panels extends Events<PanelEvents> {
     return this.locate(id)?.side
   }
 
+  /** Where a widget stands: its sidebar, the place of its block among the blocks shown there, and how many widgets share the block. */
+  where(id: string): { side: Side; block: number; blocks: number[]; mates: number } | undefined {
+    const found = this.locate(id)
+    if (!found) return undefined
+    const blocks = this.groups(found.side).map((group) => group.index)
+    const block = this.layout[found.side].indexOf(found.group)
+    return { side: found.side, block, blocks, mates: this.groups(found.side).find((group) => group.index === block)?.entries.length ?? 1 }
+  }
+
   /** The blocks of a sidebar, top to bottom, with the widgets that exist right now. */
   groups(side: Side): PanelGroup[] {
     return this.layout[side]

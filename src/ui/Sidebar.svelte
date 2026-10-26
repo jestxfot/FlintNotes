@@ -17,8 +17,8 @@
   const total = watch(app.panels, ['change'], () => app.panels.count())
   // svelte-ignore state_referenced_locally
   let width = $state(app.state.get(`sidebar-${side}`, DEFAULT[side]))
-  /** Where the dragged widget would land: a block, or a gap between blocks. */
-  let target = $state<{ group: number | null; at: number } | null>(null)
+  /** Where the dragged widget would land: a block, or a new block at `at`; `edge` is the half of a block the new one is shown over. */
+  let target = $state<{ group: number | null; at: number; edge?: { group: number; after: boolean } } | null>(null)
 
   function mountPanel(node: HTMLElement, panel: PanelDef) {
     const off = panel.mount(node)
@@ -35,11 +35,23 @@
     return index < 0 ? tabs.length : index
   }
 
-  function over(event: DragEvent, group: number | null, at: number) {
+  function over(event: DragEvent, group: number | null, at: number, edge?: { group: number; after: boolean }) {
     if (!drag.panel && !drag.note) return
     event.preventDefault()
     event.stopPropagation()
-    target = { group, at }
+    target = { group, at, edge }
+  }
+
+  /**
+   * Over a widget: its lower part makes the dragged one a block of its own below it, its upper edge a block
+   * above it, the middle puts it among the block's tabs. So a sidebar holds any number of blocks, one under another.
+   */
+  function overPanel(event: DragEvent, group: { index: number; entries: unknown[] }) {
+    const box = (event.currentTarget as HTMLElement).getBoundingClientRect()
+    const y = (event.clientY - box.top) / box.height
+    if (y > 0.65) over(event, null, group.index + 1, { group: group.index, after: true })
+    else if (y < 0.15) over(event, null, group.index, { group: group.index, after: false })
+    else over(event, group.index, group.entries.length)
   }
 
   function drop(event: DragEvent) {
@@ -90,12 +102,18 @@
     <!-- While a widget is dragged, the gaps between blocks accept it as a block of its own. -->
     <div
       class="gap"
-      class:over={target?.group === null && target.at === group.index}
+      class:over={target?.group === null && !target.edge && target.at === group.index}
       role="presentation"
       ondragover={(event) => over(event, null, group.index)}
       ondrop={drop}
     ></div>
-    <section class="group" class:compact={activeDef?.compact} class:over={target?.group === group.index}>
+    <section
+      class="group"
+      class:compact={activeDef?.compact}
+      class:over={target?.group === group.index}
+      class:split-before={target?.edge?.group === group.index && !target.edge.after}
+      class:split-after={target?.edge?.group === group.index && target.edge.after}
+    >
       <!-- A lone widget needs no tabs: with no plugins enabled the sidebar is just the file list. -->
       {#if total.current > 1}
         <div
@@ -144,15 +162,16 @@
           tabindex="-1"
           hidden={def.id !== group.active}
           use:mountPanel={def}
-          ondragover={(event) => over(event, group.index, group.entries.length)}
+          ondragover={(event) => overPanel(event, group)}
           ondrop={drop}
         ></div>
       {/each}
     </section>
     {#if i === groups.current.length - 1}
+      <!-- The room left below the last block takes a dragged widget as a new block at the bottom. -->
       <div
-        class="gap"
-        class:over={target?.group === null && target.at === group.index + 1}
+        class="gap last"
+        class:over={target?.group === null && !target.edge && target.at === group.index + 1}
         role="presentation"
         ondragover={(event) => over(event, null, group.index + 1)}
         ondrop={drop}
@@ -322,10 +341,49 @@
     border-radius: var(--radius-s);
   }
 
+  /* Only room nobody else takes: below compact widgets; widgets that fill the sidebar keep their height. */
+  .dragging .gap.last {
+    flex: 0.001 0 14px;
+    margin-bottom: 6px;
+  }
+
+  .gap.last.over {
+    border: 2px dashed var(--accent);
+    background: color-mix(in srgb, var(--accent) 14%, transparent);
+    opacity: 1;
+  }
+
   .gap.over,
   .empty.over {
     background: var(--accent);
     opacity: 0.35;
+  }
+
+  /* The half of a block where a new block would come: over it, the dragged widget stands on its own. */
+  .group {
+    position: relative;
+  }
+
+  .group.split-before::after,
+  .group.split-after::after {
+    content: '';
+    position: absolute;
+    right: 4px;
+    left: 4px;
+    z-index: 5;
+    height: 45%;
+    border: 2px dashed var(--accent);
+    border-radius: var(--radius-m);
+    background: color-mix(in srgb, var(--accent) 14%, transparent);
+    pointer-events: none;
+  }
+
+  .group.split-before::after {
+    top: 4px;
+  }
+
+  .group.split-after::after {
+    bottom: 4px;
   }
 
   .empty {
