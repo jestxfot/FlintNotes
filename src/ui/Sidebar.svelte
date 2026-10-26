@@ -15,6 +15,8 @@
   // svelte-ignore state_referenced_locally (a sidebar keeps its side for life)
   const groups = watch(app.panels, ['change'], () => app.panels.groups(side))
   const total = watch(app.panels, ['change'], () => app.panels.count())
+  /** Every block is as tall as its widget (a calendar): the room below them is free to drop a widget into. */
+  const roomBelow = $derived(groups.current.every((group) => group.entries.find((entry) => entry.def.id === group.active)?.def.compact))
   // svelte-ignore state_referenced_locally
   let width = $state(app.state.get(`sidebar-${side}`, DEFAULT[side]))
   /** Where the dragged widget would land: a block, or a new block at `at`; `edge` is the half of a block the new one is shown over. */
@@ -171,6 +173,7 @@
       <!-- The room left below the last block takes a dragged widget as a new block at the bottom. -->
       <div
         class="gap last"
+        class:fill={roomBelow}
         class:over={target?.group === null && !target.edge && target.at === group.index + 1}
         role="presentation"
         ondragover={(event) => over(event, null, group.index + 1)}
@@ -341,10 +344,13 @@
     border-radius: var(--radius-s);
   }
 
-  /* Only room nobody else takes: below compact widgets; widgets that fill the sidebar keep their height. */
   .dragging .gap.last {
-    flex: 0.001 0 14px;
     margin-bottom: 6px;
+  }
+
+  /* Below compact widgets the room left is free: it takes a dragged widget as a block at the bottom. */
+  .dragging .gap.last.fill {
+    flex: 1 0 14px;
   }
 
   .gap.last.over {

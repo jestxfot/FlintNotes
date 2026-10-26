@@ -35,25 +35,27 @@ export async function run(t) {
     return shown
   }
 
+  // The calendar on top takes only its own height: the room below it, down to the bottom of the sidebar, takes a widget.
+  await tab('Календарь').click()
+  await wait(300)
+  const bottom = async () => {
+    const box = await right.boundingBox()
+    return { x: box.x + box.width / 2, y: box.y + box.height - 70 }
+  }
+  const shownBelow = await dragTo(tab('Задачи'), bottom)
+  let now = await blocks()
+  ok('the room below a compact widget, down to the bottom, takes a widget as a new block there', shownBelow === 1 && now.length === 2 && now[1] === 'Задачи', JSON.stringify(now))
+
   await tab('Оглавление').click()
   await wait(300)
-  const panelBox = async () => {
+  const lowerPart = async () => {
     const box = await right.locator('.group').first().boundingBox()
     return { x: box.x + box.width / 2, y: box.y + box.height * 0.85 }
   }
-  const previewed = await dragTo(tab('Календарь'), panelBox)
+  const previewed = await dragTo(tab('Календарь'), lowerPart)
   ok('over the lower part of a block, the place of a new block is shown', previewed === 1)
-  let now = await blocks()
-  ok('dropped there, the widget is a block of its own below', now.length === 2 && now[1] === 'Календарь', JSON.stringify(now))
-
-  // Into the room below the last block (the calendar takes only its own height).
-  const below = async () => {
-    const box = await right.locator('.gap.last').boundingBox()
-    return { x: box.x + box.width / 2, y: box.y + box.height / 2 }
-  }
-  await dragTo(tab('Задачи'), below)
   now = await blocks()
-  ok('the room below the blocks takes a widget as a new block at the bottom', now.length === 3 && now[2] === 'Задачи', JSON.stringify(now))
+  ok('dropped there, the widget is a block of its own below', now.length === 3 && now[1] === 'Календарь', JSON.stringify(now))
 
   // From the menu of a widget's icon.
   await tab('Обратные ссылки').click({ button: 'right' })

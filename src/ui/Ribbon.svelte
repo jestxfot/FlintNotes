@@ -4,9 +4,21 @@
 
   /** A strip along an edge of the window: buttons at its top, and at its bottom. */
   let { side, floating = false }: { side: 'left' | 'right'; /** Shown over the page, taking no room of its own: a strip that is there only to be dropped on. */ floating?: boolean } = $props()
+
+  // A strip that is there only to be dropped on is a thin line at the edge until something is brought to it,
+  // so it does not lie over the sidebar beside it.
+  let near = $state(false)
+  let el = $state<HTMLElement>()
+  function leave(event: DragEvent) {
+    const box = el?.getBoundingClientRect()
+    if (!box || event.clientX < box.left || event.clientX >= box.right || event.clientY < box.top || event.clientY >= box.bottom) near = false
+  }
+  $effect(() => {
+    if (!drag.button && !drag.note && !drag.panel) near = false
+  })
 </script>
 
-<div class="ribbon {side}" class:floating class:dragging={!!(drag.button || drag.note || drag.panel)}>
+<div bind:this={el} class="ribbon {side}" class:floating class:near class:dragging={!!(drag.button || drag.note || drag.panel)} role="presentation" ondragenter={() => (near = true)} ondragover={() => (near = true)} ondragleave={leave}>
   <div class="start"><Toolbar place={side === 'left' ? 'left-ribbon' : 'right-ribbon'} vertical /></div>
   <div class="end"><Toolbar place={side === 'left' ? 'left-ribbon-end' : 'right-ribbon-end'} vertical /></div>
 </div>
@@ -69,6 +81,15 @@
     top: 0;
     bottom: 0;
     z-index: 40;
+    width: 10px;
+    overflow: hidden;
+    opacity: 0.8;
+    transition: width 0.12s, opacity 0.12s;
+  }
+
+  .ribbon.floating.near {
+    width: 44px;
+    opacity: 1;
     box-shadow: 0 0 18px rgb(0 0 0 / 0.28);
   }
 
