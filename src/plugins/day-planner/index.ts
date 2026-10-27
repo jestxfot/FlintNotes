@@ -1,4 +1,4 @@
-import { errorMessage, moment, path as paths, Plugin, renderInline, type Moment } from '../../api'
+import { errorMessage, moment, path as paths, Plugin, renderInline, whenQuiet, type Moment } from '../../api'
 import './style.css'
 
 const PANEL = 'day-planner'
@@ -587,11 +587,8 @@ export default class DayPlanner extends Plugin {
         }
 
         draw()
-        let later: ReturnType<typeof setTimeout> | undefined
-        const soon = () => {
-          clearTimeout(later)
-          later = setTimeout(draw, 150)
-        }
+        // The plan follows its note (today's, usually the one being typed in) once the typing stops, not at each pause in it.
+        const soon = whenQuiet(draw, 150)
         const offs = [app.metadata.on('changed', (file) => shown.has(file) && soon()), app.vault.on('create', soon), app.vault.on('delete', soon), app.settings.on('change', (scope) => scope === this.manifest.id && draw())]
         // The needle moves, and at midnight "today" becomes another day.
         const timer = setInterval(() => {
@@ -602,7 +599,7 @@ export default class DayPlanner extends Plugin {
         const seen = new IntersectionObserver((entries) => entries.some((entry) => entry.isIntersecting) && !scrolled && draw())
         seen.observe(root)
         return () => {
-          clearTimeout(later)
+          soon.cancel()
           clearInterval(timer)
           seen.disconnect()
           offs.forEach((off) => off())
@@ -630,7 +627,9 @@ export default class DayPlanner extends Plugin {
     tell()
     const ticking = setInterval(tell, 30_000)
     this.register(() => clearInterval(ticking))
-    this.register(app.metadata.on('changed', (file) => file === noteOf(moment()) && tell()))
+    const tellSoon = whenQuiet(tell)
+    this.register(tellSoon.cancel)
+    this.register(app.metadata.on('changed', (file) => file === noteOf(moment()) && tellSoon()))
     this.onSettingChange(tell)
 
     this.addCommand({ id: 'add-block', name: 'Добавить блок в план на сегодня', icon: 'calendar-plus', scope: 'vault', callback: () => void addBlock(moment().startOf('day'), Math.ceil((moment().hour() * 60 + moment().minute()) / 10) * 10) })

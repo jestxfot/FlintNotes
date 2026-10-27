@@ -1,6 +1,6 @@
 <script lang="ts">
   import { onMount } from 'svelte'
-  import { errorMessage, moment, renderInline, watch, type App, type Moment, type Plugin } from '../../api'
+  import { errorMessage, moment, renderInline, watch, whenQuiet, type App, type Moment, type Plugin } from '../../api'
   import type { PeriodicNotes } from './periodic'
 
   let { app, plugin, notes }: { app: App; plugin: Plugin; notes: PeriodicNotes } = $props()
@@ -348,11 +348,8 @@
     const timer = setInterval(() => {
       if (!moment().isSame(today, 'day')) today = moment().startOf('day')
     }, 60_000)
-    let later: ReturnType<typeof setTimeout> | undefined
-    const soon = () => {
-      clearTimeout(later)
-      later = setTimeout(() => written++, 150)
-    }
+    // Not while a daily note is being typed in: the board follows once the typing stops.
+    const soon = whenQuiet(() => written++, 150)
     const offs = [app.metadata.on('changed', (path) => notes.dateOf('daily', path) && soon()), app.metadata.on('resolved', soon)]
     // The Tasks plugin may be turned on after the calendar was opened.
     let offTasks: (() => void) | undefined
@@ -364,7 +361,7 @@
     return () => {
       clearInterval(timer)
       clearInterval(waiting)
-      clearTimeout(later)
+      soon.cancel()
       offs.forEach((off) => off())
       offTasks?.()
     }

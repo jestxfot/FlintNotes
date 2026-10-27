@@ -142,16 +142,28 @@ button {
 }
 
 .leaf {
-  position: relative;
-  height: 100%;
+  position: absolute;
+  inset: 0;
   overflow: hidden;
 }
 
-/* What a tab shows; a tab holds exactly one of these at a time. */
+/* What a tab shows; a tab shows exactly one of these at a time (others are views kept to go back to, out of sight). */
 .leaf-view {
-  position: relative;
-  height: 100%;
+  position: absolute;
+  inset: 0;
   overflow: auto;
+}
+
+/*
+ * A tab out of sight, and a view kept in a tab to go back to, are not drawn but stay laid out: coming back to
+ * them shows the page as it was, instead of the browser working out the whole note again (tens of milliseconds
+ * for a long note with lists and tables). Each fills the same place whether shown or not, so that nothing about
+ * its box changes when it is shown.
+ */
+.leaf[hidden],
+.leaf-view[hidden] {
+  display: block;
+  content-visibility: hidden;
 }
 
 .leaf-message,

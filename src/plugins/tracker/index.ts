@@ -1,6 +1,6 @@
 import { Chart, registerables } from 'chart.js'
 import { parse } from 'yaml'
-import { errorMessage, moment, Plugin, renderInline, type CodeBlockProcessor } from '../../api'
+import { errorMessage, moment, Plugin, renderInline, whenQuiet, type CodeBlockProcessor } from '../../api'
 import { collect, days, stats, type Dataset, type TrackerSpec } from './collect'
 import './style.css'
 
@@ -185,11 +185,8 @@ export default class Tracker extends Plugin {
           error.textContent = `tracker: ${errorMessage(err)}`
         }
       }
-      let timer: ReturnType<typeof setTimeout> | undefined
-      const later = () => {
-        clearTimeout(timer)
-        timer = setTimeout(draw, 400)
-      }
+      // Not while a note is being typed in: each pause in the typing saves it, and the tracker follows once the typing stops.
+      const later = whenQuiet(draw, 400)
       const offs = [app.metadata.on('changed', later), app.metadata.on('resolved', later)]
       requestAnimationFrame(draw)
       return {
@@ -199,7 +196,7 @@ export default class Tracker extends Plugin {
           draw()
         },
         destroy() {
-          clearTimeout(timer)
+          later.cancel()
           offs.forEach((off) => off())
           charts.forEach((made) => made.destroy())
         },

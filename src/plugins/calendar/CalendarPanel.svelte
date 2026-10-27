@@ -1,6 +1,6 @@
 <script lang="ts">
   import { onMount } from 'svelte'
-  import { moment, watch, type App, type Moment, type Plugin } from '../../api'
+  import { moment, watch, whenQuiet, type App, type Moment, type Plugin } from '../../api'
   import type { PeriodicNotes } from './periodic'
 
   let { app, plugin, notes }: { app: App; plugin: Plugin; notes: PeriodicNotes } = $props()
@@ -79,12 +79,15 @@
     const timer = setInterval(() => {
       if (!moment().isSame(today, 'day')) today = moment().startOf('day')
     }, 60_000)
-    // Other notes change all the time while typing; only daily notes matter here.
+    // Other notes change all the time while typing; only daily notes matter here, and the month follows
+    // once the typing stops (a daily note is saved at every pause in it).
+    const soon = whenQuiet(() => written++)
     const off = app.metadata.on('changed', (path) => {
-      if (notes.dateOf('daily', path)) written++
+      if (notes.dateOf('daily', path)) soon()
     })
     return () => {
       clearInterval(timer)
+      soon.cancel()
       off()
     }
   })

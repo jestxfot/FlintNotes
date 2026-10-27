@@ -1,4 +1,4 @@
-import { errorMessage, path as paths, Plugin } from '../../api'
+import { errorMessage, path as paths, Plugin, whenQuiet } from '../../api'
 import './style.css'
 
 const PANEL = 'recent-files'
@@ -30,6 +30,8 @@ export default class RecentFiles extends Plugin {
   private data: RecentData = { recentFiles: [], omittedPaths: [], omittedTags: [], updateOn: 'file-open', omitBookmarks: false }
   private saving: ReturnType<typeof setTimeout> | undefined
   private redraw = new Set<() => void>()
+  /** The list is drawn again once the note opened is on the screen: going to a note does not wait for it. */
+  private drawSoon = whenQuiet(() => this.redraw.forEach((draw) => draw()), 0)
 
   private get file(): string {
     const config = this.app.obsidianConfig
@@ -56,23 +58,24 @@ export default class RecentFiles extends Plugin {
     ])
     await this.read()
     this.register(() => clearTimeout(this.saving))
+    this.register(this.drawSoon.cancel)
 
     // ---- what goes into the list
-    const take = (file: string) => {
+    const take = (file: string, later = false) => {
       if (!app.vault.get(file) || this.omitted(file)) return
       const list = this.data.recentFiles.filter((entry) => entry.path !== file)
       list.unshift({ basename: paths.stripExt(paths.basename(file)), path: file })
       this.data.recentFiles = list.slice(0, this.length())
-      this.changed()
+      this.changed(later)
     }
     this.register(
       app.workspace.on('active-change', (leaf) => {
-        if (leaf && !leaf.path.startsWith('view:') && this.getSetting<string>('updateOn') !== 'file-edit') take(leaf.path)
+        if (leaf && !leaf.path.startsWith('view:') && this.getSetting<string>('updateOn') !== 'file-edit') take(leaf.path, true)
         // The mark of the open note moves even when the list itself stays as it was.
-        this.redraw.forEach((draw) => draw())
+        this.drawSoon()
       }),
     )
-    this.register(app.vault.on('written', (entry) => this.getSetting<string>('updateOn') === 'file-edit' && take(entry.path)))
+    this.register(app.vault.on('written', (entry) => this.getSetting<string>('updateOn') === 'file-edit' && take(entry.path, true)))
     this.register(
       app.vault.on('rename', (entry, from) => {
         const found = this.data.recentFiles.find((item) => item.path === from)
@@ -195,9 +198,11 @@ export default class RecentFiles extends Plugin {
     this.changed()
   }
 
-  private changed(): void {
+  /** The list changed; `later` when it changed by going to a note or typing in one, which the list must not hold up. */
+  private changed(later = false): void {
     this.data.recentFiles = this.data.recentFiles.slice(0, this.length())
-    this.redraw.forEach((draw) => draw())
+    if (later) this.drawSoon()
+    else this.redraw.forEach((draw) => draw())
     clearTimeout(this.saving)
     this.saving = setTimeout(() => void this.write(), 800)
   }

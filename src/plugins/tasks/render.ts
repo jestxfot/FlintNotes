@@ -1,4 +1,4 @@
-import { path as paths, plural, renderInline, type App, type CodeBlockProcessor } from '../../api'
+import { path as paths, plural, renderInline, whenQuiet, type App, type CodeBlockProcessor } from '../../api'
 import { drawCalendar, type CalendarState } from './calendar'
 import { shortDate, today } from './dates'
 import { daysChip } from './days-left'
@@ -95,7 +95,7 @@ export const tasksProcessor =
 
     const draw = () => {
       // Nothing is worked out for a list that is not on screen; it catches up when it is.
-      if (!el.isConnected || el.offsetParent === null) {
+      if (!el.isConnected || !el.checkVisibility()) {
         stale = true
         return
       }
@@ -164,7 +164,10 @@ export const tasksProcessor =
 
     // The element is not in the page yet while the block is being created.
     requestAnimationFrame(draw)
-    const off = store.on('change', draw)
+    // The tasks of the note being typed in change at every pause in the typing (their lines move): the list
+    // follows once the typing stops, not between two letters.
+    const soon = whenQuiet(draw)
+    const off = store.on('change', soon)
     const visible = new IntersectionObserver((entries) => {
       if (stale && entries.some((entry) => entry.isIntersecting)) draw()
     })
@@ -177,6 +180,7 @@ export const tasksProcessor =
       },
       destroy() {
         off()
+        soon.cancel()
         visible.disconnect()
       },
     }

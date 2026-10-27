@@ -6,10 +6,13 @@
   let { app, selection }: { app: App; selection: TagSelection } = $props()
 
   const collator = new Intl.Collator(undefined, { numeric: true, sensitivity: 'base' })
+  let root: HTMLElement
   // svelte-ignore state_referenced_locally (props of a panel are set once, when it is mounted)
-  const tags = watch(app.metadata, ['resolved'], () =>
-    app.metadata.tags().sort((a, b) => collator.compare(a.tag, b.tag)),
-  )
+  const tags = watch(app.metadata, ['resolved'], () => app.metadata.tags().sort((a, b) => collator.compare(a.tag, b.tag)), {
+    // Out of sight, the list waits; it is made again when it comes into sight, and not while a note is being typed in.
+    quiet: true,
+    shown: () => root,
+  })
   // svelte-ignore state_referenced_locally (props of a panel are set once, when it is mounted)
   const selected = watch(selection, ['change'], () => selection.selected)
   const expanded = new SvelteSet<string>()
@@ -29,7 +32,7 @@
   const title = (file: string) => path.stripExt(path.basename(file))
 </script>
 
-<div class="tags">
+<div class="tags" bind:this={root}>
   {#each tags.current as { tag, files } (key(tag))}
     {@const look = icons.current && app.icons.look('tag', tag)}
     <button class="tag" class:selected={selected.current === key(tag)} onclick={() => toggle(tag)} oncontextmenu={(event) => app.menus.show(event, 'tag', tag)}>

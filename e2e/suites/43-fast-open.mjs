@@ -127,7 +127,8 @@ export async function run(t) {
   await wait(800)
   ok('a note changed elsewhere meanwhile comes back with its new text', (await t.text()).includes('Изменено снаружи'), await t.text())
   await t.open('B')
-  const parked = () => page.evaluate(() => document.querySelector('.parked-views').childElementCount)
+  // Views kept to go back to: out of sight in their tab, or out of the page once their tab is closed.
+  const parked = () => page.evaluate(() => document.querySelectorAll('.leaf > .leaf-view[hidden], .parked-views > .leaf-view').length)
   const before = await parked()
   await page.evaluate(() => app.vault.trash('A.md'))
   await wait(500)

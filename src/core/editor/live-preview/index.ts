@@ -343,7 +343,30 @@ export class LivePreview {
 
   /** Redraws the elements, for renderers whose output depends on more than the text. */
   refresh(): void {
-    this.app.editor.each((editor) => editor.dispatch({ effects: refresh.of(null) }))
+    this.app.editor.each((editor) => {
+      // An editor out of sight (a tab behind others, a note kept to go back to) redraws when it comes into sight:
+      // redrawn now, it would have the browser lay out its whole hidden page for nothing.
+      if (editor.dom.checkVisibility()) editor.dispatch({ effects: refresh.of(null) })
+      else this.whenSeen(editor)
+    })
+  }
+
+  private unseen = new WeakSet<EditorView>()
+  private seen: IntersectionObserver | null = null
+
+  private whenSeen(editor: EditorView): void {
+    if (this.unseen.has(editor)) return
+    this.unseen.add(editor)
+    this.seen ??= new IntersectionObserver((entries) => {
+      for (const { target, isIntersecting } of entries) {
+        if (!isIntersecting && target.isConnected) continue
+        this.seen!.unobserve(target)
+        const view = EditorView.findFromDOM(target as HTMLElement)
+        if (!view || !this.unseen.delete(view) || !target.isConnected) continue
+        view.dispatch({ effects: refresh.of(null) })
+      }
+    })
+    this.seen.observe(editor.dom)
   }
 
   /** The block and its processor if `node` is a code block currently shown as UI. */
@@ -463,13 +486,20 @@ export class LivePreview {
           this.decorations = buildInline(view, this.font)
         }
         update(update: ViewUpdate) {
-          if (update.geometryChanged) this.font = fontOf(update.view)
+          // The editor measured itself anew (it does after most keys typed: a line grew): what is drawn depends on it
+          // only through the font, for lists lined up by the width of their markers.
+          let fontChanged = false
+          if (update.geometryChanged) {
+            const font = fontOf(update.view)
+            fontChanged = font.font !== this.font.font || font.em !== this.font.em
+            this.font = font
+          }
           if (
             update.docChanged ||
             update.viewportChanged ||
             update.selectionSet ||
             treeChanged(update.startState, update.state) ||
-            update.geometryChanged ||
+            fontChanged ||
             update.transactions.some((tr) => tr.effects.some((effect) => effect.is(refresh)))
           ) {
             this.decorations = buildInline(update.view, this.font)

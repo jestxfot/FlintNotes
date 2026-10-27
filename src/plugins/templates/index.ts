@@ -51,7 +51,6 @@ export default class Templates extends Plugin {
       },
     })
     this.registerMarkdownSyntax(templateSyntax)
-    this.showCommands()
     this.addSettings([
       { key: 'folder', name: 'Папка с шаблонами', desc: 'Где лежат шаблоны. Их предлагают команды «Вставить шаблон» и «Создать заметку из шаблона»', type: 'text', default: 'Шаблоны' },
       {
@@ -108,6 +107,9 @@ export default class Templates extends Plugin {
       },
     ])
     await this.importFromObsidian(false)
+    // Only now, with the settings known (the folder of scripts among them): a note open already while the plugin
+    // starts works its `<%+ %>` values out at once, and did so before they were, failing on the scripts folder.
+    this.showCommands()
 
     // Cursor marks with the same number become several cursors at once.
     this.registerEditorExtension(cm.state.EditorState.allowMultipleSelections.of(true))

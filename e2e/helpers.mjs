@@ -51,7 +51,8 @@ export function buildVault(dir, { files = {}, plugins = [], settings = {}, exter
 
 /** What a suite's `run` receives: the page, the vault on disk and shortcuts for common steps. */
 export function tools(page, vault, results) {
-  const leaf = '.leaf:not([hidden])'
+  // The view on screen: a tab may also hold views of notes left in it, kept out of sight to go back to.
+  const leaf = '.leaf:not([hidden]) > .leaf-view:not([hidden])'
   const t = {
     page,
     vault,

@@ -292,7 +292,7 @@ export class MarkdownView implements FileView {
     const scroll = () => {
       if (this.destroyed) return
       const scroller = this.editor.scrollDOM
-      if (!scroller.clientHeight) return void (tries++ < 600 && requestAnimationFrame(scroll))
+      if (!scroller.checkVisibility() || !scroller.clientHeight) return void (tries++ < 600 && requestAnimationFrame(scroll))
       const offset = this.editor.documentTop - scroller.getBoundingClientRect().top + scroller.scrollTop
       scroller.scrollTop = Math.ceil(this.editor.lineBlockAt(top).top + offset)
       // Lines above may have been measured anew by this scroll: once more, to land exactly.
@@ -311,7 +311,7 @@ export class MarkdownView implements FileView {
     clearTimeout(this.placeTimer)
     if (this.destroyed || !this.remembering()) return
     const scroller = this.editor.scrollDOM
-    if (!scroller.clientHeight) return
+    if (!scroller.checkVisibility() || !scroller.clientHeight) return
     const { anchor, head } = this.editor.state.selection.main
     const above = scroller.getBoundingClientRect().top - this.editor.documentTop
     // A couple of pixels in: a scroll rounded to whole pixels must not count the line above as the first.

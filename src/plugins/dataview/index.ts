@@ -1,4 +1,4 @@
-import { cm, errorMessage, Plugin, type CodeBlockProcessor, type PreviewRenderer } from '../../api'
+import { cm, errorMessage, Plugin, whenQuiet, type CodeBlockProcessor, type PreviewRenderer } from '../../api'
 import { evaluate } from './evaluate'
 import { runInlineScript, runScript } from './js'
 import { Pages } from './pages'
@@ -31,19 +31,16 @@ export default class Dataview extends Plugin {
     /** Redraws `draw` when the vault changes, but only while the block is on screen. */
     const live = (el: HTMLElement, draw: () => void) => {
       let stale = false
-      let timer: ReturnType<typeof setTimeout> | undefined
       const run = () => {
-        if (!el.isConnected || el.offsetParent === null) {
+        if (!el.isConnected || !el.checkVisibility()) {
           stale = true
           return
         }
         stale = false
         draw()
       }
-      const later = () => {
-        clearTimeout(timer)
-        timer = setTimeout(run, SETTLE)
-      }
+      // Not while a note is being typed in: each pause in the typing saves it, and the block follows once the typing stops.
+      const later = whenQuiet(run, SETTLE)
       // The element is not in the page yet while the block is being created.
       requestAnimationFrame(run)
       const offs = [app.metadata.on('changed', later), app.metadata.on('resolved', later)]
@@ -54,7 +51,7 @@ export default class Dataview extends Plugin {
       return {
         run,
         destroy() {
-          clearTimeout(timer)
+          later.cancel()
           offs.forEach((off) => off())
           visible.disconnect()
         },
@@ -194,17 +191,12 @@ export default class Dataview extends Plugin {
     }
     this.registerPreviewRenderer(inline)
     // Values in the text follow the vault too, if any note on screen has them.
-    let timer: ReturnType<typeof setTimeout> | undefined
-    const refresh = () => {
-      if (!used) return
-      clearTimeout(timer)
-      timer = setTimeout(() => {
-        used = false
-        version++
-        app.livePreview.refresh()
-      }, SETTLE)
-    }
-    this.register(app.metadata.on('changed', refresh))
-    this.register(() => clearTimeout(timer))
+    const redraw = whenQuiet(() => {
+      used = false
+      version++
+      app.livePreview.refresh()
+    }, SETTLE)
+    this.register(app.metadata.on('changed', () => used && redraw()))
+    this.register(redraw.cancel)
   }
 }

@@ -159,11 +159,22 @@ export interface AffectedLinks {
   targets: string[]
 }
 
+/** What changed when the maps of links and tags were last brought up to date. */
+export interface Resolution {
+  /**
+   * The notes whose links, tags, aliases, headings or properties changed; `null` when it may be any of them
+   * (the notes were read at startup, or files came, went or were renamed).
+   */
+  notes: ReadonlySet<string> | null
+  /** Whether files came, went or were renamed, so that a link written somewhere may now lead elsewhere. */
+  names: boolean
+}
+
 type MetadataEvents = {
   /** A note was (re)parsed. */
   changed: [path: string]
   /** Links, backlinks and tags are up to date again. */
-  resolved: []
+  resolved: [what: Resolution]
   /** A file was renamed; `affected` lists the links that pointed at its old path. */
   renamed: [path: string, oldPath: string, affected: AffectedLinks[]]
 }
@@ -477,7 +488,58 @@ export class MetadataCache extends Events<MetadataEvents> {
     this.cache.set(path, meta)
     this.remember(path)
     this.trigger('changed', path)
-    if (!this.loading && (!before || signature(before) !== signature(meta))) this.rebuild()
+    if (!this.loading && (!before || signature(before) !== signature(meta))) this.relink(path, before, meta)
+  }
+
+  /**
+   * One note's links and tags are taken out of the maps and put in again as they are now: a link typed, a tag added
+   * costs the links of that note, not those of the whole vault. Which file a link leads to does not change with that
+   * (only files coming, going and renamed change it), so nothing else needs working out again.
+   */
+  private relink(path: string, before: CachedMetadata | undefined, meta: CachedMetadata): void {
+    // A note new to the index is a name that other notes' links may have been waiting for.
+    if (this.namesStale || !before) return this.rebuild()
+    this.generation++
+    this.unlink(path, before)
+    this.link(path, meta)
+    this.trigger('resolved', { notes: new Set([path]), names: false })
+  }
+
+  /** Puts what a note says (its links and its tags) into the maps. */
+  private link(source: string, meta: CachedMetadata): void {
+    for (const link of meta.links) {
+      const dest = this.resolve(link.target, source)
+      if (dest) {
+        count(this.resolvedLinks, source, dest)
+        count(this.backlinkIndex, dest, source)
+      } else {
+        count(this.unresolvedLinks, source, this.expandTarget(link.target, source))
+      }
+    }
+    for (const tag of meta.tags) {
+      const key = tag.toLowerCase()
+      const entry = this.tagIndex.get(key)
+      if (entry) entry.files.push(source)
+      else this.tagIndex.set(key, { tag, files: [source] })
+    }
+  }
+
+  /** Takes what a note said (as `meta` has it) out of the maps. */
+  private unlink(source: string, meta: CachedMetadata | undefined): void {
+    for (const dest of this.resolvedLinks.get(source)?.keys() ?? []) {
+      const sources = this.backlinkIndex.get(dest)
+      sources?.delete(source)
+      if (sources && !sources.size) this.backlinkIndex.delete(dest)
+    }
+    this.resolvedLinks.delete(source)
+    this.unresolvedLinks.delete(source)
+    for (const tag of meta?.tags ?? []) {
+      const key = tag.toLowerCase()
+      const entry = this.tagIndex.get(key)
+      if (!entry) continue
+      entry.files = entry.files.filter((file) => file !== source)
+      if (!entry.files.length) this.tagIndex.delete(key)
+    }
   }
 
   private onRename(entry: VaultEntry, oldPath: string): void {
@@ -538,8 +600,8 @@ export class MetadataCache extends Events<MetadataEvents> {
     this.rebuildTimer = setTimeout(() => this.rebuild(), 80)
   }
 
-  // Recomputing everything on each change keeps the index trivially correct and
-  // costs a few map lookups per link.
+  // When files come, go or are renamed, any link may lead elsewhere: all of them are worked out again,
+  // which costs a few map lookups per link. A note's own changes go through `relink`.
   private rebuild(): void {
     clearTimeout(this.rebuildTimer)
     this.generation++
@@ -549,23 +611,7 @@ export class MetadataCache extends Events<MetadataEvents> {
     this.unresolvedLinks = new Map()
     this.backlinkIndex = new Map()
     this.tagIndex = new Map()
-    for (const [source, meta] of this.cache) {
-      for (const link of meta.links) {
-        const dest = this.resolve(link.target, source)
-        if (dest) {
-          count(this.resolvedLinks, source, dest)
-          count(this.backlinkIndex, dest, source)
-        } else {
-          count(this.unresolvedLinks, source, this.expandTarget(link.target, source))
-        }
-      }
-      for (const tag of meta.tags) {
-        const key = tag.toLowerCase()
-        const entry = this.tagIndex.get(key)
-        if (entry) entry.files.push(source)
-        else this.tagIndex.set(key, { tag, files: [source] })
-      }
-    }
-    this.trigger('resolved')
+    for (const [source, meta] of this.cache) this.link(source, meta)
+    this.trigger('resolved', { notes: null, names: true })
   }
 }

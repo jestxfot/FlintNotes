@@ -180,7 +180,7 @@ export async function run(t) {
   ok('only the open tab is loaded, in one view', (await t.count('.leaf-view')) === 1 && (await t.text()).includes('third tab'), await t.count('.leaf-view'))
   await t.tab('T1').click()
   await wait(800)
-  ok('another tab loads when it is shown', (await t.text()).includes('first tab') && (await t.count(`${t.leaf} .leaf-view`)) === 1 && (await t.count('.leaf:not([hidden])')) === 1)
+  ok('another tab loads when it is shown', (await t.text()).includes('first tab') && (await t.count(t.leaf)) === 1 && (await t.count('.leaf:not([hidden])')) === 1)
   // A reload in the middle of restoring must not lose the tabs that were not shown yet.
   await page.reload()
   await page.reload()

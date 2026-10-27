@@ -41,6 +41,11 @@ export class Icons extends Events<{ change: [] }> {
   private loading: Promise<Nodes> | null = null
   /** Icons drawn as "unknown", by name: one of them may turn out to be a picture of the user's own. */
   private waiting = new Set<WeakRef<HTMLElement>>()
+  /**
+   * Each icon as first made, by name; it is drawn again as a copy of that. Made anew each time (the inside of
+   * an `<svg>` read as text, for each row of each list) icons took a good part of switching notes.
+   */
+  private made = new Map<string, Element>()
   /** Whether icons are also shown inside notes: before links to notes and beside a note's title. Set from a plugin's setting. */
   inNotes = true
   /** Opens the choice of an icon for an item; set by the plugin that keeps the icons. */
@@ -155,6 +160,8 @@ export class Icons extends Events<{ change: [] }> {
       img.alt = ''
     } else if (/^[a-z0-9-]+$/.test(name)) {
       const fill = (nodes: Nodes) => {
+        const made = this.made.get(name)
+        if (made) return void el.appendChild(made.cloneNode(true))
         const shapes = Object.hasOwn(nodes, name) ? nodes[name] : null
         // An icon chosen long ago may go by a name Lucide has since dropped; those come from the app's own list.
         const old = Object.hasOwn(this.legacy, name) ? this.legacy[name] : null
@@ -168,13 +175,14 @@ export class Icons extends Events<{ change: [] }> {
           if (!old && !own) {
             el.dataset.icon = icon
             this.waiting.add(new WeakRef(el))
-          }
+          } else this.made.set(name, svg.cloneNode(true) as Element)
           return
         }
         for (const [tag, attrs] of shapes) {
           const shape = svg.appendChild(document.createElementNS(SVG, tag))
           for (const [key, value] of Object.entries(attrs)) shape.setAttribute(key, value)
         }
+        this.made.set(name, svg.cloneNode(true) as Element)
       }
       if (this.nodes) fill(this.nodes)
       else void this.load().then(fill)

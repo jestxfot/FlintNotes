@@ -1,4 +1,4 @@
-import { Plugin } from '../../api'
+import { filePath, Plugin, whenQuiet } from '../../api'
 import { wikilinkCompletion } from './complete'
 import { noteEmbed } from './embed-note'
 import { updateLinksOnRename } from './rename'
@@ -37,7 +37,18 @@ export default class Links extends Plugin {
     this.registerCompletionSource(wikilinkCompletion(this.app))
     this.registerEmbed(['md'], noteEmbed)
     updateLinksOnRename(this)
-    // Whether a link leads anywhere changes when notes appear or disappear.
-    this.register(this.app.metadata.on('resolved', () => this.app.livePreview.refresh()))
+    // Whether a link leads anywhere changes when files come and go; what it shows of the note it leads to (its icon,
+    // a plugin's badge) when that note changed. Nothing else a note says changes a link in another note, so typing
+    // in one note does not draw the others again.
+    const refresh = whenQuiet(() => this.app.livePreview.refresh())
+    this.register(refresh.cancel)
+    this.register(
+      this.app.metadata.on('resolved', (what) => {
+        if (what.names || !what.notes) return refresh()
+        const shown = new Set<string>()
+        this.app.editor.each((editor) => shown.add(editor.state.facet(filePath)))
+        if ([...what.notes].some((note) => [...this.app.metadata.backlinks(note).keys()].some((source) => shown.has(source)))) refresh()
+      }),
+    )
   }
 }

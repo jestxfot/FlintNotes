@@ -1,4 +1,4 @@
-import { errorMessage, expr, path as paths, plural, setProperties, type App } from '../../api'
+import { errorMessage, expr, path as paths, plural, setProperties, whenQuiet, type App } from '../../api'
 import { createRecord, recordTemplate, setRecordTemplate, templatesOf } from './create'
 import { h } from './dom'
 import { BaseEngine, groupRule, noteKey, type Row, type ViewResult } from './engine'
@@ -209,7 +209,7 @@ export function mountBase(el: HTMLElement, host: BaseHost, initial: string): Mou
   function draw(): void {
     if (!started) return
     // Nothing is worked out for a base that is not on screen; it catches up when it is.
-    if (!el.isConnected || el.offsetParent === null) {
+    if (!el.isConnected || !el.checkVisibility()) {
       offscreen = true
       return
     }
@@ -755,13 +755,15 @@ export function mountBase(el: HTMLElement, host: BaseHost, initial: string): Mou
     return !!focused && el.contains(focused) && /^(INPUT|SELECT|TEXTAREA)$/.test(focused.tagName)
   }
   let timer: ReturnType<typeof setTimeout> | undefined
+  // Not while a note is being typed in: each pause in the typing saves the note, and the base is worked out once the typing stops.
+  const quietly = whenQuiet(() => {
+    if (busy()) stale = true
+    else draw()
+  }, 0)
   const refresh = () => {
     clearTimeout(timer)
     // A base that takes long to draw waits longer for the changes to settle (notes are still being read at startup).
-    timer = setTimeout(() => {
-      if (busy()) stale = true
-      else draw()
-    }, Math.min(4000, Math.max(150, cost * 8)))
+    timer = setTimeout(quietly, Math.min(4000, Math.max(150, cost * 8)))
   }
   const off = app.metadata.on('resolved', refresh)
   // A click anywhere outside the open panel and the toolbar closes the panel.
@@ -804,8 +806,9 @@ export function mountBase(el: HTMLElement, host: BaseHost, initial: string): Mou
   // The element is not in the page yet while the block is being created.
   requestAnimationFrame(() => {
     if (started) return
-    const box = el.getBoundingClientRect()
-    if (el.isConnected && el.offsetParent !== null && box.bottom > -100 && box.top < innerHeight + 100) return start()
+    const shown = el.isConnected && el.checkVisibility()
+    const box = shown ? el.getBoundingClientRect() : null
+    if (box && box.bottom > -100 && box.top < innerHeight + 100) return start()
     near = new IntersectionObserver((entries) => entries.some((entry) => entry.isIntersecting) && start(), { root: el.closest('.cm-scroller'), rootMargin: '600px 0px' })
     near.observe(el)
     waiting = idle(later)
@@ -818,6 +821,7 @@ export function mountBase(el: HTMLElement, host: BaseHost, initial: string): Mou
     },
     destroy() {
       clearTimeout(timer)
+      quietly.cancel()
       off()
       near?.disconnect()
       unidle(waiting)

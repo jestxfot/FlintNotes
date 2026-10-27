@@ -309,6 +309,9 @@ export class Workspace extends Events<WorkspaceEvents> {
     // A button's view is not closed along with tabs: it is left, and stays as it was for the next click on its button.
     if (leaf.host && !force) return void (this.active === leaf && this.back())
     this.retire(leaf)
+    // Views kept in the tab outlive it: they wait out of the page until their file is opened again.
+    for (const child of [...leaf.el.children]) if (this.isParked(child)) this.parking.append(child)
+    if (this.parking.children.length && !this.parking.isConnected) document.body.append(this.parking)
     leaf.el.remove()
     this.mounting.delete(leaf)
     this.leaves.splice(index, 1)
@@ -386,14 +389,16 @@ export class Workspace extends Events<WorkspaceEvents> {
   private async mount(leaf: Leaf, focus = false): Promise<void> {
     const turn = (leaf.mounts = (leaf.mounts ?? 0) + 1)
     this.retire(leaf)
-    leaf.el.replaceChildren()
+    for (const child of [...leaf.el.children]) if (!this.isParked(child)) child.remove()
     const path = leaf.path
     const type = (leaf.viewType = this.viewTypeFor(path))
     const kept = this.parked.get(path)
     this.parked.delete(path)
     if (kept && kept.type === type) {
-      // Left a moment ago: it comes back as it was, brought up to date with its file.
-      leaf.el.append(kept.el)
+      // Left a moment ago: it comes back as it was, brought up to date with its file. Kept in this same tab
+      // (a link followed, then Back), it was never taken out of the page, and it is shown as it was laid out.
+      if (kept.el.parentElement !== leaf.el) leaf.el.append(kept.el)
+      kept.el.hidden = false
       leaf.view = kept.view
       leaf.viewPath = path
       this.mounting.delete(leaf)
@@ -449,14 +454,20 @@ export class Workspace extends Events<WorkspaceEvents> {
     leaf.view = null
     leaf.viewPath = undefined
     if (!view) return
-    const el = leaf.el.querySelector<HTMLElement>(':scope > .leaf-view')
+    const el = leaf.el.querySelector<HTMLElement>(':scope > .leaf-view:not([hidden])')
     if (!view.park || !el || !viewPath || viewPath.startsWith(VIEW_PREFIX)) return view.destroy()
     view.park()
     this.unpark(viewPath)
     this.parked.set(viewPath, { type: leaf.viewType, view, el })
-    if (!this.parking.isConnected) document.body.append(this.parking)
-    this.parking.append(el)
+    // It stays where it is, out of sight but laid out (see the styles of `.leaf-view`): going back to it
+    // in this tab then costs no laying out of the whole note again.
+    el.hidden = true
     for (const path of this.parked.keys()) if (this.parked.size > PARKED) this.unpark(path)
+  }
+
+  private isParked(el: Element): boolean {
+    for (const kept of this.parked.values()) if (kept.el === el) return true
+    return false
   }
 
   private unpark(path: string): void {

@@ -5,6 +5,9 @@ import { SwitcherMemory } from './memory'
 interface Item {
   file: VaultEntry
   alias?: string
+  /** The path and the name (or the alias) in small letters, worked out once when the switcher opens, not for each key typed. */
+  full: string
+  name: string
 }
 
 /** Where a word of the name may begin: after a space, a dash, a bracket and the like. */
@@ -17,9 +20,7 @@ const wordStart = (name: string, query: string) => {
  * How well an item matches the typed text, from 6 (the very name) down to 1 (its letters in order, with
  * anything between them: "flnt" finds "FlintNotes"); 0 means not at all. Several words match each anywhere.
  */
-function match({ file, alias }: Item, query: string, words: string[]): number {
-  const full = file.path.toLowerCase()
-  const name = alias?.toLowerCase() ?? path.basename(full)
+function match({ alias, full, name }: Item, query: string, words: string[]): number {
   const bare = alias ? name : path.stripExt(name)
   // Among equal matches a note's own name goes before an alias.
   const own = alias ? 0.5 : 0
@@ -64,10 +65,11 @@ export default class QuickSwitcher extends Plugin {
         const files = app.vault.files()
         /** What is in the field now: a choice is remembered with it. */
         let typedNow = ''
-        const items: Item[] = files.flatMap((file) => [
-          { file },
-          ...(app.metadata.get(file.path)?.aliases ?? []).map((alias) => ({ file, alias })),
-        ])
+        const items: Item[] = files.flatMap((file) => {
+          const full = file.path.toLowerCase()
+          return [{ file, full, name: path.basename(full) }, ...(app.metadata.get(file.path)?.aliases ?? []).map((alias) => ({ file, alias, full, name: alias.toLowerCase() }))]
+        })
+        const own = new Map(items.filter((item) => !item.alias).map((item) => [item.file.path, item]))
         app.suggest<Item>({
           remember: 'quick-switcher',
           placeholder: 'Имя файла или алиас…',
@@ -80,8 +82,8 @@ export default class QuickSwitcher extends Plugin {
             if (!query) {
               const first = [...recent, ...memory.favourites().slice(0, 30)]
               const seen = new Set<string>()
-              const top = first.flatMap((file) => (!seen.has(file) && app.vault.get(file) && seen.add(file) ? [{ file: app.vault.get(file)! }] : []))
-              return [...top, ...files.filter((file) => !seen.has(file.path)).sort((a, b) => b.mtime - a.mtime).map((file) => ({ file }))]
+              const top = first.flatMap((file) => (!seen.has(file) && own.has(file) && seen.add(file) ? [own.get(file)!] : []))
+              return [...top, ...files.filter((file) => !seen.has(file.path)).sort((a, b) => b.mtime - a.mtime).map((file) => own.get(file.path)!)]
             }
             // How each match is weighed. A level of the match is worth 100; the memory may lift a file over a
             // level or more: chosen for these letters before, most of all.

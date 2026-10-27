@@ -3,14 +3,22 @@
 
   let { app }: { app: App } = $props()
 
+  let root: HTMLElement
+  // Behind another widget, or in a closed sidebar, the list waits: it is made when it comes into sight.
+  const shown = () => root
   // svelte-ignore state_referenced_locally (props of a panel are set once, when it is mounted)
-  const active = watch(app.workspace, ['active-change', 'layout-change'], () => {
-    // Only files have backlinks; a tab like the graph has none.
-    const path = app.workspace.active?.path
-    return path && app.vault.get(path) ? path : undefined
-  })
+  const active = watch(
+    app.workspace,
+    ['active-change', 'layout-change'],
+    () => {
+      // Only files have backlinks; a tab like the graph has none.
+      const path = app.workspace.active?.path
+      return path && app.vault.get(path) ? path : undefined
+    },
+    { shown },
+  )
   // svelte-ignore state_referenced_locally (props of a panel are set once, when it is mounted)
-  const indexed = watch(app.metadata, ['resolved'], () => ({}))
+  const indexed = watch(app.metadata, ['resolved'], () => ({}), { quiet: true, shown })
 
   /** Notes linking to the open one, each with the lines its links are on. */
   const sources = $derived.by(() => {
@@ -31,7 +39,7 @@
   const title = (file: string) => path.stripExt(path.basename(file))
 </script>
 
-<div class="backlinks">
+<div class="backlinks" bind:this={root}>
   {#if !active.current}
     <p>Откройте заметку, чтобы увидеть ссылки на неё.</p>
   {:else}

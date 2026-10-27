@@ -1,4 +1,4 @@
-import { renderInline, type App } from '../../api'
+import { renderInline, whenQuiet, type App } from '../../api'
 import { iso } from './dates'
 import { daysChip } from './days-left'
 import type { Due, Reminders } from './reminders'
@@ -143,11 +143,14 @@ export function mountReminders(app: App, store: TaskStore, reminders: Reminders,
   }
 
   draw()
-  const off = store.on('change', draw)
+  // The tasks of a note being typed in change at every pause in the typing (their lines move): the list follows once the typing stops.
+  const soon = whenQuiet(draw)
+  const off = store.on('change', soon)
   // Reminders move from "today" to "overdue" as time passes.
   const timer = setInterval(draw, 30_000)
   return () => {
     off()
+    soon.cancel()
     clearInterval(timer)
     root.remove()
   }

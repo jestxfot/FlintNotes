@@ -88,11 +88,12 @@ export function search(app: App, query: string): SearchResult[] {
   // Several words typed together are first of all a phrase: notes that have it as written come before
   // notes that merely have all of its words somewhere.
   const phraseRegex = words.length > 1 ? new RegExp(words.map(escape).join('\\s+'), 'iu') : null
+  // Every place a word begins, to come to the lines that have the words without going through every line of every note.
+  const anyWord = words.length ? new RegExp(words.map(wordPattern).join('|'), 'giu') : null
 
   for (const file of app.metadata.notes()) {
     const meta = app.metadata.get(file)
     const text = app.metadata.text(file) ?? ''
-    const lower = text.toLowerCase()
     const full = file.toLowerCase()
     const title = path.stripExt(path.basename(full))
     const aliases = meta?.aliases ?? []
@@ -104,7 +105,8 @@ export function search(app: App, query: string): SearchResult[] {
       if (term.kind === 'tag') return tags.some((tag) => tag === term.value || tag.startsWith(`${term.value}/`))
       // Each word may be found in a different place: the title, an alias or the text.
       // In a name any part of a word will do; in the text a word must begin with what was typed.
-      return names.some((name) => name.includes(term.value)) || (lower.includes(term.value) && patterns.get(term.value)!.test(text))
+      // (The text is not lowered as a whole first: for every note on every search that took twenty times longer than the search.)
+      return names.some((name) => name.includes(term.value)) || patterns.get(term.value)!.test(text)
     })
     if (!matchesAll) continue
 
@@ -120,12 +122,24 @@ export function search(app: App, query: string): SearchResult[] {
     // words; failing that, with the most of them. A line that has one small word of four says nothing.
     const matches: SearchResult['matches'] = []
     let total = 0
-    if (words.length) {
-      const lines = text.split('\n')
-      const found: { line: number; at: number; score: number }[] = []
-      lines.forEach((line, number) => {
+    if (anyWord) {
+      const found: { line: number; at: number; score: number; text: string }[] = []
+      let number = 0
+      let counted = 0
+      let end = -1
+      for (const match of text.matchAll(anyWord)) {
+        if (match.index <= end) continue
+        const start = text.lastIndexOf('\n', match.index - 1) + 1
+        for (let at = text.indexOf('\n', counted); at >= 0 && at < start; at = text.indexOf('\n', at + 1)) number++
+        counted = start
+        end = text.indexOf('\n', match.index)
+        if (end < 0) end = text.length
+        const line = text.slice(start, end)
         const phraseAt = phraseRegex ? line.search(phraseRegex) : -1
-        if (phraseAt >= 0) return void found.push({ line: number, at: phraseAt, score: words.length + 1 })
+        if (phraseAt >= 0) {
+          found.push({ line: number, at: phraseAt, score: words.length + 1, text: line })
+          continue
+        }
         let score = 0
         let at = Infinity
         for (const word of words) {
@@ -134,14 +148,14 @@ export function search(app: App, query: string): SearchResult[] {
           score++
           at = Math.min(at, index)
         }
-        if (score) found.push({ line: number, at, score })
-      })
+        if (score) found.push({ line: number, at, score, text: line })
+      }
       const best = Math.max(0, ...found.map((one) => one.score))
       // With several words, a line must have at least half of them (and never fewer than the best line by more than one).
       const enough = Math.max(best - 1, Math.ceil(words.length / 2), 1)
       const kept = found.filter((one) => one.score >= Math.min(best, enough)).sort((a, b) => b.score - a.score || a.line - b.line)
       total = kept.length
-      for (const one of kept.slice(0, SHOWN_LINES).sort((a, b) => a.line - b.line)) matches.push({ line: one.line, text: snippet(lines[one.line], one.at) })
+      for (const one of kept.slice(0, SHOWN_LINES).sort((a, b) => a.line - b.line)) matches.push({ line: one.line, text: snippet(one.text, one.at) })
     }
     results.push({
       path: file,

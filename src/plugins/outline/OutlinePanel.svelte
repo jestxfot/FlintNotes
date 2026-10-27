@@ -3,10 +3,13 @@
 
   let { app }: { app: App } = $props()
 
+  let root: HTMLElement
+  // Out of sight, the outline waits: it is made when it comes into sight.
+  const shown = () => root
   // svelte-ignore state_referenced_locally (props of a panel are set once, when it is mounted)
-  const active = watch(app.workspace, ['active-change', 'layout-change'], () => app.workspace.active?.path)
+  const active = watch(app.workspace, ['active-change', 'layout-change'], () => app.workspace.active?.path, { shown })
   // svelte-ignore state_referenced_locally (props of a panel are set once, when it is mounted)
-  const indexed = watch(app.metadata, ['changed'], () => ({}))
+  const indexed = watch(app.metadata, ['changed'], () => ({}), { quiet: true, shown })
 
   const headings = $derived.by(() => {
     void indexed.current
@@ -17,7 +20,7 @@
   })
 </script>
 
-<div class="outline">
+<div class="outline" bind:this={root}>
   {#each headings as heading (heading.line)}
     <button
       style:padding-left="{8 + heading.depth * 14}px"

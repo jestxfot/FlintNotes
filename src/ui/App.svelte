@@ -292,7 +292,7 @@
       if (!entry) return
       workspace.openFile(entry.path, inNewTab || settings.get<string>('core', 'newNoteTab') === 'new' ? { newTab: true } : {})
       // The name is selected, ready to be typed over.
-      setTimeout(() => document.querySelector<HTMLInputElement>('.leaf:not([hidden]) .inline-title')?.select(), 250)
+      setTimeout(() => document.querySelector<HTMLInputElement>('.leaf:not([hidden]) > .leaf-view:not([hidden]) .inline-title')?.select(), 250)
     } catch (err) {
       app.notice(`Не удалось создать заметку: ${errorMessage(err)}`)
     }
@@ -539,7 +539,7 @@
           ['core:reveal-active', 'Показать открытый файл в проводнике', 'arrow-up-right', () => withFile((path) => void app.vault.reveal(path).catch((err) => app.notice(errorMessage(err))))],
           ['core:reveal-vault', 'Показать папку хранилища в проводнике', 'folder-open', () => void app.vault.reveal('').catch((err) => app.notice(errorMessage(err)))],
           ['core:copy-path', 'Копировать путь открытого файла', 'clipboard', () => withFile((path) => void navigator.clipboard.writeText(path).then(() => app.notice('Скопировано')))],
-          ['core:rename-active', 'Переименовать открытую заметку', 'pencil', () => document.querySelector<HTMLInputElement>('.leaf:not([hidden]) .inline-title')?.select()],
+          ['core:rename-active', 'Переименовать открытую заметку', 'pencil', () => document.querySelector<HTMLInputElement>('.leaf:not([hidden]) > .leaf-view:not([hidden]) .inline-title')?.select()],
           ['core:delete-active', 'Удалить открытый файл', 'trash', () => withFile((path) => (!settings.get<boolean>('core', 'confirmDelete') || confirm(`Переместить «${basename(path)}» в корзину?`)) && void app.vault.trash(path).catch((err) => app.notice(errorMessage(err))))],
           ['core:dock-active', 'Перенести открытую заметку в боковую панель', 'panel-right', () => withFile((path) => app.docked.dock(path, 'right'))],
           ['core:toggle-theme', 'Переключить светлую и тёмную тему', 'sun-moon', () => settings.set('core', 'theme', (root.dataset.theme ?? (matchMedia('(prefers-color-scheme: dark)').matches ? 'dark' : 'light')) === 'dark' ? 'light' : 'dark')],

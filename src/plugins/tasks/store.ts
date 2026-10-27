@@ -59,8 +59,11 @@ export class TaskStore extends Events<{ change: [] }> {
         const before = this.cache.get(path)?.lines
         if (this.parse(path).lines !== before) changed()
       }),
-      // Notes were added, removed or renamed, or their tags and properties changed.
-      metadata.on('resolved', changed),
+      // Notes were added, removed or renamed, or their tags and properties changed. A list of tasks may ask
+      // about the note of each task (its tags, its properties), so the notes that matter are those with tasks.
+      metadata.on('resolved', (what) => {
+        if (!what.notes || [...what.notes].some((path) => this.parse(path).lines)) changed()
+      }),
     ]
     return () => {
       clearTimeout(timer)

@@ -549,7 +549,9 @@ export class GraphView implements FileView {
    */
   draw(): void {
     const { canvas, view, hovered, settings } = this
-    if (!canvas.width || !canvas.height) return
+    // A tab out of sight is kept laid out, not drawn: nothing is painted for it until it is shown (the tab's coming
+    // back to the screen draws it).
+    if (!canvas.width || !canvas.height || !this.el.checkVisibility()) return
     const began = performance.now()
     const style = getComputedStyle(this.el)
     const values = new Map<string, string>()

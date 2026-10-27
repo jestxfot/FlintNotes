@@ -22,8 +22,11 @@
     return () => clearTimeout(timer)
   })
 
+  // What is found follows the notes as they change, but not while a note is being typed in (each pause in the typing
+  // saves it), and not while the panel is out of sight (behind another widget, in a closed sidebar): then it is
+  // searched again once it comes into sight.
   // svelte-ignore state_referenced_locally (props of a panel are set once, when it is mounted)
-  const indexed = watch(app.metadata, ['resolved'], () => ({}))
+  const indexed = watch(app.metadata, ['changed', 'resolved'], () => ({}), { quiet: true, shown: () => input })
   const results = $derived.by(() => {
     void indexed.current
     return search(app, query)
