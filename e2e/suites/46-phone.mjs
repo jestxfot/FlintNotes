@@ -31,6 +31,8 @@ export async function run(t) {
       [selector, from, to],
     )
   const drawerOpen = (side) => page.evaluate((side) => !document.querySelector(`.drawer.${side}`)?.hasAttribute('inert'), side)
+  // The frame is drawn once the app has its vault from the server, a moment after the page has loaded.
+  await page.waitForSelector('.phone-top', { timeout: 20000 }).catch(() => {})
 
   ok('a phone gets the frame of its own', (await page.evaluate(() => document.documentElement.classList.contains('mobile'))) && (await t.count('.phone-top')) === 1 && (await t.count('.phone-nav')) === 1 && (await t.count('.tabbar')) === 0)
   ok('the drawers start closed', !(await drawerOpen('left')))

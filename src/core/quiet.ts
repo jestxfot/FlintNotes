@@ -1,4 +1,4 @@
-/** How long the keyboard and the mouse must have been still before work that can wait is done: longer than a note waits to be saved (400 ms), so that what a save sets off is not done in a pause between two words. */
+/** How long the keyboard and the wheel must have been still before work that can wait is done: longer than a note waits to be saved (400 ms), so that what a save sets off is not done in a pause between two words. */
 const QUIET = 600
 /** However long the typing goes on, work that can wait waits no longer than this. */
 const LONGEST = 4000
@@ -10,7 +10,9 @@ const touched = () => (last = performance.now())
 function listen(): void {
   if (listening) return
   listening = true
-  for (const type of ['keydown', 'beforeinput', 'compositionupdate', 'pointerdown', 'wheel']) {
+  // Typing and scrolling come in streams that work must not cut into; a click is one act, whose result is
+  // awaited at once (a task ticked in a list, a reminder put off), so it does not count.
+  for (const type of ['keydown', 'beforeinput', 'compositionupdate', 'wheel']) {
     window.addEventListener(type, touched, { capture: true, passive: true })
   }
 }
@@ -33,7 +35,7 @@ export interface Quietly {
 /**
  * Keeps work that can wait out of the way of the person typing: redrawing a list of tasks, a base, the search panel,
  * the graph, after a note changed. Asked for, the work is done `delay` ms after it was last asked for, once the
- * keyboard and the mouse have been still for a moment, and when the page has nothing else to do; asked for many times
+ * keyboard and the wheel have been still for a moment, and when the page has nothing else to do; asked for many times
  * meanwhile, it is done once. A key is then never kept waiting behind it: what a save of the note sets off (each
  * pause in the typing saves) waits until the typing stops, and does not freeze the letters typed next.
  *

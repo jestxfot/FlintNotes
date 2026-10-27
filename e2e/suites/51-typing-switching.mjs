@@ -10,6 +10,7 @@ export const vault = {
     'Target.md': 'target\n',
     'Waiting.md': 'it links to [[Later]] before Later exists\n',
     'Zebra.md': 'nothing about stripes\n',
+    'Long.md': `\`\`\`tasks\nnot done\n\`\`\`\n\n${Array.from({ length: 400 }, (_, i) => `line ${i}`).join('\n\n')}\n`,
   },
 }
 
@@ -122,4 +123,33 @@ export async function run(t) {
   await page.keyboard.type('typed here')
   await wait(1200)
   ok('the tab on screen takes the typing', t.read('Writing.md').trimEnd().endsWith('typed here'), t.read('Writing.md').slice(-60))
+
+  // ---- a block scrolled out of the editor's view and back is put back as it was, not made anew
+  await page.evaluate(() => app.workspace.openFile('Long.md'))
+  await page.waitForSelector(`${t.leaf} .cm-content`)
+  // The cursor out of the block (it opens at the start, in it), so that the block is drawn.
+  await t.cursorToEnd()
+  await page.waitForSelector(`${t.leaf} .tasks-block li`)
+  await wait(500)
+  await page.evaluate(() => (document.querySelector('.leaf:not([hidden]) > .leaf-view:not([hidden]) .lp-block').dataset.mark = 'kept'))
+  const scrollTo = (where) =>
+    page.evaluate(async (where) => {
+      const view = app.workspace.activeEditor
+      view.scrollDOM.scrollTop = where === 'end' ? view.scrollDOM.scrollHeight : 0
+      for (let i = 0; i < 6; i++) await new Promise((resolve) => requestAnimationFrame(resolve))
+    }, where)
+  await scrollTo('end')
+  await wait(300)
+  const away = await page.evaluate(() => !document.querySelector('[data-mark="kept"]')?.isConnected)
+  // Meanwhile a task is added elsewhere: the list kept out of the page must show it once it is back.
+  t.write('Elsewhere.md', '- [ ] added while away\n')
+  await wait(2500)
+  await scrollTo('start')
+  await wait(1200)
+  const back = await page.evaluate(() => {
+    const block = document.querySelector('.leaf:not([hidden]) > .leaf-view:not([hidden]) .lp-block')
+    return { same: block?.dataset.mark === 'kept', text: block?.textContent ?? '' }
+  })
+  ok('a block scrolled away and back is the same block, not made anew', away && back.same, JSON.stringify({ away, same: back.same }))
+  ok('and what changed while it was away is in it', back.text.includes('added while away'), back.text.slice(0, 200))
 }

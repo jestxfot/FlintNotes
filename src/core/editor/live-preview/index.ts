@@ -9,6 +9,7 @@ import type { Off } from '../../events'
 import { errorMessage } from '../../notice'
 import { filePath, staticPreview } from '../state'
 import { builtinRenderers } from './elements'
+import { forgetKeptEmbeds } from './embed'
 import './style.css'
 
 /**
@@ -207,7 +208,35 @@ interface Mounted {
   instance: CodeBlockInstance | void
 }
 
-const mounted = new WeakMap<HTMLElement, Mounted>()
+const mounted = new WeakMap<HTMLElement, Mounted & { view: EditorView }>()
+
+/**
+ * Blocks gone out of the editor's view, kept a while to come back to. The editor takes off the page whatever is out
+ * of view, and a block made anew as it came back (a list of tasks worked out again, a base, pictures loaded again)
+ * held scrolling up for a good part of a second. Kept, it is put back as it was; one that changed meanwhile catches
+ * up as it comes into sight. Kept by the block's text, its kind and its note; the oldest go first.
+ */
+const KEPT_BLOCKS = 24
+const keptBlocks = new Map<string, HTMLElement>()
+const processorIds = new WeakMap<CodeBlockProcessor, number>()
+let lastProcessorId = 0
+const blockKey = (processor: CodeBlockProcessor, lang: string, path: string, source: string) => {
+  let id = processorIds.get(processor)
+  if (id === undefined) processorIds.set(processor, (id = ++lastProcessorId))
+  return `${id}\n${lang}\n${path}\n${source}`
+}
+
+function dropKept(key: string): void {
+  const dom = keptBlocks.get(key)
+  if (!dom) return
+  keptBlocks.delete(key)
+  mounted.get(dom)?.instance?.destroy?.()
+}
+
+/** The blocks of an editor that is gone are not kept for it. */
+function forgetKept(view: EditorView): void {
+  for (const [key, dom] of [...keptBlocks]) if (mounted.get(dom)?.view === view) dropKept(key)
+}
 
 class BlockWidget extends WidgetType {
   constructor(
@@ -229,7 +258,17 @@ class BlockWidget extends WidgetType {
     return other.processor === this.processor && other.lang === this.lang && other.path === this.path
   }
 
+  private get key(): string {
+    return blockKey(this.processor, this.lang, this.path, this.source)
+  }
+
   toDOM(view: EditorView): HTMLElement {
+    const kept = keptBlocks.get(this.key)
+    const keptMount = kept && !kept.isConnected ? mounted.get(kept) : undefined
+    if (kept && keptMount && keptMount.view === view) {
+      keptBlocks.delete(this.key)
+      return kept
+    }
     const el = document.createElement('div')
     el.className = 'lp-block'
     el.dataset.lang = this.lang
@@ -260,7 +299,7 @@ class BlockWidget extends WidgetType {
       body.className = 'lp-block-error'
       body.textContent = `Ошибка в блоке «${this.lang}»: ${errorMessage(err)}`
     }
-    mounted.set(el, { processor: this.processor, lang: this.lang, path: this.path, instance })
+    mounted.set(el, { processor: this.processor, lang: this.lang, path: this.path, instance, view })
     return el
   }
 
@@ -274,7 +313,10 @@ class BlockWidget extends WidgetType {
   }
 
   destroy(dom: HTMLElement): void {
-    mounted.get(dom)?.instance?.destroy?.()
+    const key = this.key
+    if (keptBlocks.get(key) !== dom) dropKept(key)
+    keptBlocks.set(key, dom)
+    for (const old of keptBlocks.keys()) if (keptBlocks.size > KEPT_BLOCKS) dropKept(old)
   }
 }
 
@@ -517,6 +559,17 @@ export class LivePreview {
       provide: (field) => EditorView.decorations.from(field),
     })
 
-    return [inline, blocks, renderers.flatMap((renderer) => renderer.extension ?? [])]
+    // The blocks kept for an editor go with it (the editor is closed, or Live Preview is set up anew).
+    const keeper = ViewPlugin.fromClass(
+      class {
+        constructor(private view: EditorView) {}
+        destroy() {
+          forgetKept(this.view)
+          forgetKeptEmbeds(this.view)
+        }
+      },
+    )
+
+    return [inline, blocks, keeper, renderers.flatMap((renderer) => renderer.extension ?? [])]
   }
 }

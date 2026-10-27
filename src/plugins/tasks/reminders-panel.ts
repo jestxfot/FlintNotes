@@ -120,13 +120,14 @@ export function mountReminders(app: App, store: TaskStore, reminders: Reminders,
           }
         }
         tool('file-text', 'Открыть в заметке', () => app.workspace.openFile(task.path, { line: task.line }))
-        if (!task.plain) tool('check', 'Выполнено', () => (reminders.dismiss(due), void store.toggle(task)))
+        // What is done here shows here at once; the list does not wait for the note to be written.
+        if (!task.plain) tool('check', 'Выполнено', () => (reminders.dismiss(due), void store.toggle(task), draw()))
         tool('alarm-clock', 'Отложить', (event) =>
           app.menus.show(
             event,
             'reminders-later',
             due,
-            reminders.choices().map((option) => ({ icon: 'alarm-clock', title: `${option.label} — ${option.at.toLocaleString('ru', { day: 'numeric', month: 'short', hour: '2-digit', minute: '2-digit' })}`, onClick: () => reminders.postpone(due, option.at) })),
+            reminders.choices().map((option) => ({ icon: 'alarm-clock', title: `${option.label} — ${option.at.toLocaleString('ru', { day: 'numeric', month: 'short', hour: '2-digit', minute: '2-digit' })}`, onClick: () => (reminders.postpone(due, option.at), draw()) })),
           ),
         )
         if (due.closed) tool('rotate-ccw', 'Вернуть', () => (reminders.restore(due), draw()))
