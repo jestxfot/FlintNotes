@@ -59,8 +59,9 @@ export async function run(t) {
   await page.keyboard.press('Enter')
   await page.keyboard.type('a')
   await wait(450) // the note is saved: its tasks have moved a line down
+  // Shorter than the longest anything waits for the typing to stop (4 s), even on a slow machine.
   let kept = true
-  for (const key of ' while the typing goes on') {
+  for (const key of ' typing on') {
     await page.keyboard.type(key)
     await wait(70)
     kept &&= await marked()
@@ -99,17 +100,24 @@ export async function run(t) {
   await page.waitForFunction(() => document.querySelector('.leaf:not([hidden]) > .leaf-view:not([hidden]) .cm-content')?.textContent.includes('stripes'))
   const left = await page.evaluate(() => {
     const kept = document.querySelector('[data-mark="target"]')
-    return { inTab: kept?.parentElement === document.querySelector('.leaf:not([hidden])'), hidden: kept?.hidden, look: kept && getComputedStyle(kept).contentVisibility }
+    return { inTab: kept?.parentElement === document.querySelector('.leaf:not([hidden])'), hidden: kept?.hidden, look: kept && getComputedStyle(kept).contentVisibility, display: kept && getComputedStyle(kept).display, laidOut: (kept?.querySelector('.cm-content')?.getClientRects().length ?? 0) > 0 }
   })
-  ok('a note left for another in the same tab stays in the tab, laid out but not drawn', left.inTab && left.hidden && left.look === 'hidden', JSON.stringify(left))
+  ok('a note left for another in the same tab stays in the tab, laid out but not drawn', left.inTab && left.hidden && left.look === 'hidden' && left.display !== 'none' && left.laidOut, JSON.stringify(left))
   await page.goBack()
   await page.waitForFunction(() => document.querySelector('.leaf:not([hidden]) > .leaf-view:not([hidden])')?.dataset.mark === 'target', null, { timeout: 5000 }).catch(() => {})
   ok('going back shows that same page again', await page.evaluate(() => document.querySelector('.leaf:not([hidden]) > .leaf-view:not([hidden])')?.dataset.mark === 'target'))
   ok('and the editor on screen is its editor', (await t.text()).includes('stripes here too'), await t.text())
   await page.evaluate(() => app.workspace.openFile('Writing.md', { newTab: true }))
   await page.waitForSelector(`${t.leaf} .tasks-block`)
-  const tabs = await page.evaluate(() => [...document.querySelectorAll('.leaf[hidden]')].map((el) => getComputedStyle(el).contentVisibility))
-  ok('a tab out of sight is not drawn but stays laid out', tabs.length >= 1 && tabs.every((look) => look === 'hidden'), JSON.stringify(tabs))
+  const tabs = await page.evaluate(() => [...document.querySelectorAll('.leaf[hidden]')].map((el) => `${getComputedStyle(el).display} ${getComputedStyle(el).contentVisibility}`))
+  ok('a tab out of sight is not drawn but stays laid out', tabs.length >= 1 && tabs.every((look) => look === 'block hidden'), JSON.stringify(tabs))
+  // A click in the note lands in it, not in a tab or a kept note lying out of sight over it.
+  const hit = await page.evaluate(() => {
+    const content = document.querySelector('.leaf:not([hidden]) > .leaf-view:not([hidden]) .cm-content')
+    const box = content.getBoundingClientRect()
+    return content.contains(document.elementFromPoint(box.left + 40, box.top + 20))
+  })
+  ok('a click in the note on screen reaches it', hit)
   await page.keyboard.press('Control+End')
   await page.keyboard.type('typed here')
   await wait(1200)

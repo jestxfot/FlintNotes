@@ -33,21 +33,24 @@ export function watch<T>(source: Events<any>, names: string[], read: () => T, op
     let timer: ReturnType<typeof setTimeout> | undefined
     let held = false
     let seen: IntersectionObserver | undefined
+    /**
+     * Whether the element is in sight, as the browser last said. It is told, not asked: asked in the middle of
+     * going to another tab, the browser would lay the whole page out there and then.
+     */
+    let inSight = true
     // Out of sight, the value waits; it is read when the element comes into sight.
     const fresh = () => {
       const el = shown?.()
-      if (el && !el.checkVisibility()) {
-        held = true
-        if (!seen) {
-          seen = new IntersectionObserver((entries) => {
-            if (!held || !entries.some((entry) => entry.isIntersecting)) return
-            held = false
-            update()
-          })
-          seen.observe(el)
-        }
-        return
+      if (el && !seen) {
+        seen = new IntersectionObserver((entries) => {
+          inSight = entries[entries.length - 1].isIntersecting
+          if (!inSight || !held) return
+          held = false
+          update()
+        })
+        seen.observe(el)
       }
+      if (el && !inSight) return void (held = true)
       held = false
       update()
     }

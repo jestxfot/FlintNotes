@@ -162,8 +162,11 @@ button {
  */
 .leaf[hidden],
 .leaf-view[hidden] {
-  display: block;
+  /* Over the rule for everything `[hidden]` above, which takes things off the page. */
+  display: block !important;
   content-visibility: hidden;
+  /* Its box still lies over the tab on screen (what is inside it is skipped): clicks go through it. */
+  pointer-events: none;
 }
 
 .leaf-message,

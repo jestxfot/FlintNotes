@@ -1,4 +1,4 @@
-import { cm, Plugin } from '../../api'
+import { cm, Plugin, whenQuiet } from '../../api'
 import './style.css'
 
 /**
@@ -57,15 +57,19 @@ export default class Minimap extends Plugin {
           this.later(0)
         }
 
+        /** After typing, the picture is drawn again once the typing stops, not between two words. */
+        private typed = whenQuiet(() => idle(() => this.draw()), 400)
+
         update(update: { docChanged: boolean; geometryChanged: boolean }) {
           // Only a change of the text changes the picture; the cursor and the selection do not.
-          if (update.docChanged) this.later(400)
+          if (update.docChanged) this.typed()
           else if (update.geometryChanged) this.place()
         }
 
         destroy() {
           maps.delete(this)
           clearTimeout(this.timer)
+          this.typed.cancel()
           cancelAnimationFrame(this.scrolling)
           this.resized.disconnect()
           this.view.scrollDOM.removeEventListener('scroll', this.onScroll)

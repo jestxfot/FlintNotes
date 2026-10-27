@@ -1,5 +1,5 @@
 import { syntaxTree } from '@codemirror/language'
-import { StateField, type EditorState, type Extension, type Range } from '@codemirror/state'
+import { StateField, type EditorState, type Extension, type Range, type Transaction } from '@codemirror/state'
 import { Decoration, EditorView, type DecorationSet } from '@codemirror/view'
 import { staticPreview } from './state'
 
@@ -38,8 +38,30 @@ function build(state: EditorState): DecorationSet {
   return Decoration.set(ranges)
 }
 
+/**
+ * Whether a change may have made or unmade a comment: a `%` typed or taken out, text joined around one, or code
+ * marks changed.
+ * Typing anywhere else in a note without comments looks no further (the whole note was read at each key).
+ */
+function touchesPercent(tr: Transaction): boolean {
+  let touched = false
+  tr.changes.iterChanges((fromA, toA, fromB, toB, inserted) => {
+    if (touched) return
+    const removed = tr.startState.sliceDoc(Math.max(0, fromA - 1), Math.min(tr.startState.doc.length, toA + 1))
+    // Backticks and tildes too: a fence or inline code opened or closed decides whether a `%%` further on is a comment.
+    const marks = /[%`~]/
+    touched = marks.test(removed) || marks.test(inserted.toString()) || marks.test(tr.state.sliceDoc(Math.max(0, fromB - 1), Math.min(tr.state.doc.length, toB + 1)))
+  })
+  return touched
+}
+
 export const comments: Extension = StateField.define<DecorationSet>({
   create: build,
-  update: (value, tr) => (tr.docChanged || tr.startState.facet(staticPreview) !== tr.state.facet(staticPreview) || syntaxTree(tr.startState) !== syntaxTree(tr.state) ? build(tr.state) : value),
+  update: (value, tr) => {
+    if (tr.startState.facet(staticPreview) !== tr.state.facet(staticPreview)) return build(tr.state)
+    // A note with no comments keeps none, unless the change was about a `%`.
+    if (value.size === 0 && (!tr.docChanged || !touchesPercent(tr))) return value
+    return tr.docChanged || syntaxTree(tr.startState) !== syntaxTree(tr.state) ? build(tr.state) : value
+  },
   provide: (field) => EditorView.decorations.from(field),
 })

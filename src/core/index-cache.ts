@@ -1,4 +1,5 @@
 import type { CachedMetadata } from './metadata'
+import { whenQuiet } from './quiet'
 
 /** A note as the index last saw it. */
 export interface StoredNote {
@@ -45,7 +46,11 @@ function bucketOf(path: string): number {
 export class IndexCache {
   private db: Promise<IDBDatabase | null>
   private pending = new Map<string, StoredNote | null>()
-  private timer: ReturnType<typeof setTimeout> | undefined
+  /**
+   * A block is written whole (a few dozen notes, their texts and all): that holds the page up for tens of
+   * milliseconds, so it waits for the typing to stop, not only for a moment after the save.
+   */
+  private later = whenQuiet(() => void this.flush(), 1500)
 
   constructor(vault: string) {
     this.db = new Promise((resolve) => {
@@ -121,13 +126,12 @@ export class IndexCache {
   }
 
   private schedule(): void {
-    clearTimeout(this.timer)
-    this.timer = setTimeout(() => void this.flush(), 1500)
+    this.later()
   }
 
   /** Writes the blocks that changed. */
   async flush(): Promise<void> {
-    clearTimeout(this.timer)
+    this.later.cancel()
     const [db, buckets] = await Promise.all([this.db, this.buckets])
     if (!db || !this.pending.size) return
     const changed = new Set<number>()
