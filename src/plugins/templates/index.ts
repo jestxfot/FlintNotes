@@ -619,7 +619,7 @@ export default class Templates extends Plugin {
 
   /** A note created by something else here (not through the app's "new note"): an empty one is filled in by the rule that fits. */
   private async onCreated(entry: VaultEntry): Promise<void> {
-    if (this.creating.delete(entry.path) || entry.size > 0) return
+    if (this.creating.delete(entry.path) || this.app.creation.isCreating(entry.path) || entry.size > 0) return
     const { template } = this.ruled(entry.path)
     if (template) this.fill(entry, template)
   }

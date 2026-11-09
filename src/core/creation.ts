@@ -1,6 +1,7 @@
 import type { App } from './app'
 import { dirname, normalize } from './path'
 import type { VaultEntry } from './vault'
+import type { Off } from './events'
 
 /** The ways a new note comes to be, each of which asks where it is to go. */
 export type CreationOrigin =
@@ -59,8 +60,21 @@ export class NoteCreation {
 
   /** How the paths of notes about to be made were chosen, until they are made. */
   private placements = new Map<string, Placement>()
+  private preparers = new Set<(path: string) => Promise<Draft | null | undefined>>()
+  private writing = new Set<string>()
 
   constructor(private app: App) {}
+
+  /** A form may handle a request before the legacy template engine. `undefined` passes it on. */
+  addPreparer(prepare: (path: string) => Promise<Draft | null | undefined>): Off {
+    this.preparers.add(prepare)
+    return () => { this.preparers.delete(prepare) }
+  }
+
+  /** The draft is already prepared; created-here listeners must not fill it a second time. */
+  isCreating(path: string): boolean {
+    return this.writing.has(path)
+  }
 
   /** How `place` chose this path for a note about to be made: for whoever prepares the note (a template may have a folder of its own). */
   placementOf(path: string): Placement | undefined {
@@ -98,11 +112,29 @@ export class NoteCreation {
 
   /** Creates the note at `path` (or where its template moves it). `null`: nothing was created. */
   async create(path: string): Promise<VaultEntry | null> {
-    const draft = this.prepare ? await this.prepare(path) : { path, text: '' }
-    this.placements.delete(path)
-    if (!draft) return null
-    const entry = await this.app.vault.create(draft.path, draft.text)
-    await draft.after?.(entry)
-    return entry
+    try {
+      let draft: Draft | null | undefined
+      for (const prepare of this.preparers) {
+        draft = await prepare(path)
+        if (draft !== undefined) break
+      }
+      if (draft === undefined) draft = this.prepare ? await this.prepare(path) : { path, text: '' }
+      if (!draft) return null
+      return await this.createDraft(draft)
+    } finally {
+      this.placements.delete(path)
+    }
+  }
+
+  /** Saves a draft already completed by a form, without opening another form or template picker. */
+  async createDraft(draft: Draft): Promise<VaultEntry> {
+    this.writing.add(draft.path)
+    try {
+      const entry = await this.app.vault.create(draft.path, draft.text)
+      await draft.after?.(entry)
+      return entry
+    } finally {
+      this.writing.delete(draft.path)
+    }
   }
 }

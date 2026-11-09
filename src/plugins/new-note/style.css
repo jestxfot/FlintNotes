@@ -1,0 +1,90 @@
+.nn-dialog {
+  padding: 0;
+  width: min(980px, calc(100vw - 40px));
+  max-width: none;
+  max-height: calc(100dvh - 40px);
+  border: 1px solid var(--border);
+  border-radius: var(--radius-xl);
+  background: var(--bg);
+  color: var(--text);
+  box-shadow: var(--shadow);
+}
+.nn-dialog[open] { display: flex; flex-direction: column; }
+.nn-dialog::backdrop { background: rgb(0 0 0 / .45); }
+.nn-header { display: flex; align-items: flex-start; justify-content: space-between; gap: 16px; padding: 20px 24px; border-bottom: 1px solid var(--border); flex-shrink: 0; }
+.nn-header h2 { margin: 0; font-size: 20px; }
+.nn-header p { margin: 5px 0 0; color: var(--text-muted); font-size: 13px; }
+.nn-close { padding: 0 8px; border-radius: var(--radius-m); font-size: 26px; color: var(--text-muted); }
+.nn-close:hover { background: var(--bg-hover); }
+.nn-create { height: min(790px, calc(100dvh - 40px)); }
+.nn-create-layout { display: flex; min-height: 0; flex: 1; }
+.nn-choices { display: flex; flex-direction: column; gap: 9px; flex: 0 0 260px; padding: 18px; overflow: auto; border-right: 1px solid var(--border); background: var(--bg-alt); }
+.nn-choice { display: flex; flex-direction: column; text-align: left; gap: 5px; padding: 12px; border: 1px solid transparent; border-radius: var(--radius-m); }
+.nn-choice small { color: var(--text-muted); font-size: 12px; line-height: 1.5; }
+.nn-choice:hover { background: var(--bg-hover); }
+.nn-choice.active { border-color: var(--accent); background: var(--tag-bg); }
+.nn-create-form { display: flex; flex-direction: column; min-width: 0; min-height: 0; flex: 1; }
+.nn-scroll { min-height: 0; overflow: auto; padding: 16px 24px; flex: 1; }
+.nn-scroll h3 { font-size: 18px; margin: 0 0 8px; }
+.nn-field { display: flex; flex-direction: column; gap: 6px; min-width: 0; margin: 12px 0; font-size: 13px; }
+.nn-field > span { font-weight: 550; }
+.nn-field small, .nn-muted, .nn-variables > small { color: var(--text-muted); font-size: 12px; line-height: 1.5; }
+.nn-dialog input:not([type=checkbox]), .nn-dialog select, .nn-dialog textarea,
+.nn-builder input:not([type=checkbox]), .nn-builder select, .nn-builder textarea {
+  width: 100%; min-width: 0; padding: 8px 10px; border: 1px solid var(--border); border-radius: var(--radius-m); background: var(--bg); color: var(--text); font: inherit;
+}
+.nn-dialog textarea, .nn-builder textarea { resize: vertical; }
+.nn-dialog :is(input, select, textarea):focus, .nn-builder :is(input, select, textarea):focus { outline: 2px solid var(--accent); outline-offset: 1px; }
+.nn-dialog input[type=checkbox], .nn-builder input[type=checkbox] { accent-color: var(--accent); }
+.nn-footer, .nn-builder-footer { display: flex; flex-wrap: wrap; align-items: center; justify-content: flex-end; gap: 10px; padding: 14px 24px; border-top: 1px solid var(--border); flex-shrink: 0; }
+.nn-primary, .nn-secondary, .nn-danger { display: inline-flex; align-items: center; justify-content: center; padding: 8px 12px; border-radius: var(--radius-m); font-size: 13px; border: 1px solid var(--border); cursor: pointer; }
+.nn-primary { background: var(--accent); color: var(--accent-text); border-color: var(--accent); }
+.nn-secondary { background: var(--bg-alt); color: var(--text); }
+.nn-secondary:hover { background: var(--bg-hover); }
+.nn-danger { color: #d04444; }
+.nn-danger:hover { background: rgb(220 40 40 / .09); }
+.nn-tags, .nn-inline { display: flex; gap: 7px; flex-wrap: wrap; align-items: center; margin: 8px 0; }
+.nn-tag { padding: 4px 8px; border-radius: var(--radius-s); background: var(--bg-alt); border: 1px solid var(--border); color: var(--text-muted); font-size: 12px; overflow-wrap: anywhere; }
+.nn-tag:hover, .nn-tag.active { color: var(--accent); background: var(--tag-bg); }
+.nn-path { display: flex; flex-direction: column; gap: 4px; padding: 10px 12px; margin: 12px 0; background: var(--bg-alt); border: 1px solid var(--border); border-radius: var(--radius-m); overflow-wrap: anywhere; font-size: 13px; }
+.nn-path small { color: var(--text-muted); }
+.nn-text-button { color: var(--accent); padding: 6px 0; font-size: 13px; }
+.nn-preview { max-height: 330px; padding: 14px; overflow: auto; white-space: pre-wrap; overflow-wrap: anywhere; border: 1px solid var(--border); border-radius: var(--radius-m); background: var(--bg-alt); font: 12px/1.6 var(--font-mono); }
+.nn-errors, .nn-confirm { padding: 10px 14px; margin: 12px 0; border: 1px solid #d04444; border-radius: var(--radius-m); font-size: 13px; }
+.nn-errors p, .nn-confirm p { margin: 4px 0 8px; }
+.nn-confirm button { margin: 4px 8px 0 0; }
+.nn-builder { width: 100%; min-width: 0; }
+.nn-builder-toolbar { display: flex; align-items: flex-end; gap: 8px; flex-wrap: wrap; margin-bottom: 10px; }
+.nn-builder-toolbar .nn-field { flex: 1; margin: 0; min-width: 160px; }
+.nn-builder details { padding: 12px 0; border-top: 1px solid var(--border); }
+.nn-builder summary { cursor: pointer; font-size: 14px; font-weight: 600; }
+.nn-builder summary small { color: var(--text-muted); }
+.nn-grid { display: grid; grid-template-columns: repeat(2, minmax(0, 1fr)); column-gap: 14px; }
+.nn-field-card { border: 1px solid var(--border); border-radius: var(--radius-l); padding: 12px; margin: 12px 0; background: var(--bg); }
+.nn-field-head { display: flex; align-items: center; justify-content: space-between; font-size: 13px; }
+.nn-field-head button { padding: 3px 9px; border-radius: var(--radius-s); }
+.nn-field-head button:hover { background: var(--bg-hover); }
+.nn-field-head button:disabled { opacity: .3; }
+.nn-checks { display: flex; flex-wrap: wrap; gap: 10px 16px; font-size: 12px; }
+.nn-checks label, .nn-check { display: inline-flex; align-items: center; gap: 6px; }
+.nn-builder .nn-body-editor { font: 13px/1.6 var(--font-mono); }
+.nn-variables { margin: 10px 0; padding: 12px; border: 1px solid var(--border); border-radius: var(--radius-m); background: var(--bg); }
+.nn-variables strong { font-size: 13px; }
+.nn-variables select { width: auto; }
+.nn-variables .nn-inline .nn-field { flex: 1; margin: 4px 0; }
+.nn-builder-footer { padding: 12px 0; position: sticky; bottom: -1px; z-index: 1; background: var(--bg-alt); }
+.nn-save-status { flex: 1; font-size: 12px; color: var(--text-muted); }
+.nn-builder-dialog { width: min(850px, calc(100vw - 40px)); }
+.nn-builder-scroll { padding: 18px 24px 0; overflow: auto; }
+@media (max-width: 700px) {
+  .nn-dialog { width: calc(100vw - 16px); max-height: calc(100dvh - 16px); }
+  .nn-create { height: calc(100dvh - 16px); }
+  .nn-create-layout { flex-direction: column; }
+  .nn-choices { flex: 0 0 auto; max-height: 200px; padding: 10px; border-right: 0; border-bottom: 1px solid var(--border); }
+  .nn-choice { padding: 8px 10px; }
+  .nn-header { padding: 14px; }
+  .nn-scroll, .nn-builder-scroll { padding: 14px; }
+  .nn-grid { grid-template-columns: 1fr; }
+  .nn-footer { padding: 12px 14px; }
+  .nn-builder-toolbar .nn-field { flex-basis: 100%; }
+}
