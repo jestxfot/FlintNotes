@@ -492,6 +492,12 @@ function buildTrayMenu(): void {
     { label: 'Открыть FlintNotes', click: showWindow },
     { label: 'Новая заметка', click: () => (showWindow(), win?.webContents.send('command', 'core:new-note')) },
     { label: 'Палитра команд', click: () => (showWindow(), win?.webContents.send('command', 'core:command-palette')) },
+    { label: 'О программе', click: () => (showWindow(), win?.webContents.send('command', 'core:about')) },
+    { label: 'Проверить обновления', click: () => {
+      showWindow()
+      win?.webContents.send('command', 'core:about')
+      win?.webContents.send('command', 'core:check-updates')
+    } },
     { type: 'separator' },
     { label: 'Запускать вместе с Windows', type: 'checkbox', checked: autostart(), click: (item) => setAutostart(item.checked) },
     { label: 'Журнал работы', click: () => void shell.openPath(LOG) },

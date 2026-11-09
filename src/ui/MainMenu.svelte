@@ -62,10 +62,12 @@
       >
         Управление хранилищами…
       </button>
+      <hr />
+      <button role="menuitem" onclick={() => { open = false; app.commands.run('core:about') }}>О программе</button>
     </div>
   {/if}
 
-  <button class="vault" aria-haspopup="menu" aria-expanded={open} title={`Хранилище: ${app.vault.path}\nЩелчок — другое хранилище или управление хранилищами`} onclick={toggle}>
+  <button class="vault" aria-haspopup="menu" aria-expanded={open} title={`Хранилище: ${app.vault.path}\nХранилища и меню приложения`} onclick={toggle}>
     <svg viewBox="0 0 16 16" aria-hidden="true"><path d="M5 6l3-3 3 3M5 10l3 3 3-3" /></svg>
     <span class="name">{app.vault.name}</span>
   </button>

@@ -728,13 +728,20 @@ export class App {
             (err) => notice(err instanceof Error ? err.message : String(err)),
           ),
     })
-    if (desktop)
+    if (desktop) {
       this.commands.add({
         id: 'core:check-updates',
         name: 'Проверить обновления FlintNotes',
         icon: 'refresh-cw',
         callback: () => void desktop?.checkUpdates().then((info) => notice(info.result || 'Проверено'), (err) => notice(err instanceof Error ? err.message : String(err))),
       })
+      this.commands.add({
+        id: 'core:install-update',
+        name: 'Перезапустить FlintNotes и установить обновление',
+        icon: 'download',
+        callback: () => void desktop?.installUpdate().then((started) => { if (!started) notice('Нет загруженного обновления: проверьте наличие новых версий') }, (err) => notice(err instanceof Error ? err.message : String(err))),
+      })
+    }
     this.commands.add({
       id: 'core:quit',
       name: desktop ? 'Выйти из FlintNotes' : 'Остановить FlintNotes',

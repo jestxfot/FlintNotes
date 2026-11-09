@@ -8,6 +8,7 @@
   import { app } from '../instance'
   import FileTree from './FileTree.svelte'
   import HelpModal from './HelpModal.svelte'
+  import AboutModal from './AboutModal.svelte'
   import MainMenu from './MainMenu.svelte'
   import VaultsModal from './VaultsModal.svelte'
   import ContextMenu from './ContextMenu.svelte'
@@ -28,6 +29,7 @@
   let settingsOpen = $state(false)
   let vaultsOpen = $state(false)
   let helpOpen = $state(false)
+  let aboutOpen = $state(false)
   let menu = $state.raw<{ x: number; y: number; items: MenuItem[] } | null>(null)
   let suggest = $state.raw<SuggestOptions<any> | null>(null)
   let leftOpen = $state(true)
@@ -60,7 +62,7 @@
   const over = { left: false, right: false }
   $effect(() => {
     // A window opened over the app (settings, vaults, help) sends the floating sidebars away.
-    if (!(settingsOpen || vaultsOpen || helpOpen) || !floating) return
+    if (!(settingsOpen || vaultsOpen || helpOpen || aboutOpen) || !floating) return
     for (const side of ['left', 'right'] as const) {
       if (!floats[side]) continue
       clearTimeout(peekTimers[side])
@@ -69,7 +71,7 @@
     }
   })
   function trackPointer(event: MouseEvent) {
-    if (!floating || settingsOpen || vaultsOpen || helpOpen) return
+    if (!floating || settingsOpen || vaultsOpen || helpOpen || aboutOpen) return
     for (const side of ['left', 'right'] as const) {
       if (!floats[side]) continue
       const box = document.querySelector(`aside.${side}.floating`)?.getBoundingClientRect()
@@ -244,7 +246,7 @@
   }
   // What the frame's own commands act on; plugins say the same about theirs with `scope`.
   const NOTE_SCOPE = new Set(['core:rename-active', 'core:dock-active', 'core:copy-path', 'core:reveal-active', 'core:toggle-readable-width', 'core:delete-active'])
-  const VAULT_SCOPE = new Set(['core:reveal-vault', 'core:vaults'])
+  const VAULT_SCOPE = new Set(['core:reveal-vault', 'core:vaults', 'core:about'])
   const SIDEBAR_SCOPE = new Set<string>()
   /** Where a core command goes in the note's menu; commands of plugins go to their own section. */
   const NOTE_SECTIONS: Record<string, string> = { 'core:toggle-reading': 'open', 'core:toggle-editor-mode': 'open', 'core:find': 'copy', 'core:replace': 'copy', 'core:toggle-readable-width': 'open', 'core:dock-active': 'open', 'core:rename-active': 'action', 'core:copy-path': 'copy', 'core:reveal-active': 'system', 'core:delete-active': 'danger' }
@@ -370,7 +372,7 @@
   // right sidebar; drawn back across an open drawer, it sends it away.
   function touchStart(event: TouchEvent) {
     swipe = null
-    if (!layout.mobile || event.touches.length !== 1 || sheet || menu || suggest || settingsOpen || vaultsOpen || helpOpen) return
+    if (!layout.mobile || event.touches.length !== 1 || sheet || menu || suggest || settingsOpen || vaultsOpen || helpOpen || aboutOpen) return
     const touch = event.touches[0]
     const target = event.target as Element
     if (!drawer) {
@@ -443,6 +445,7 @@
       { icon: 'terminal', title: 'Команды', run: openPalette },
       ...(hasRightPanels.current ? [{ icon: 'panel-right', title: 'Правая панель', run: () => (drawer = 'right') }] : []),
       { icon: 'settings', title: 'Настройки', run: () => (settingsOpen = true) },
+      { icon: 'info', title: 'О программе', run: () => app.commands.run('core:about') },
       { icon: 'vault', title: 'Хранилища', run: () => (vaultsOpen = true) },
       { icon: 'sun-moon', title: 'Тема', run: () => app.commands.run('core:toggle-theme') },
       { icon: 'monitor', title: 'Вид компьютера', run: toggleLayout },
@@ -530,6 +533,7 @@
           ['core:go-back', 'Назад', 'arrow-left', () => history.back()],
           ['core:go-forward', 'Вперёд', 'arrow-right', () => history.forward()],
           ['core:help', 'Справка и сочетания клавиш', 'circle-help', () => (helpOpen = true)],
+          ['core:about', 'О программе FlintNotes', 'info', () => (aboutOpen = true)],
           ['core:vaults', 'Управление хранилищами', 'vault', () => (vaultsOpen = true)],
           ['core:toggle-pin-tab', 'Закрепить или открепить вкладку', 'pin', () => workspace.active && workspace.togglePin(workspace.active)],
           ['core:next-tab', 'Следующая вкладка', 'chevron-right', () => stepTab(1)],
@@ -951,6 +955,9 @@
 {/if}
 {#if helpOpen}
   <HelpModal onclose={() => (helpOpen = false)} />
+{/if}
+{#if aboutOpen}
+  <AboutModal onclose={() => (aboutOpen = false)} />
 {/if}
 {#if menu}
   {#key menu}
