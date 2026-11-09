@@ -22,6 +22,9 @@ import path from 'node:path'
 import { Readable } from 'node:stream'
 import { fileURLToPath } from 'node:url'
 import zlib from 'node:zlib'
+import { watchFullscreen } from './fullscreen'
+import { ReminderPresenter } from './reminders'
+import type { ReminderNotice } from '../shared/reminders'
 
 const self = fileURLToPath(import.meta.url)
 const here = path.dirname(self)
@@ -232,6 +235,50 @@ const saveState = () => {
 
 let win: BrowserWindow | undefined
 let tray: Tray | undefined
+let reminders: ReminderPresenter | undefined
+const reminderNotifications = new Map<string, { notification: Notification; timer: ReturnType<typeof setTimeout> }>()
+
+function closeReminderNotifications(keep: Set<string>): void {
+  for (const [key, shown] of reminderNotifications) {
+    if (keep.has(key)) continue
+    clearTimeout(shown.timer)
+    reminderNotifications.delete(key)
+    shown.notification.removeAllListeners()
+    shown.notification.close()
+  }
+}
+
+function notifyReminder(item: ReminderNotice, failed: () => void): boolean {
+  if (!Notification.isSupported()) return false
+  try {
+    const notification = new Notification({ title: item.title, body: item.body, silent: true, timeoutType: 'never', icon: icon(process.platform === 'win32' ? 'flintnotes.ico' : 'flintnotes.png') })
+    // Some systems silently reject a toast (permissions, missing shortcut). Do not lose the reminder.
+    const timer = setTimeout(failed, 5000)
+    reminderNotifications.set(item.key, { notification, timer })
+    notification.once('show', () => clearTimeout(timer))
+    notification.once('failed', (_event, error) => {
+      clearTimeout(timer)
+      note(`Уведомление не показано: ${error}`)
+      failed()
+    })
+    notification.once('click', () => {
+      clearTimeout(timer)
+      showWindow()
+      win?.webContents.send('reminder-click', item.key)
+    })
+    notification.show()
+    return true
+  } catch (error) {
+    const shown = reminderNotifications.get(item.key)
+    if (shown) {
+      clearTimeout(shown.timer)
+      shown.notification.removeAllListeners()
+      reminderNotifications.delete(item.key)
+    }
+    note(`Уведомление не создано: ${String(error)}`)
+    return false
+  }
+}
 
 /** Where the window was, if that place is still on one of the screens. */
 function placed(bounds: Electron.Rectangle | undefined): Partial<Electron.Rectangle> | undefined {
@@ -258,7 +305,7 @@ function createWindow(): BrowserWindow {
     titleBarOverlay: { ...colors, height: 40 },
     // A window in the tray, minimised or covered draws nothing: an animated picture in a note would
     // otherwise go on being decoded frame by frame (a GIF of 50 MB took half a processor core).
-    // Reminders keep their time there all the same: their clock runs on a worker (tasks/reminders.ts).
+    // Reminders keep their time there all the same: their clock runs in this main process.
     webPreferences: { preload: PRELOAD, contextIsolation: true, sandbox: true, nodeIntegration: false, spellcheck: true },
   })
   if (state.maximized) window.maximize()
@@ -269,6 +316,8 @@ function createWindow(): BrowserWindow {
     event.preventDefault()
     window.hide()
   })
+  window.on('hide', () => reminders?.hidden())
+  window.webContents.on('did-start-loading', () => reminders?.clear())
   const remember = () => {
     state.maximized = window.isMaximized()
     if (!state.maximized && !window.isFullScreen()) state.bounds = window.getNormalBounds()
@@ -281,6 +330,7 @@ function createWindow(): BrowserWindow {
   // Signing out of Windows ends the app without asking: what is typed is saved first.
   window.on('session-end', () => void flushPages())
   window.webContents.on('render-process-gone', (_event, details) => {
+    reminders?.clear()
     note(`Страница упала (${details.reason}), загружаю заново`)
     if (!quitting) window.reload()
   })
@@ -328,6 +378,7 @@ async function quit(): Promise<void> {
   if (quitting) return
   await flushPages()
   quitting = true
+  reminders?.clear()
   tray?.destroy()
   await stopServer()
   app.exit(0)
@@ -509,6 +560,13 @@ ipcMain.handle('autostart', (event) => (trusted(event) ? { enabled: autostart() 
 ipcMain.handle('set-autostart', (event, enabled: unknown) => (trusted(event) ? { enabled: setAutostart(!!enabled) } : null))
 ipcMain.on('quit', (event) => trusted(event) && void quit())
 ipcMain.on('show', (event) => trusted(event) && showWindow())
+ipcMain.on('reminders', (event, value: unknown) => {
+  if (!trusted(event) || event.sender !== win?.webContents || !value || typeof value !== 'object') return
+  const { system, items } = value as { system?: unknown; items?: unknown }
+  if (typeof system !== 'boolean' || !Array.isArray(items) || items.length > 5000) return
+  if (!items.every((item): item is ReminderNotice => item && typeof item.key === 'string' && typeof item.title === 'string' && typeof item.body === 'string')) return
+  reminders?.update({ system, items })
+})
 ipcMain.handle('updates', (event) => (trusted(event) ? updateInfo() : null))
 ipcMain.handle('set-updates', (event, enabled: unknown) => {
   if (!trusted(event)) return null
@@ -891,6 +949,10 @@ void app.whenReady().then(async () => {
     }
   }, 60_000)
   win = createWindow()
+  reminders = new ReminderPresenter(win, (changed) => watchFullscreen(changed, (error) => note(`Проверка полноэкранного режима: ${error}`)), notifyReminder, closeReminderNotifications)
+  setInterval(() => {
+    if (win && !win.isDestroyed()) win.webContents.send('reminder-tick')
+  }, 15_000)
   // The window brought forward after a while looks again: a release made meanwhile is found at once.
   win.on('focus', () => lastChecked && Date.now() - lastChecked > 20 * 60_000 && void checkForUpdate())
 })

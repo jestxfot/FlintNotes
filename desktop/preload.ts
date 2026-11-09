@@ -4,6 +4,7 @@
  * Built by `npm run release` into `release/preload.cjs`.
  */
 import { contextBridge, ipcRenderer } from 'electron'
+import type { ReminderPresentation } from '../shared/reminders'
 
 if (location.protocol === 'flint:') {
   let save: (() => Promise<unknown>) | undefined
@@ -22,6 +23,16 @@ if (location.protocol === 'flint:') {
     setAutostart: (enabled: boolean) => ipcRenderer.invoke('set-autostart', !!enabled),
     quit: () => ipcRenderer.send('quit'),
     show: () => ipcRenderer.send('show'),
+    setReminders: (presentation: ReminderPresentation) => ipcRenderer.send('reminders', presentation),
+    onReminderClick: (open: (key: string) => void) => {
+      const handler = (_event: Electron.IpcRendererEvent, key: string) => open(key)
+      ipcRenderer.on('reminder-click', handler)
+      return () => ipcRenderer.removeListener('reminder-click', handler)
+    },
+    onReminderTick: (check: () => void) => {
+      ipcRenderer.on('reminder-tick', check)
+      return () => ipcRenderer.removeListener('reminder-tick', check)
+    },
     updates: () => ipcRenderer.invoke('updates'),
     setUpdates: (enabled: boolean) => ipcRenderer.invoke('set-updates', !!enabled),
     checkUpdates: () => ipcRenderer.invoke('check-updates'),

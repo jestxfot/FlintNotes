@@ -26,6 +26,14 @@ export async function run(t) {
   ok('a line of the day plan whose time has come alerts, as a card in the corner', (await banner.count()) === 1 && (await t.flat(banner)).includes('Vitamin D') && !(await t.flat(banner)).includes('Old plan') && !(await t.flat(banner)).includes('not a plan'), await t.flat(banner).catch(() => 'no banner'))
   ok('the card does not take the page away', (await page.evaluate(() => document.querySelector('.task-alert').matches(':modal'))) === false)
 
+  await page.evaluate(() => app.settings.set('tasks', 'alertStyle', 'fullscreen'))
+  ok('changing alert style updates the outstanding reminder immediately', await page.locator('.task-alert').evaluate((el) => el.matches(':modal') && !el.classList.contains('banner')))
+  await page.evaluate(() => app.settings.set('tasks', 'alertStyle', 'off'))
+  ok('list-only mode closes an outstanding popup immediately', (await t.count('.task-alert')) === 0)
+  await page.evaluate(() => app.settings.set('tasks', 'alertStyle', 'banner'))
+  await banner.waitFor()
+  ok('switching popups back on shows the unhandled reminder again', (await banner.count()) === 1)
+
   // ---- the same list as a tab of its own
   await page.evaluate(() => app.commands.run('core:panel-tab:reminders'))
   const list = page.locator(`${t.leaf} .reminders-panel`)

@@ -20,6 +20,7 @@ import {
 } from './task'
 import TaskDialog from './TaskDialog.svelte'
 import TaskManager from './TaskManager.svelte'
+import { desktop } from '../../core/desktop'
 
 const MANAGER = 'tasks-manager'
 
@@ -65,7 +66,7 @@ export default class Tasks extends Plugin {
       {
         key: 'alertStyle',
         name: 'Как показывать напоминание',
-        desc: 'На весь экран — не пропустить; карточкой в углу — не отрываться от работы; только в списке — без всплывающих окон',
+        desc: 'Диалог в программе, карточка в углу или только список. В настольной версии окно появляется поверх других окон, кроме полноэкранного режима',
         type: 'select',
         default: 'fullscreen',
         options: [
@@ -140,14 +141,18 @@ export default class Tasks extends Plugin {
       {
         key: 'system',
         name: 'Системные уведомления',
-        desc: 'Дополнительно показывать уведомление операционной системы, когда вкладка не на виду',
+        desc: 'Когда программа не на виду, показывать уведомление ОС. Если его показать не удалось — открыть окно программы. Во время полноэкранного режима показ откладывается',
         type: 'toggle',
         default: false,
       },
     ])
     this.onSettingChange((key) => {
       // The browser only shows the permission prompt in response to a click, like this toggle.
-      if (key === 'system' && this.getSetting<boolean>('system')) void globalThis.Notification?.requestPermission()
+      if (!desktop && key === 'system' && this.getSetting<boolean>('system')) {
+        void globalThis.Notification?.requestPermission().then((permission) => {
+          if (permission !== 'granted') app.notice('Системные уведомления не разрешены. Напоминания будут показаны в программе')
+        }).catch(() => app.notice('Не удалось разрешить системные уведомления. Напоминания будут показаны в программе'))
+      }
     })
 
     /** A reminder set in the form is written the way the settings say, unless the task already had one written otherwise. */

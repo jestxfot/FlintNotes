@@ -1062,20 +1062,24 @@
 .task-alert.banner {
   position: fixed;
   inset: auto 16px 16px auto;
-  z-index: 60;
-  width: min(420px, calc(100vw - 32px));
+  z-index: 40;
+  width: min(380px, calc(100vw - 32px));
   height: auto;
   max-height: 70vh;
   border: 1px solid var(--border);
   border-radius: var(--radius-xl);
-  background: var(--bg-alt);
+  background: var(--bg);
   box-shadow: var(--shadow);
   overflow-y: auto;
   animation: none;
+  outline: none;
 }
 
 .task-alert.banner .alert-body {
-  padding: 14px 16px;
+  box-sizing: border-box;
+  align-items: stretch;
+  width: 100%;
+  padding: 16px 18px 18px;
 }
 
 .task-alert.banner .alert-bell,
@@ -1088,13 +1092,169 @@
 }
 
 .task-alert.banner h1 {
-  margin: 0 0 10px;
-  font-size: 16px;
+  flex: 1;
+  margin: 0;
+  font-size: 12px;
+  font-weight: 500;
+  letter-spacing: 0;
+  text-transform: none;
 }
 
 .task-alert.banner button {
-  padding: 5px 10px;
+  display: inline-flex;
+  align-items: center;
+  justify-content: center;
+  gap: 6px;
+  padding: 8px 10px;
+  border-radius: var(--radius-m);
   font-size: 13px;
+}
+
+.alert-banner-head {
+  display: flex;
+  align-items: center;
+  gap: 8px;
+  margin-bottom: 14px;
+}
+
+.alert-banner-icon {
+  display: flex;
+  align-items: center;
+  justify-content: center;
+  width: 28px;
+  height: 28px;
+  border-radius: var(--radius-m);
+  background: color-mix(in srgb, var(--accent) 10%, var(--bg));
+  color: var(--accent);
+}
+
+.task-alert.banner svg {
+  flex: none;
+  width: 15px;
+  height: 15px;
+}
+
+.task-alert.banner button.alert-dismiss {
+  width: 28px;
+  height: 28px;
+  padding: 5px;
+  border-color: transparent;
+  background: transparent;
+  color: var(--text-faint);
+}
+
+.task-alert.banner button.alert-dismiss:hover {
+  background: var(--bg-hover);
+  color: var(--text);
+}
+
+.task-alert.banner .alert-list {
+  gap: 16px;
+}
+
+.task-alert.banner .alert-task {
+  position: relative;
+  min-width: 0;
+  padding: 0;
+  border: 0;
+  border-radius: 0;
+  background: transparent;
+  box-shadow: none;
+}
+
+.task-alert.banner .alert-text.with-dismiss {
+  padding-right: 28px;
+}
+
+.task-alert.banner button.alert-item-dismiss {
+  position: absolute;
+  top: 0;
+  right: 0;
+  width: 24px;
+  height: 24px;
+  padding: 4px;
+  border: 0;
+  background: transparent;
+  color: var(--text-faint);
+}
+
+.task-alert.banner .alert-task + .alert-task .alert-item-dismiss {
+  top: 16px;
+}
+
+.task-alert.banner button.alert-item-dismiss:hover {
+  background: var(--bg-hover);
+  color: var(--text);
+}
+
+.task-alert.banner .alert-task + .alert-task {
+  padding-top: 16px;
+  border-top: 1px solid var(--border);
+}
+
+.task-alert.banner .alert-text {
+  font-size: 18px;
+  font-weight: 600;
+  line-height: 1.4;
+}
+
+.task-alert.banner .alert-when {
+  display: flex;
+  flex-wrap: wrap;
+  align-items: center;
+  gap: 4px;
+  margin: 6px 0 8px;
+  font-size: 12px;
+}
+
+.task-alert.banner button.alert-source {
+  justify-content: flex-start;
+  min-width: 0;
+  max-width: 100%;
+  padding: 0;
+  border: 0;
+  border-radius: 2px;
+  background: transparent;
+  color: var(--text-muted);
+  font-size: inherit;
+  overflow-wrap: anywhere;
+}
+
+.task-alert.banner button.alert-source:hover {
+  color: var(--accent);
+  text-decoration: underline;
+  text-underline-offset: 3px;
+}
+
+.task-alert.banner .alert-status .task-chip.days {
+  margin: 0;
+  padding: 0;
+  border: 0;
+  background: transparent;
+  font-size: 12px;
+  font-weight: 400;
+}
+
+.task-alert.banner .alert-actions {
+  gap: 8px;
+  margin-top: 16px;
+}
+
+.task-alert.banner .alert-actions button {
+  min-height: 34px;
+  white-space: nowrap;
+}
+
+.task-alert.banner button.primary {
+  font-weight: 500;
+}
+
+.task-alert.banner .alert-footer {
+  justify-content: flex-start;
+  gap: 8px;
+  margin-top: 16px;
+  padding-top: 12px;
+  border-top: 1px solid var(--border);
 }
 
 /* The caption at the end of a task's line in a note. */

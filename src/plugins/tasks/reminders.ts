@@ -1,4 +1,5 @@
 import { path as paths, renderInline, type Off, type Plugin } from '../../api'
+import { desktop } from '../../core/desktop'
 import { Signal, type Repeat } from './sound'
 import { fromIso, iso } from './dates'
 import { daysChip } from './days-left'
@@ -79,6 +80,8 @@ export class Reminders {
   private shown = ''
   private title = document.title
   private flash: ReturnType<typeof setInterval> | undefined
+  private presentation = ''
+  private notifications = new Map<string, Notification>()
 
   constructor(
     private plugin: Plugin,
@@ -87,23 +90,41 @@ export class Reminders {
 
   start(): Off {
     const check = () => this.check()
-    // The clock runs on a thread of its own: a tab in the background has its own timers slowed
-    // to once a minute or less, a worker's are not, so a reminder comes on time there too.
+    // Electron supplies ticks from its main process, even in the tray. In a browser,
+    // a worker avoids the background tab's usual timer throttling.
     let ticker: Worker | null = null
     try {
-      ticker = new Worker(URL.createObjectURL(new Blob([`setInterval(() => postMessage(0), ${CHECK_EVERY})`], { type: 'text/javascript' })))
-      ticker.onmessage = check
+      if (!desktop) {
+        const url = URL.createObjectURL(new Blob([`setInterval(() => postMessage(0), ${CHECK_EVERY})`], { type: 'text/javascript' }))
+        ticker = new Worker(url)
+        URL.revokeObjectURL(url)
+        ticker.onmessage = check
+      }
     } catch {
       ticker = null
     }
-    const timer = ticker ? undefined : setInterval(check, CHECK_EVERY)
+    const timer = ticker || desktop ? undefined : setInterval(check, CHECK_EVERY)
+    const offTick = desktop?.onReminderTick(check)
     const off = this.store.on('change', check)
+    const offSettings = this.plugin.app.settings.on('change', (scope) => {
+      if (scope === this.plugin.manifest.id) check()
+    })
+    const offClick = desktop?.onReminderClick((key) => {
+      const due = this.due().find((one) => one.key === key)
+      if (due) {
+        this.acknowledge([key])
+        this.plugin.app.workspace.openFile(due.task.path, { line: due.task.line })
+      }
+    })
     document.addEventListener('visibilitychange', check)
     check()
     return () => {
       clearInterval(timer)
       ticker?.terminate()
       off()
+      offSettings()
+      offClick?.()
+      offTick?.()
       document.removeEventListener('visibilitychange', check)
       this.close()
     }
@@ -186,21 +207,41 @@ export class Reminders {
     const style = this.setting<string>('alertStyle') ?? 'fullscreen'
     const due = this.muted() || style === 'off' ? [] : this.due()
     const signature = due.map((d) => d.key).join('\n')
-    if (signature === this.shown) return
-    const fresh = due.filter((d) => !this.shown.split('\n').includes(d.key))
+    const presentation = `${style}|${!!this.setting<boolean>('system')}`
+    const changed = presentation !== this.presentation
+    if (signature === this.shown && !changed) return
+    const fresh = due.filter((d) => changed || !this.shown.split('\n').includes(d.key))
+    this.presentation = presentation
+    if (changed) {
+      this.dialog?.remove()
+      this.dialog = null
+    }
     this.shown = signature
+    for (const [key, note] of this.notifications) {
+      if (due.some((one) => one.key === key) && this.setting<boolean>('system')) continue
+      note.close()
+      this.notifications.delete(key)
+    }
     if (!due.length) {
       this.close()
       return
     }
     this.render(due)
+    desktop?.setReminders({
+      system: !!this.setting<boolean>('system'),
+      items: due.map(({ key, task }) => ({ key, title: task.plain ? 'Напоминание' : 'Напоминание о задаче', body: task.description })),
+    })
     if (this.setting<boolean>('sound')) {
       const { kind, volume } = this.sound()
       this.beeper.start(kind, volume, (this.setting<string>('soundRepeat') ?? 'few') as Repeat, this.setting<number>('repeatSeconds'))
     }
-    if (this.setting<boolean>('system') && globalThis.Notification?.permission === 'granted') {
+    if (!desktop && this.setting<boolean>('system') && globalThis.Notification?.permission === 'granted') {
       for (const { key, task } of fresh) {
-        const note = new Notification(task.plain ? 'Напоминание' : 'Напоминание о задаче', { body: task.description, tag: key, requireInteraction: true })
+        let note: Notification
+        try {
+          note = new Notification(task.plain ? 'Напоминание' : 'Напоминание о задаче', { body: task.description, tag: key, requireInteraction: true, silent: true })
+        } catch { continue }
+        this.notifications.set(key, note)
         // A click on the system's notification brings this tab forward, at the task.
         note.onclick = () => {
           window.focus()
@@ -286,6 +327,9 @@ export class Reminders {
   }
 
   private close(): void {
+    desktop?.setReminders({ system: false, items: [] })
+    for (const note of this.notifications.values()) note.close()
+    this.notifications.clear()
     this.beeper.stop()
     clearInterval(this.flash)
     this.flash = undefined
@@ -302,7 +346,7 @@ export class Reminders {
     const list = dialog.querySelector('.alert-list')!
     list.replaceChildren()
 
-    const button = (label: string, className: string, action: () => void) => {
+    const button = (label: string, className: string, action: (event: MouseEvent) => void) => {
       const el = document.createElement('button')
       el.textContent = label
       el.className = className
@@ -388,17 +432,58 @@ export class Reminders {
     } else {
       for (const one of due) {
         const { key, task, at } = one
+        const banner = dialog.classList.contains('banner')
         const item = list.appendChild(document.createElement('div'))
         item.className = 'alert-task'
         const text = item.appendChild(document.createElement('div'))
         text.className = 'alert-text'
-        text.append(renderInline(app, task.description, task.path), ' ', daysChip(task.due ?? task.scheduled ?? iso(at), task.due || task.scheduled ? undefined : 'Напоминание'))
+        text.append(renderInline(app, task.description, task.path))
+        if (banner && due.length > 1) {
+          const dismiss = button('', 'alert-item-dismiss', () => this.acknowledge([key]))
+          dismiss.title = 'Закрыть напоминание'
+          dismiss.setAttribute('aria-label', 'Закрыть напоминание')
+          dismiss.append(app.icons.draw('x'))
+          item.append(dismiss)
+          text.classList.add('with-dismiss')
+        }
+        const status = daysChip(task.due ?? task.scheduled ?? iso(at), task.due || task.scheduled ? undefined : 'Напоминание')
+        if (!banner) text.append(' ', status)
         const when = item.appendChild(document.createElement('div'))
         when.className = 'alert-when'
         const time = at.toLocaleString('ru', { day: 'numeric', month: 'long', hour: '2-digit', minute: '2-digit' })
         when.textContent = `${time} · ${paths.stripExt(paths.basename(task.path))}${task.heading ? ` › ${task.heading}` : ''}`
+        if (banner) {
+          const open = button(paths.stripExt(paths.basename(task.path)), 'alert-source', () => {
+            this.acknowledge([key])
+            app.workspace.openFile(task.path, { line: task.line })
+          })
+          open.title = `Открыть заметку: ${task.path}`
+          open.prepend(app.icons.draw('file-text'))
+          when.replaceChildren(document.createTextNode(time), document.createTextNode(' · '), open)
+          const meta = item.appendChild(document.createElement('div'))
+          meta.className = 'alert-status'
+          meta.append(status)
+        }
         const actions = item.appendChild(document.createElement('div'))
         actions.className = 'alert-actions'
+        if (banner) {
+          const done = button(task.plain ? 'Готово' : 'Выполнено', 'primary', () => {
+            this.acknowledge([key])
+            if (!task.plain) void this.store.toggle(task)
+          })
+          done.prepend(app.icons.draw('check'))
+          const later = button('Напомнить позже', 'alert-later', (event) => {
+            event.preventDefault()
+            event.stopPropagation()
+            const bounds = (event.currentTarget as HTMLElement).getBoundingClientRect()
+            app.menus.show({ x: bounds.left, y: bounds.bottom + 6 }, 'reminders-later', one,
+              this.laterOptions().map((option) => ({ icon: 'clock', title: laterLabel(option.label), onClick: () => this.later(one, option.at) })))
+          })
+          later.prepend(app.icons.draw('clock'))
+          later.append(app.icons.draw('chevron-down'))
+          actions.append(done, later)
+          continue
+        }
         actions.append(
           // An ordinary line has no box to tick: its reminder is simply over.
           button(task.plain ? '✓ Готово' : '✓ Выполнено', 'primary', () => {
@@ -437,15 +522,31 @@ export class Reminders {
   private createDialog(): HTMLDialogElement {
     const dialog = document.createElement('dialog')
     dialog.className = 'task-alert'
+    dialog.setAttribute('aria-labelledby', 'task-alert-title')
     dialog.innerHTML =
       '<div class="alert-body"><div class="alert-bell"><svg viewBox="0 0 24 24" aria-hidden="true"><path d="M6 9a6 6 0 0 1 12 0c0 6 2.5 7 2.5 8.500h-17C3.500 16 6 15 6 9z"/><path d="M10 20.500a2.200 2.200 0 0 0 4 0"/><path class="alert-ring" d="M3.500 4.500C2.500 5.800 2 7.200 2 9"/><path class="alert-ring" d="M20.500 4.500c1 1.300 1.500 2.700 1.500 4.500"/></svg></div><h1></h1><div class="alert-clock"></div><div class="alert-list"></div><div class="alert-footer"></div></div>'
     // Escape must not make it go away: every reminder needs a decision.
     dialog.addEventListener('cancel', (event) => event.preventDefault())
     document.body.append(dialog)
+    dialog.querySelector('h1')!.id = 'task-alert-title'
     // Over the whole screen, or as a card in the corner that lets the work go on.
     if ((this.setting<string>('alertStyle') ?? 'fullscreen') === 'banner') {
       dialog.classList.add('banner')
+      const head = document.createElement('div')
+      head.className = 'alert-banner-head'
+      const bell = document.createElement('span')
+      bell.className = 'alert-banner-icon'
+      bell.append(this.plugin.app.icons.draw('bell'))
+      const close = document.createElement('button')
+      close.className = 'alert-dismiss'
+      close.title = 'Закрыть напоминания'
+      close.setAttribute('aria-label', 'Закрыть напоминания')
+      close.append(this.plugin.app.icons.draw('x'))
+      close.onclick = () => this.acknowledge(this.shown.split('\n').filter(Boolean))
+      head.append(bell, dialog.querySelector('h1')!, close)
+      dialog.querySelector('.alert-body')!.prepend(head)
       dialog.show()
+      dialog.focus({ preventScroll: true })
     } else dialog.showModal()
     // Tests and curious users can see that the signal is sounding.
     const counter = setInterval(() => {
