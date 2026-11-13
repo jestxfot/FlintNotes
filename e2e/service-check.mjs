@@ -135,6 +135,20 @@ try {
   const rotated = await flintnotes('pair', '--rotate')
   const key2 = JSON.parse(fs.readFileSync(config, 'utf8')).shell.key
   ok('`pair --rotate` makes a new key and shuts out the old', rotated.code === 0 && key2 !== saved.shell.key && rotated.text.includes(key2) && (await lan('/api/tree', { headers: { cookie } })).status === 401 && (await lan('/api/tree', { headers: { cookie: `flint-shell=${key2}` } })).status === 200, rotated.text)
+  // ---- `flintnotes vault`: a folder that belongs to a person, taken over by running the service as that person
+  const mine = fs.mkdtempSync(path.join(vaults, 'owned-'))
+  const shown = await flintnotes('vault', mine, '--print')
+  const me = os.userInfo().username
+  ok('`vault --print` shows the change: the folder\'s owner, one folder let through', shown.code === 0 && shown.text.includes(`User=${me}`) && shown.text.includes(`ReadWritePaths=${mine}`) && !shown.text.includes('BindPaths'), shown.text)
+  const inHome = await flintnotes('vault', '/home/nobody-such', '--print')
+  ok('a folder that is not there is said so', inHome.code !== 0 && /нет/.test(inHome.text), inHome.text)
+  const refusals = [await flintnotes('vault', '/home', '--print'), await flintnotes('vault', '/', '--print'), await flintnotes('vault', 'relative/dir', '--print'), await flintnotes('vault', '/srv/with space', '--print'), await flintnotes('vault', '/var/lib/flintnotes/vaults', '--print')]
+  ok('the system\'s folders, relative and odd paths are refused with words', refusals.every((r) => r.code !== 0 && r.text.trim().length > 20), refusals.map((r) => r.text.trim().slice(0, 60)).join(' | '))
+  if (process.getuid() !== 0) {
+    const plain = await flintnotes('vault', mine)
+    ok('without root nothing is written; it says what to run', plain.code !== 0 && plain.text.includes('sudo flintnotes vault') && !fs.existsSync('/etc/systemd/system/flintnotes.service.d/vault.conf'), plain.text)
+  }
+
   const origin = `http://127.0.0.1:${LAN}`
   const shell = { cookie: `flint-shell=${key2}`, origin, 'content-type': 'application/json' }
   const post = (p, body, headers = shell) => lan(p, { method: 'POST', headers, body: JSON.stringify(body) })

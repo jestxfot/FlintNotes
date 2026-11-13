@@ -6,7 +6,15 @@ Version and updates:                    flintnotes status | flintnotes update
 Logs:                                   journalctl -u flintnotes
 Settings:                               /etc/default/flintnotes
 
-Vaults live in /var/lib/flintnotes/vaults. To use the same folder from Windows (Obsidian on the same notes), share it
+Notes that already exist on this computer (an Obsidian vault in someone's home, which Samba shares to Windows):
+
+    sudo flintnotes vault /home/name/obsidian
+
+The service then runs as the owner of that folder (the one Samba writes as) and sees nothing else of the home; the folder
+is opened as the vault. `flintnotes vault <folder> --print` shows the change without making it, `sudo flintnotes vault
+--remove` undoes it. The files stay exactly as they are: nothing is copied or moved.
+
+Vaults the service makes itself live in /var/lib/flintnotes/vaults. To use the same folder from Windows (Obsidian on the same notes), share it
 with Samba, writing as the service's user, for example in /etc/samba/smb.conf:
 
     [FlintNotes]

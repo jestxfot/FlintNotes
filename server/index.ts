@@ -16,6 +16,8 @@ import path from 'node:path'
 import { Readable, Transform } from 'node:stream'
 import { pipeline } from 'node:stream/promises'
 import { fileURLToPath } from 'node:url'
+import { promisify } from 'node:util'
+import { gzip } from 'node:zlib'
 import { PROTOCOL, type BuildInfo, type DirListing, type ExternalPluginInfo, type RemoteEvent, type Tier, type VaultEntry, type VaultInfo } from '../shared/protocol'
 import { checkWay, chooseProxy, computerProxy, describe, parseProxy, telegramName, viaProxy, webFetch, webGet, youtubeVideo } from './web'
 import { decide } from './policy'
@@ -398,7 +400,16 @@ api.get('/dirs', async (c) => {
   }
 })
 
-api.get('/tree', async (c) => c.body(await trees.json(root()), 200, { 'content-type': 'application/json; charset=utf-8' }))
+// The list of a big vault is megabytes of paths (12.8 MB for 75 000 files), which the window fetches at each start and each
+// reconnect over the network: gzipped it is about an eighth. Done once per state of the tree, not per request.
+let gzippedTree: { text: string; zipped: Uint8Array<ArrayBuffer> } | null = null
+api.get('/tree', async (c) => {
+  const text = await trees.json(root())
+  const headers = { 'content-type': 'application/json; charset=utf-8', vary: 'accept-encoding' }
+  if (text.length < 64 * 1024 || !/\bgzip\b/.test(c.req.header('accept-encoding') ?? '')) return c.body(text, 200, headers)
+  if (gzippedTree?.text !== text) gzippedTree = { text, zipped: Uint8Array.from(await promisify(gzip)(text, { level: 4 })) }
+  return c.body(gzippedTree.zipped, 200, { ...headers, 'content-encoding': 'gzip' })
+})
 
 // Every note's text in one response, one JSON object per line. The app reads
 // this once at start to build its index; a request per note would be far slower.
@@ -1026,9 +1037,8 @@ const isHiddenIn = (dir: string, abs: string) =>
 /** Follows changes in a vault's folder, from the first time the vault is asked for. */
 function watch(dir: string): void {
   if (watchers.has(dir)) return
-  // FLINT_WATCH=native has the system watch a whole tree at once (inotify) instead of chokidar looking at every file first.
-  const native = process.env.FLINT_WATCH === 'native' && !needsPolling()
-  watchers.set(dir, native ? watchNatively(dir) : watchWithChokidar(dir))
+  // The system watches the whole tree (inotify, one watch per folder); only a disk that gives no events (FLINT_POLL) is polled.
+  watchers.set(dir, needsPolling() ? watchByPolling(dir) : watchNatively(dir))
 }
 
 const upsert = (dir: string, entry: VaultEntry) => {
@@ -1049,9 +1059,9 @@ const watchFailed = (dir: string) => (err: unknown) => {
 }
 
 /**
- * The system watches a whole tree by itself: one handle, ready at once. Chokidar would
- * first look at every file and set a watcher on each, which in a vault of tens of thousands of
- * files keeps the server busy for minutes, and the page waits all that time.
+ * The system watches a whole tree by itself: one watch per folder, ready at once. Chokidar sets a watch on every
+ * file: on a vault of 75 000 files (5 000 folders) that was 67 000 watches, the whole per-user allowance
+ * (fs.inotify.max_user_watches), a first tree after 17 s instead of 5 and half the memory.
  */
 function watchNatively(dir: string): { close(): unknown } {
   // The system reports a write several times over; each path is looked at once things settle.
@@ -1078,10 +1088,10 @@ function watchNatively(dir: string): { close(): unknown } {
   return watcher
 }
 
-/** Chokidar watches by default (and polls where FLINT_POLL says): it is the one that sees every kind of disk. */
-function watchWithChokidar(dir: string): { close(): unknown } {
+/** A vault on a network disk (SMB, NFS) gives no events: FLINT_POLL=1 has chokidar look at every file, every second or three. */
+function watchByPolling(dir: string): { close(): unknown } {
   return chokidar
-    .watch(dir, { ignored: (abs: string) => isHiddenIn(dir, abs), ignoreInitial: true, usePolling: needsPolling(), interval: 1000, binaryInterval: 3000 })
+    .watch(dir, { ignored: (abs: string) => isHiddenIn(dir, abs), ignoreInitial: true, usePolling: true, interval: 1000, binaryInterval: 3000 })
     .on('all', async (event, abs) => {
       if (abs === dir) return
       if (event === 'unlink' || event === 'unlinkDir') return remove(dir, toRel(abs, dir))

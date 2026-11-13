@@ -12,6 +12,8 @@ export async function run(t) {
   ok('release history links to the repository releases', await about.getByRole('link').getAttribute('href') === 'https://github.com/jestxfot/FlintNotes/releases')
   await page.keyboard.press('Escape')
   await about.waitFor({ state: 'detached' })
+  // The dialog's own 'close' event reaches the page a moment after it is gone; a command run before it is undone by it.
+  await page.waitForTimeout(300)
   await page.evaluate(() => app.commands.run('core:about'))
   await about.waitFor()
   await page.setViewportSize({ width: 390, height: 760 })

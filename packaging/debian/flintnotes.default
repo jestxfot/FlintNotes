@@ -12,7 +12,8 @@
 # A folder outside needs write access in the unit too (see flintnotes.service, ReadWritePaths).
 #FLINT_VAULT_ROOTS=/var/lib/flintnotes/vaults:/srv/flintnotes
 
-# A vault on a network disk (SMB, NFS) gives no change events: look for changes by polling.
+# A vault on a network disk mounted here (SMB, NFS) gives no change events: look for changes by polling (slower, heavier).
+# Not needed for a folder on this computer's own disk, even when Samba shares it to Windows.
 #FLINT_POLL=1
 
 # The way the server reaches the web (link cards, updates), if it needs a proxy:
