@@ -1,5 +1,5 @@
 // Reminders for the phone, from the server: the page that works out what is due is closed when nobody has the app open, so
-// the server reads the notes itself and sends a message (to the phone, through ntfy on the home network) when one is due.
+// the server reads the notes itself and sends a message (to the Android app, which keeps one connection to the server on the home network) when one is due.
 // "Due" is the page's own reading (src/plugins/tasks/due.ts, with the settings of the vault's `.flint/settings.json`), so a
 // phone and a window never disagree. It does not need the page, a window or the PC to be on.
 //

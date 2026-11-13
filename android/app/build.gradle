@@ -1,0 +1,33 @@
+plugins {
+    id 'com.android.application'
+}
+
+// The app's version is the project's (package.json), so the window, the server and the phone say the same number.
+def projectVersion = new groovy.json.JsonSlurper().parse(file('../../package.json')).version
+
+android {
+    namespace 'app.flintnotes'
+    compileSdk 35
+
+    defaultConfig {
+        applicationId 'app.flintnotes'
+        minSdk 26
+        targetSdk 35
+        versionCode 1
+        versionName projectVersion
+    }
+
+    buildTypes {
+        release {
+            minifyEnabled false
+            // Installed by hand (adb, or the file from the release), not from a store: the debug key of this computer signs it,
+            // so the next build installs over it.
+            signingConfig signingConfigs.debug
+        }
+    }
+
+    compileOptions {
+        sourceCompatibility JavaVersion.VERSION_17
+        targetCompatibility JavaVersion.VERSION_17
+    }
+}

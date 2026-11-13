@@ -22,7 +22,7 @@ import { PROTOCOL, type BuildInfo, type DirListing, type ExternalPluginInfo, typ
 import { checkWay, chooseProxy, computerProxy, describe, parseProxy, telegramName, viaProxy, webFetch, webGet, youtubeVideo } from './web'
 import { decide } from './policy'
 import { keptTrees, limiter } from './kept'
-import { startNtfy, type Ntfy } from './ntfy'
+import { Outbox } from './outbox'
 import { PhoneReminders } from './reminders'
 import { TreeCache } from './tree-cache'
 
@@ -42,8 +42,6 @@ interface Config {
   phone?: { on?: boolean; port?: number; key?: string; /** The address to listen on; every network card of the computer when not given (FLINT_BIND wins). */ host?: string }
   /** The key of the Windows shell (the service's network listener has it beside the phones' key; see «who may ask»). */
   shell?: { key?: string }
-  /** The channel the phone's reminders go through (ntfy, see server/ntfy.ts); its secret name. */
-  notify?: { topic?: string }
   /** The time zone the notes' times (reminders) are written in, when this computer's own is another: `Europe/Moscow`. */
   timezone?: string
 }
@@ -76,7 +74,6 @@ async function readConfig(): Promise<Config> {
       phone: data.phone && typeof data.phone === 'object' ? { on: data.phone.on === true, port: validPort(data.phone.port) ? data.phone.port : undefined, key: typeof data.phone.key === 'string' && data.phone.key.length >= 16 ? data.phone.key : undefined, host: typeof data.phone.host === 'string' && net.isIP(data.phone.host) ? data.phone.host : undefined } : undefined,
       shell: data.shell && typeof data.shell === 'object' && typeof data.shell.key === 'string' && data.shell.key.length >= 16 ? { key: data.shell.key } : undefined,
       timezone: typeof data.timezone === 'string' && validZone(data.timezone) ? data.timezone : undefined,
-      notify: data.notify && typeof data.notify === 'object' && typeof data.notify.topic === 'string' && /^[-_A-Za-z0-9]{16,64}$/.test(data.notify.topic) ? { topic: data.notify.topic } : undefined,
     }
   } catch {
     return { vaults: [] }
@@ -99,9 +96,6 @@ if (config.timezone && !process.env.TZ) process.env.TZ = config.timezone
 const STATE_DIR = process.env.FLINT_STATE_DIR
 const newKey = () => crypto.randomBytes(18).toString('base64url')
 if (SERVICE && !config.shell?.key) config.shell = { key: newKey() }
-// The phone's channel (server/ntfy.ts) has a secret name of its own; it is made when the program that serves it is there.
-const NTFY_BINARY = STATE_DIR ? path.join(STATE_DIR, 'ntfy', 'ntfy') : undefined
-if (SERVICE && NTFY_BINARY && existsSync(NTFY_BINARY) && !config.notify?.topic) config.notify = { topic: newKey() }
 chooseProxy(config.proxy ?? 'system')
 // FLINT_PORT (tests, development) wins over the port chosen in the settings; then that port can not be changed from the app.
 const fixedPort = process.env.FLINT_PORT ? Number(process.env.FLINT_PORT) : undefined
@@ -695,20 +689,31 @@ const phoneInfo = () => ({ on: phoneOn(), port: phonePort(), error: phoneError, 
 
 api.get('/phone', (c) => c.json(phoneInfo()))
 
-// ---- the phone's reminders: ntfy on this computer carries them, the app on the phone listens (server/ntfy.ts, server/reminders.ts)
-const NTFY_PORT = Number(process.env.FLINT_NTFY_PORT) || 8090
-let notifier: Ntfy | null = null
-const notifyInfo = () => {
-  const where = phoneAddresses(NTFY_PORT)[0]
-  const topic = config.notify?.topic
-  return { enabled: !!notifier && !!topic && !!where, url: where ?? null, topic: topic ?? null, link: where && topic ? `ntfy://${where.replace(/^http:\/\//, '')}/${topic}?secure=false` : null }
-}
-api.get('/notify', (c) => c.json(notifyInfo()))
-api.post('/notify/test', async (c) => {
-  if (!notifier) throw new HTTPException(503, { message: 'Канал телефона не запущен: service/flintnotes notify' })
-  return c.json({ ok: await notifier.send({ title: 'FlintNotes', body: 'Проверка: напоминания придут сюда, даже когда страница закрыта.' }) })
+// ---- the phone's reminders (server/reminders.ts): the app on the phone (android/) reads them from a stream: a stream (server-sent events) that starts with what it missed, by the
+// number of the last message it has (`Last-Event-ID`, or `since`; `since=latest` for a new phone: only what comes from now on).
+const outbox = new Outbox(STATE_DIR ? path.join(STATE_DIR, 'outbox.json') : undefined)
+await outbox.load()
+api.get('/reminders/stream', (c) => {
+  const asked = c.req.query('since') ?? c.req.header('last-event-id') ?? '0'
+  let after = asked === 'latest' ? outbox.latest() : Math.max(0, Number.parseInt(asked, 10) || 0)
+  return streamSSE(c, async (stream) => {
+    const send = async (message: { id: number; time: number; title: string; body: string }) => {
+      if (message.id <= after) return
+      after = message.id
+      await stream.writeSSE({ id: String(message.id), event: 'reminder', data: JSON.stringify(message) })
+    }
+    // What came while the phone was away, then what comes; each message goes once even if it is pushed while the backlog is sent.
+    for (const message of outbox.since(after)) await send(message)
+    const off = outbox.subscribe((message) => void send(message).catch(() => {}))
+    stream.onAbort(off)
+    await stream.writeSSE({ event: 'hello', data: JSON.stringify({ latest: outbox.latest() }) })
+    while (!stream.aborted && !stream.closed) {
+      await stream.sleep(20_000)
+      await stream.writeSSE({ event: 'ping', data: '' })
+    }
+    off()
+  })
 })
-
 
 const sameOrigin = (c: Context) => {
   const origin = c.req.header('origin')
@@ -1161,10 +1166,7 @@ const server = serve({ fetch: app.fetch, port, hostname: '127.0.0.1' }, started(
 void listenPhone().then(() => startPhoneReminders())
 
 function startPhoneReminders(): void {
-  const topic = config.notify?.topic
-  const url = phoneAddresses(NTFY_PORT)[0]
-  if (!SERVICE || !STATE_DIR || !NTFY_BINARY || !topic || !url || !existsSync(NTFY_BINARY)) return
-  notifier = startNtfy({ binary: NTFY_BINARY, dir: path.dirname(NTFY_BINARY), host: phoneHost(), port: NTFY_PORT, url, topic })
+  if (!SERVICE || !STATE_DIR) return
   const kept = path.join(STATE_DIR, 'reminders.json')
   const reminders = new PhoneReminders({
     vaults: () => config.vaults.filter((dir) => existsSync(dir)),
@@ -1174,7 +1176,10 @@ function startPhoneReminders(): void {
     },
     read: (dir, rel) => fs.readFile(path.join(dir, rel), 'utf8'),
     settings: async (dir) => (JSON.parse(await fs.readFile(path.join(dir, '.flint', 'settings.json'), 'utf8')) as { tasks?: unknown }).tasks,
-    send: (message) => (notifier ? notifier.send(message) : Promise.resolve(false)),
+    send: async (message) => {
+      outbox.push(message)
+      return true
+    },
     load: async () => {
       try {
         const data = JSON.parse(await fs.readFile(kept, 'utf8'))
@@ -1191,7 +1196,7 @@ function startPhoneReminders(): void {
     name: vaultName,
   })
   stopReminders = reminders.start(Number(process.env.FLINT_REMINDER_EVERY) || 30_000)
-  console.log(`Напоминания для телефона: ${notifyInfo().link}`)
+  console.log('Напоминания для телефона: приложение читает /api/reminders/stream')
 }
 let stopReminders = () => {}
 
@@ -1222,7 +1227,6 @@ async function stop(): Promise<void> {
   server.close()
   phoneServer?.close()
   stopReminders()
-  notifier?.stop()
   // Saves that have begun are let finish: a note cut off mid-write would be lost.
   for (const until = Date.now() + 5000; writes > 0 && Date.now() < until; ) await new Promise((resume) => setTimeout(resume, 50))
   // The lists of files as they are now, for the next start.

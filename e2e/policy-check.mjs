@@ -21,7 +21,7 @@ const may = (tier, method, path) => decide(tier, method, path).allowed
 const TIERS = ['admin', 'shell', 'phone']
 
 ok('the notes themselves are open to every tier, whatever the method', TIERS.every((tier) => ['GET', 'PUT', 'POST', 'DELETE'].every((method) => may(tier, method, '/api/tree') && may(tier, method, '/api/file') && may(tier, method, '/api/events'))))
-ok('the server\'s own things (keys, proxy, the phone\'s channel) are the server\'s computer\'s alone', ['/api/phone', '/api/shell', '/api/proxy', '/api/proxy/test', '/api/notify', '/api/notify/test'].every((p) => ['GET', 'POST'].every((m) => may('admin', m, p) && !may('shell', m, p) && !may('phone', m, p))))
+ok('the server\'s own things (keys, proxy) are the server\'s computer\'s alone', ['/api/phone', '/api/shell', '/api/proxy', '/api/proxy/test'].every((p) => ['GET', 'POST'].every((m) => may('admin', m, p) && !may('shell', m, p) && !may('phone', m, p))))
 ok('the window runs the owner\'s programs, a phone does not', may('admin', 'POST', '/api/exec') && may('shell', 'POST', '/api/exec') && !may('phone', 'POST', '/api/exec'))
 ok('a look-alike address is not the program route', may('phone', 'GET', '/api/executive-summary') && may('phone', 'GET', '/api/system-commands'))
 ok('which folders are vaults is the server computer\'s: the window and phones neither forget a vault nor look through folders, but may read the list', TIERS.every((tier) => may(tier, 'GET', '/api/vaults')) && ['shell', 'phone'].every((tier) => !may(tier, 'POST', '/api/vaults/forget') && !may(tier, 'DELETE', '/api/vaults/forget') && !may(tier, 'GET', '/api/dirs')) && may('admin', 'POST', '/api/vaults/forget') && may('admin', 'GET', '/api/dirs'))

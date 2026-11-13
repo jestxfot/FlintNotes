@@ -2,11 +2,10 @@
  * `service/flintnotes pair|status` run this: what is done at the Debian computer itself, not from the Windows shell or a phone.
  *
  *   pair [--phone] [--rotate]    the address with the key, as text and as a QR code: for the Windows app, or with --phone
- *                                for phones (a key of their own, which may do less); --rotate makes a new key, which shuts
- *                                out everything paired with the old
+ *                                for phones (a key of their own, which may do less; the QR code opens the FlintNotes app for
+ *                                Android, the link a browser); --rotate makes a new key, which shuts out everything paired
+ *                                with the old
  *   status                       the version running
- *   notify [--test]              how to get the reminders on a phone with FlintNotes closed (the ntfy app and the channel to join,
- *                                as a QR code); --test sends a message to it
  *   vault <folder> [--create]    makes a folder a vault of this server (the window and phones cannot add vaults): it opens at the
  *                                next start of the window; --create makes the folder if it is not there
  *
@@ -77,9 +76,10 @@ async function pair(phone: boolean, rotate: boolean): Promise<void> {
   for (const address of info.addresses) {
     const link = `${address}/?key=${info.key}`
     console.log(`  ${link}\n`)
-    if (address === info.addresses[0]) console.log(`${renderUnicodeCompact(link, { border: 2 })}\n`)
+    // The phone's code opens the app (flintnotes://, which the Android app answers); the link beside it works in any browser.
+    if (address === info.addresses[0]) console.log(`${renderUnicodeCompact(phone ? `flintnotes://connect?link=${encodeURIComponent(link)}` : link, { border: 2 })}\n`)
   }
-  console.log(phone ? 'Наведите камеру телефона на QR-код или откройте ссылку в его браузере.' : 'В приложении FlintNotes для Windows: «Адрес сервера» — эта ссылка целиком. Для телефона: flintnotes pair --phone')
+  console.log(phone ? 'Наведите камеру телефона на QR-код: откроется приложение FlintNotes для Android. Без приложения — откройте ссылку в браузере телефона, или вставьте её в приложении.' : 'В приложении FlintNotes для Windows: «Адрес сервера» — эта ссылка целиком. Для телефона: flintnotes pair --phone')
   console.log('Ссылка с ключом открывает все заметки: не пересылайте её. Сеть без шифрования — только домашняя.')
 }
 
@@ -95,31 +95,13 @@ async function vault(args: string[]): Promise<void> {
   console.log(`Хранилище «${opened.name}» (${opened.path}) теперь у сервера. В окне оно в списке хранилищ (меню внизу слева).`)
 }
 
-async function notify(test: boolean): Promise<void> {
-  const info = await admin<{ enabled: boolean; url: string | null; topic: string | null; link: string | null }>('/api/notify')
-  if (!info.enabled || !info.link) throw new Error('канала для телефона ещё нет: service/flintnotes notify (скачает ntfy и перезапустит службу)')
-  if (test) {
-    const sent = await admin<{ ok: boolean }>('/api/notify/test', {})
-    console.log(sent.ok ? 'Отправлено: на телефоне должно прийти сообщение.' : 'Не ушло: ntfy ещё не поднялась, повторите через несколько секунд.')
-    return
-  }
-  console.log('Напоминания на телефоне, даже когда страница закрыта.\n')
-  console.log('1. Поставьте на телефон приложение ntfy (F-Droid или GitHub: binwiederhier/ntfy-android, версия «fdroid»; Google не нужен).')
-  console.log(`2. В нём: «+» → «Use another server» → ${info.url} → тема ${info.topic}. Или наведите камеру на код (в ссылке «?secure=false»: сеть домашняя, без https):\n`)
-  console.log(`${renderUnicodeCompact(info.link, { border: 2 })}\n`)
-  console.log(`  ${info.link}\n`)
-  console.log('3. Разрешите приложению уведомления и работу в фоне (без ограничения батареи). Проверка: flintnotes notify --test')
-  console.log('Тема — секрет канала: кто её знает, читает напоминания. Сеть без шифрования — только домашняя.')
-}
-
 const [command, ...rest] = process.argv.slice(2)
 try {
   if (command === 'pair') await pair(rest.includes('--phone'), rest.includes('--rotate'))
   else if (command === 'status') await status()
   else if (command === 'vault') await vault(rest)
-  else if (command === 'notify') await notify(rest.includes('--test'))
   else {
-    console.log('service/flintnotes pair [--phone] [--rotate] | status | vault <папка> [--create] | notify [--test]')
+    console.log('service/flintnotes pair [--phone] [--rotate] | status | vault <папка> [--create]')
     process.exit(command ? 2 : 0)
   }
 } catch (err) {

@@ -6,8 +6,9 @@ import path from 'node:path'
 export const phone = true
 export const viewport = { width: 390, height: 780 }
 export const vault = {
-  plugins: ['outline', 'quick-switcher'],
+  plugins: ['outline', 'quick-switcher', 'minimap'],
   files: {
+    'Long.md': `# Long\n\n${Array.from({ length: 120 }, (_, i) => `line ${i}`).join('\n\n')}\n`,
     'Inbox/Shopping.md': '# Shopping\n\nmilk\n',
     'Ideas.md': '# Ideas\n\n## One\n\nfirst idea\n',
   },
@@ -149,6 +150,23 @@ export async function run(t) {
   // ---- the server: a phone of the home network comes in with the key, and only with it
   const origin = new URL(page.url()).origin
   const PORT = 4797
+  // ---- a long note has no map beside it on a phone, and what cannot shrink does not make the whole note scroll sideways
+  await page.evaluate(() => app.workspace.openFile('Long.md', { newTab: true }))
+  await page.waitForSelector(`${t.leaf} .cm-content`)
+  await wait(1500)
+  ok('a long note has no map on a phone', (await page.locator(`${t.leaf} .note-map:not([hidden])`).count()) === 0 && (await page.locator(`${t.leaf} .cm-editor.has-note-map`).count()) === 0)
+  const fit = await page.evaluate((leaf) => {
+    const content = document.querySelector(leaf)
+    const scroller = content.closest('.cm-scroller')
+    // A block that cannot get narrower than 900 px, as a wide widget or a table does.
+    const wide = document.createElement('div')
+    wide.style.cssText = 'width: 900px; min-width: 900px; height: 10px'
+    content.append(wide)
+    const measured = { content: content.offsetWidth, scroller: scroller.clientWidth, overflow: getComputedStyle(scroller).overflowX }
+    wide.remove()
+    return measured
+  }, `${t.leaf} .cm-content`)
+  ok('a block wider than the screen does not make the note wider than the screen', fit.content <= fit.scroller + 1 && fit.overflow === 'hidden', JSON.stringify(fit))
   const access = await page.evaluate((port) => app.vault.setPhone({ on: true, port }), PORT)
   ok('turned on, the phones get a port of their own and a key', access.on && access.port === PORT && access.key?.length >= 20 && !access.error, JSON.stringify(access))
   const there = `http://127.0.0.1:${PORT}`

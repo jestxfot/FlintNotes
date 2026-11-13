@@ -1231,3 +1231,13 @@ html.mobile .cm-tooltip.cm-tooltip-autocomplete > ul {
   border-top: 1px solid var(--border);
   font-size: 13px;
 }
+
+/* On a phone the note is as wide as the screen. What cannot shrink (a wide block) no longer makes the whole note wider and scroll
+   sideways: the text wraps to the screen, and a block wider than it is cut in its own place. */
+.app.phone .cm-editor .cm-content {
+  min-width: 0;
+}
+
+.app.phone .cm-editor .cm-scroller {
+  overflow-x: hidden;
+}

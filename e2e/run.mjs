@@ -111,10 +111,13 @@ for (const [index, file] of suites.entries()) {
     t.ok('suite ran to the end', false, `${String(error).split('\n').slice(0, 16).join(' ¶ ')}\n${context}`)
   }
   await page.close()
+  // The server finishes its saves and writes its list of files on SIGTERM: its folders are removed once it is gone.
+  const gone = new Promise((resolve) => (server.exitCode !== null ? resolve() : server.once('exit', resolve)))
   server.kill()
+  await Promise.race([gone, new Promise((resolve) => setTimeout(resolve, 8000))])
   fs.rmSync(vault, { recursive: true, force: true })
   fs.rmSync(`${vault}.config.json`, { force: true })
-  fs.rmSync(`${vault}.cache`, { recursive: true, force: true })
+  fs.rmSync(`${vault}.cache`, { recursive: true, force: true, maxRetries: 5, retryDelay: 200 })
 
   const failed = results.filter((result) => !result.pass)
   if (failed.length) cache.fail(file)

@@ -88,7 +88,8 @@ export default class Minimap extends Plugin {
           const { view } = this
           if (!view.dom.isConnected) return
           const { doc } = view.state
-          const show = doc.lines >= (get<number>('minLines') ?? 60)
+          // A phone's screen has no room for a map beside the text.
+          const show = doc.lines >= (get<number>('minLines') ?? 60) && !view.dom.closest('.app.phone')
           this.el.hidden = !show
           const width = Math.max(40, get<number>('width') ?? 90)
           if (show) shown.set(view, width)

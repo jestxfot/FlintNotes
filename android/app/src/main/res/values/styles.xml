@@ -1,0 +1,9 @@
+<?xml version="1.0" encoding="utf-8"?>
+<resources>
+    <style name="Theme.Flint" parent="@android:style/Theme.DeviceDefault.NoActionBar">
+        <item name="android:windowBackground">@color/flint_background</item>
+        <item name="android:statusBarColor">@color/flint_background</item>
+        <item name="android:navigationBarColor">@color/flint_background</item>
+    </style>
+    <color name="flint_background">#1e1e1e</color>
+</resources>

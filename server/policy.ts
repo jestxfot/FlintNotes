@@ -26,7 +26,7 @@ const WRITES = ['POST', 'PUT', 'PATCH', 'DELETE']
 
 export const RULES: readonly Rule[] = [
   // What belongs to the server itself: its proxy and the keys.
-  { path: /^\/api\/(proxy|phone|shell|notify)(\/|$)/, tiers: ['admin'], message: NOT_NETWORK },
+  { path: /^\/api\/(proxy|phone|shell)(\/|$)/, tiers: ['admin'], message: NOT_NETWORK },
   // The programs the owner wrote into the server's config (Templater's system commands): the window's own, never a phone's.
   { path: /^\/api\/exec(\/|$)/, tiers: ['admin', 'shell'], message: NOT_PHONE },
   // Which folders are vaults (adding one, forgetting one, looking through the server's folders to find one) is the owner's,
