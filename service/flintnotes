@@ -117,11 +117,9 @@ install() {
     [ "$(stat -c %U "$vault")" = "$owner" ] || echo "flintnotes: $vault belongs to $(stat -c %U "$vault"), not to $owner: the service may not be able to write there" >&2
   fi
   if [ "$(id -u)" != 0 ]; then
-    # The program is built as the person, not as root; then sudo does the rest.
-    if [ ! -f "$here/release/server.mjs" ]; then
-      echo "Building the program (npm run release) ..."
-      (cd "$here" && node scripts/release.mjs)
-    fi
+    # The program is built as the person, not as root, and always fresh; then sudo does the rest.
+    echo "Building the program (npm run release) ..."
+    (cd "$here" && node scripts/release.mjs)
     exec sudo "$self" install ${vault:+"$vault"}
   fi
   [ -f "$here/release/server.mjs" ] || die "release/ is not built: run  npm run release  in $here (as yourself, not root)"
