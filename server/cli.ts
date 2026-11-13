@@ -5,6 +5,8 @@
  *                                for phones (a key of their own, which may do less); --rotate makes a new key, which shuts
  *                                out everything paired with the old
  *   status                       the version running
+ *   notify [--test]              how to get the reminders on a phone with FlintNotes closed (the ntfy app and the channel to join,
+ *                                as a QR code); --test sends a message to it
  *   vault <folder> [--create]    makes a folder a vault of this server (the window and phones cannot add vaults): it opens at the
  *                                next start of the window; --create makes the folder if it is not there
  *
@@ -93,13 +95,31 @@ async function vault(args: string[]): Promise<void> {
   console.log(`Хранилище «${opened.name}» (${opened.path}) теперь у сервера. В окне оно в списке хранилищ (меню внизу слева).`)
 }
 
+async function notify(test: boolean): Promise<void> {
+  const info = await admin<{ enabled: boolean; url: string | null; topic: string | null; link: string | null }>('/api/notify')
+  if (!info.enabled || !info.link) throw new Error('канала для телефона ещё нет: service/flintnotes notify (скачает ntfy и перезапустит службу)')
+  if (test) {
+    const sent = await admin<{ ok: boolean }>('/api/notify/test', {})
+    console.log(sent.ok ? 'Отправлено: на телефоне должно прийти сообщение.' : 'Не ушло: ntfy ещё не поднялась, повторите через несколько секунд.')
+    return
+  }
+  console.log('Напоминания на телефоне, даже когда страница закрыта.\n')
+  console.log('1. Поставьте на телефон приложение ntfy (F-Droid или GitHub: binwiederhier/ntfy-android, версия «fdroid»; Google не нужен).')
+  console.log(`2. В нём: «+» → «Use another server» → ${info.url} → тема ${info.topic}. Или наведите камеру на код:\n`)
+  console.log(`${renderUnicodeCompact(info.link, { border: 2 })}\n`)
+  console.log(`  ${info.link}\n`)
+  console.log('3. Разрешите приложению уведомления и работу в фоне (без ограничения батареи). Проверка: flintnotes notify --test')
+  console.log('Тема — секрет канала: кто её знает, читает напоминания. Сеть без шифрования — только домашняя.')
+}
+
 const [command, ...rest] = process.argv.slice(2)
 try {
   if (command === 'pair') await pair(rest.includes('--phone'), rest.includes('--rotate'))
   else if (command === 'status') await status()
   else if (command === 'vault') await vault(rest)
+  else if (command === 'notify') await notify(rest.includes('--test'))
   else {
-    console.log('service/flintnotes pair [--phone] [--rotate] | status | vault <папка> [--create]')
+    console.log('service/flintnotes pair [--phone] [--rotate] | status | vault <папка> [--create] | notify [--test]')
     process.exit(command ? 2 : 0)
   }
 } catch (err) {

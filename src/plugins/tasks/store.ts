@@ -1,37 +1,9 @@
 import { Events, type App, type Off } from '../../api'
 import { today } from './dates'
-import { parsePlainReminder, parseTaskLine, toggleTaskLine, type Task } from './task'
+import { parseTasks } from './due'
+import { toggleTaskLine, type Task } from './task'
 
-/**
- * Finds the tasks of one note. Lines inside code blocks are not tasks. Ordinary
- * lines that carry a reminder are collected into `plain`, when a list is given.
- */
-export function parseTasks(path: string, text: string, headings: { text: string; line: number }[], plain?: Task[]): Task[] {
-  const tasks: Task[] = []
-  let fence: string | null = null
-  let heading = 0
-  text.split(/\r?\n/).forEach((raw, line) => {
-    const fenceMatch = /^ {0,3}(`{3,}|~{3,})(.*)$/.exec(raw)
-    if (fence) {
-      if (fenceMatch && fenceMatch[1].startsWith(fence) && !fenceMatch[2].trim()) fence = null
-      return
-    }
-    if (fenceMatch) {
-      fence = fenceMatch[1]
-      return
-    }
-    const parsed = parseTaskLine(raw)
-    while (heading < headings.length && headings[heading].line < line) heading++
-    if (!parsed) {
-      const reminder = plain && raw.includes('(@') ? parsePlainReminder(raw) : null
-      if (reminder) plain!.push({ ...reminder, plain: true, tags: [], path, line, raw, heading: headings[heading - 1]?.text })
-      return
-    }
-    const { prefix: _, ...fields } = parsed
-    tasks.push({ ...fields, path, line, raw, heading: headings[heading - 1]?.text })
-  })
-  return tasks
-}
+export { parseTasks }
 
 /** Every task in the vault, kept current through the note index. */
 export class TaskStore extends Events<{ change: [] }> {

@@ -79,7 +79,24 @@ const config = path.join(state, 'config.json')
 const LAN = 4842
 const ADMIN = 4841
 fs.writeFileSync(config, JSON.stringify({ phone: { port: LAN, host: '127.0.0.1' } }))
-const serviceEnv = { ...process.env, FLINT_SERVICE: '1', FLINT_STATE_DIR: state, FLINT_CONFIG: config, FLINT_CACHE: path.join(dir, 'cache'), FLINT_FIRST_VAULT: path.join(vaults, 'FlintNotes'), FLINT_PORT: String(ADMIN) }
+// The phone's channel: a stand-in for ntfy (a program that listens where it is told and keeps what is posted to it), and a
+// reminders file that says sending began an hour ago, so that what is due now is new.
+const NTFY = 4843
+fs.mkdirSync(path.join(state, 'ntfy'))
+const received = path.join(state, 'ntfy', 'received.jsonl')
+fs.writeFileSync(path.join(state, 'ntfy', 'ntfy'), `#!/usr/bin/env node
+const http = require('node:http')
+const fs = require('node:fs')
+const [host, port] = process.env.NTFY_LISTEN_HTTP.split(':')
+http.createServer((req, res) => {
+  let body = ''
+  req.on('data', (chunk) => (body += chunk))
+  req.on('end', () => { if (req.method === 'POST') fs.appendFileSync(${JSON.stringify(received)}, body + '\\n'); res.end('{}') })
+}).listen(Number(port), host || '0.0.0.0')
+`, { mode: 0o755 })
+fs.writeFileSync(path.join(state, 'reminders.json'), JSON.stringify({ since: Date.now() - 3_600_000, sent: {} }))
+const messages = () => (fs.existsSync(received) ? fs.readFileSync(received, 'utf8').split('\n').filter(Boolean).map((line) => JSON.parse(line)) : [])
+const serviceEnv = { ...process.env, FLINT_NTFY_PORT: String(NTFY), FLINT_REMINDER_EVERY: '1000', FLINT_SERVICE: '1', FLINT_STATE_DIR: state, FLINT_CONFIG: config, FLINT_CACHE: path.join(dir, 'cache'), FLINT_FIRST_VAULT: path.join(vaults, 'FlintNotes'), FLINT_PORT: String(ADMIN) }
 const log = fs.openSync(path.join(dir, 'service.log'), 'a')
 const launcher = spawn(process.execPath, [path.join(lib, 'launcher.mjs')], { env: serviceEnv, stdio: ['ignore', log, log] })
 let launcherExit
@@ -125,6 +142,8 @@ try {
   const post = (p, body, headers = shell) => lan(p, { method: 'POST', headers, body: JSON.stringify(body) })
   const refused = [await post('/api/phone', { newKey: true }), await post('/api/shell', { newKey: true }), await post('/api/proxy', { proxy: 'off' })]
   ok("the shell's key does not reach what is the server's own: keys, the proxy", refused.every((res) => res.status === 403), refused.map((res) => res.status).join())
+  const closed = [await lan('/api/notify', { headers: shell }), await post('/api/notify/test', {})]
+  ok('the window and phones cannot reach the channel\'s settings or send through it', closed.every((res) => res.status === 403), closed.map((res) => res.status).join())
   const info = await (await lan('/api/vault', { headers: shell })).json()
   ok('the page is told it is the shell, so that it shows no settings of the server', info.tier === 'shell', JSON.stringify(info))
 
@@ -230,6 +249,22 @@ try {
     const gone = await run(path.join(binDir, 'flintnotes'), 'remove')
     ok('`flintnotes remove` (through the link) takes the service file and the command away, and keeps the folder', gone.code === 0 && !fs.existsSync(path.join(unitDir, 'flintnotes.service')) && !fs.existsSync(path.join(binDir, 'flintnotes')) && fs.existsSync(path.join(proj, '.service')) && /systemctl disable --now flintnotes/.test(fs.readFileSync(calls, 'utf8')), gone.text)
   }
+
+  // ---- the phone's reminders: the channel, how it is joined, and a reminder written in a note reaching it with nothing open
+  const channel = JSON.parse(fs.readFileSync(config, 'utf8')).notify?.topic
+  ok('the first start with the channel\'s program in place gave it a secret name', typeof channel === 'string' && /^[-_A-Za-z0-9]{16,64}$/.test(channel), String(channel))
+  const joined = await until(async () => (await flintnotes('notify')).code === 0 && (await flintnotes('notify')))
+  ok('`flintnotes notify` says how to join: the address, the name, a QR code', joined && joined.text.includes(`127.0.0.1:${NTFY}`) && joined.text.includes(channel) && /[▀▄█]/.test(joined.text), joined && joined.text)
+  const tried = await flintnotes('notify', '--test')
+  ok('`flintnotes notify --test` posts a message to that channel', tried.code === 0 && (await until(() => messages().some((m) => m.topic === channel && m.title === 'FlintNotes'))), tried.text)
+  const day = new Date(Date.now() - 10 * 60_000)
+  const pad = (n) => String(n).padStart(2, '0')
+  const wrote = `- [ ] pill from a closed page ⏰ ${day.getFullYear()}-${pad(day.getMonth() + 1)}-${pad(day.getDate())} ${pad(day.getHours())}:${pad(day.getMinutes())}\n`
+  fs.writeFileSync(path.join(vaults, 'FlintNotes', 'Pills.md'), wrote)
+  const pill = await until(() => messages().find((m) => m.message?.startsWith('pill from a closed page')), 30)
+  ok('a reminder that came due in a note is sent to the channel by the server, with no page open', pill && pill.topic === channel && pill.title === 'Напоминание о задаче' && /Pills/.test(pill.message), JSON.stringify(messages()))
+  await sleep(3500)
+  ok('and only once', messages().filter((m) => m.message?.startsWith('pill from a closed page')).length === 1, JSON.stringify(messages()))
 
   // ---- stopping
   launcher.kill('SIGTERM')

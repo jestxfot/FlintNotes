@@ -8,11 +8,14 @@
 #   service/flintnotes start | stop | restart | status | logs
 #   service/flintnotes pair [--phone] [--rotate]   the link (and a QR code) for the Windows app, or with --phone for phones
 #   service/flintnotes vault <folder> [--create]   make a folder a vault of this server (the window and phones cannot add vaults)
+#   service/flintnotes notify [--test]             reminders on a phone with FlintNotes closed: gets ntfy (one program, into .service/ntfy/)
+#                                                  if it is not there yet, then shows how to join it from the phone; --test sends one
 #   service/flintnotes unit [folder of notes]      only show the service file `install` would write
 #
 # A new build (`npm run release`) is picked up by the running service by itself. Settings the service reads, one per
 # line in .service/env (then `restart`):  FLINT_BIND=192.168.1.50  (listen on that card only)  FLINT_POLL=1  (a vault on a
-# network disk mounted here)  HTTPS_PROXY=http://127.0.0.1:8080
+# network disk mounted here)  HTTPS_PROXY=http://127.0.0.1:8080  TZ=Europe/Moscow  (the time zone the reminders in the notes are
+# written in, when this computer's own is another)
 set -eu
 
 self=$(readlink -f "$0")
@@ -106,6 +109,50 @@ clear_old() {
   if getent group flintnotes >/dev/null; then groupdel flintnotes || true; fi
 }
 
+# ntfy: the program that carries the phone's reminders (server/ntfy.ts runs it). FLINT_NTFY_BASE: another place to get it from (tests).
+ntfy_version=2.37.2
+
+cmd_notify() {
+  bin=$state/ntfy/ntfy
+  if [ ! -x "$bin" ]; then
+    command -v curl >/dev/null || die "curl is not installed"
+    case $(uname -m) in
+      x86_64) arch=amd64 ;;
+      aarch64) arch=arm64 ;;
+      armv7l) arch=armv7 ;;
+      *) die "no ntfy for $(uname -m)" ;;
+    esac
+    file=ntfy_${ntfy_version}_linux_$arch.tar.gz
+    base=${FLINT_NTFY_BASE:-https://github.com/binwiederhier/ntfy/releases/download/v$ntfy_version}
+    tmp=$(mktemp -d)
+    echo "Getting ntfy $ntfy_version ..."
+    curl -fsSL -o "$tmp/$file" "$base/$file" || die "could not get $base/$file"
+    curl -fsSL -o "$tmp/checksums.txt" "$base/checksums.txt" || die "could not get $base/checksums.txt"
+    (cd "$tmp" && grep " $file\$" checksums.txt | sha256sum -c - >/dev/null) || die "the checksum of $file is not the published one: not using it"
+    mkdir "$tmp/unpacked"
+    tar -xzf "$tmp/$file" -C "$tmp/unpacked"
+    found=$(find "$tmp/unpacked" -type f -name ntfy | head -n 1)
+    [ -n "$found" ] || die "no ntfy in $file"
+    mkdir -p "$state/ntfy"
+    install -m 755 "$found" "$bin"
+    rm -rf "$tmp"
+    # The service looks for the program when it starts.
+    if systemctl is-active --quiet "$name" 2>/dev/null; then
+      as_root systemctl restart "$name"
+      tries=0
+      until cli notify >/dev/null 2>&1; do
+        tries=$((tries + 1))
+        [ "$tries" -lt 30 ] || die "the service did not come up with ntfy in 30 seconds: flintnotes logs"
+        sleep 1
+      done
+    else
+      echo "ntfy is in $state/ntfy. The service is not running here: start or restart it (flintnotes restart), then run this again."
+      return 0
+    fi
+  fi
+  cli notify "$@"
+}
+
 cli() {
   [ -f "$here/release/cli.mjs" ] || die "release/ is not built: run  npm run release  in $here"
   FLINT_CONFIG=$state/config.json node "$here/release/cli.mjs" "$@"
@@ -169,6 +216,7 @@ case $command in
   logs) journalctl -u "$name" -n 100 -f ;;
   pair) cli pair "$@" ;;
   vault) cli vault "$@" ;;
+  notify) cmd_notify "$@" ;;
   unit) unit "$@" ;;
   *)
     sed -n '2,/^set -eu/p' "$self" | sed '$d' | sed 's/^# \{0,1\}//'

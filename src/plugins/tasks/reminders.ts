@@ -2,39 +2,16 @@ import { path as paths, renderInline, type Off, type Plugin } from '../../api'
 import { desktop } from '../../core/desktop'
 import { Signal, type Repeat } from './sound'
 import { fromIso, iso } from './dates'
+import { dueReminders, isQuiet, plannedTime, reminderSettings, timedReminders, type Due, type ReminderSettings } from './due'
 import { daysChip } from './days-left'
 import type { TaskStore } from './store'
-import { formatTaskLine, isOpen, movePlainReminder, parseTaskLine, reminderTime, type Task } from './task'
+import { formatTaskLine, movePlainReminder, parseTaskLine, type Task } from './task'
+
+export { plannedTime, type Due }
 
 const MINUTE = 60_000
 const CHECK_EVERY = 15_000
 const FORGET_AFTER = 60 * 24 * 60 * MINUTE
-
-export interface Due {
-  key: string
-  task: Task
-  at: Date
-  /** It comes from a day's plan (`17:00 - 17:10 ...` in a daily note), not from a reminder written on the task. */
-  planned?: boolean
-  /** The user has closed it: it will not alert again, and lists show it only on request. */
-  closed?: boolean
-}
-
-const PLANNED = /^(\d{1,2}):(\d{2})(?:\s*[-–—]\s*\d{1,2}:\d{2})?(?=\s|$)/
-/**
- * The moment a line of a day's plan is for, in the form the Day Planner plugin has:
- * a task of a daily note that begins with a time, `- [ ] 17:00 - 17:10 Vitamin D`.
- * The day is the note's (its name is a date), or the task's own date.
- */
-export function plannedTime(task: Task): Date | null {
-  const time = PLANNED.exec(task.description)
-  if (!time) return null
-  const day = /^(\d{4}-\d{2}-\d{2})/.exec(paths.basename(task.path))?.[1] ?? task.scheduled ?? task.due
-  if (!day) return null
-  const at = fromIso(day)
-  at.setHours(Number(time[1]), Number(time[2]), 0, 0)
-  return Number.isNaN(at.getTime()) ? null : at
-}
 
 const pad = (n: number) => String(n).padStart(2, '0')
 /** A moment as reminders are written: `2026-10-10 14:00`. */
@@ -143,35 +120,19 @@ export class Reminders {
     return { ...(this.setting<Record<string, number> | undefined>(key) ?? {}) }
   }
 
+  /** The settings that decide what reminds, as the plugin has them now. */
+  private settings(): ReminderSettings {
+    return reminderSettings(Object.fromEntries(['remindDue', 'defaultTime', 'planner', 'plannerOverdueDays', 'remindPlain', 'maxAgeDays', 'leadMinutes', 'muteUntil', 'quietFrom', 'quietTo', 'acknowledged', 'snoozed'].map((key) => [key, this.plugin.getSetting(key)])))
+  }
+
   /** Every open task that has a moment to remind at, soonest first, with what the user did about it. */
   private timed(): Due[] {
-    const defaultTime = this.setting<boolean>('remindDue') ? this.setting<string>('defaultTime') : null
-    const fallback = /^\d{1,2}:\d{2}$/.test(defaultTime ?? '') ? defaultTime : null
-    const planner = this.setting<boolean>('planner') !== false
-    // A line of a past day's plan that was never ticked is not a debt for ever.
-    const plannerFrom = Date.now() - Math.max(0, this.setting<number>('plannerOverdueDays') ?? 1) * 24 * 60 * MINUTE
-    const acknowledged = this.marks('acknowledged')
-    const result: Due[] = []
-    for (const task of this.candidates()) {
-      if (!isOpen(task)) continue
-      const planned = planner && !task.reminder ? plannedTime(task) : null
-      if (planned && planned.getTime() < plannerFrom) continue
-      const at = planned ?? reminderTime(task, fallback)
-      if (!at) continue
-      const key = `${task.path}|${task.description}|${at.getTime()}`
-      result.push({ key, task, at, planned: !!planned, closed: !!acknowledged[key] })
-    }
-    return result.sort((a, b) => a.at.getTime() - b.at.getTime())
+    return timedReminders(this.candidates(), this.settings(), Date.now())
   }
 
   /** Reminders whose time has come and that were neither handled nor postponed. */
   due(): Due[] {
-    const now = Date.now()
-    const snoozed = this.marks('snoozed')
-    const oldest = now - this.setting<number>('maxAgeDays') * 24 * 60 * MINUTE
-    // "Remind N minutes before": the alert comes that much earlier than the moment itself.
-    const lead = Math.max(0, this.setting<number>('leadMinutes') ?? 0) * MINUTE
-    return this.timed().filter(({ key, at, closed }) => !closed && at.getTime() - lead <= now && at.getTime() >= oldest && !((snoozed[key] ?? 0) > now))
+    return dueReminders(this.timed(), this.settings(), Date.now())
   }
 
   private sound(): { kind: string; volume: number } {
@@ -186,14 +147,7 @@ export class Reminders {
 
   /** Whether alerts are held back right now: "do not disturb" was asked for, or it is the quiet time of day. */
   muted(): boolean {
-    if ((this.setting<number>('muteUntil') ?? 0) > Date.now()) return true
-    const from = this.setting<string>('quietFrom') ?? ''
-    const to = this.setting<string>('quietTo') ?? ''
-    if (!/^\d{1,2}:\d{2}$/.test(from) || !/^\d{1,2}:\d{2}$/.test(to) || from === to) return false
-    const minutes = (text: string) => Number(text.split(':')[0]) * 60 + Number(text.split(':')[1])
-    const now = new Date().getHours() * 60 + new Date().getMinutes()
-    // The quiet time may run over midnight: 23:00 to 07:00.
-    return minutes(from) < minutes(to) ? now >= minutes(from) && now < minutes(to) : now >= minutes(from) || now < minutes(to)
+    return isQuiet(this.settings(), new Date())
   }
 
   /** Holds alerts back for so many minutes; `0` lets them through again. */
