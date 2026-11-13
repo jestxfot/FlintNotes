@@ -234,38 +234,6 @@ function vaultName(dir: string): string {
 }
 const vaultByName = (name: string) => config.vaults.find((dir) => vaultName(dir) === name)
 
-/**
- * The folders in which a client of the network (the Windows shell) may open new vaults: FLINT_VAULT_ROOTS (absolute
- * folders, separated by colons), or, as a service, the service's own `vaults` folder. A request on the server's own
- * computer is asked nothing; with no roots and no service the network gets only the vaults already known.
- */
-const vaultRoots = (): string[] => {
-  const given = (process.env.FLINT_VAULT_ROOTS ?? '')
-    .split(':')
-    .map((one) => one.trim())
-    .filter((one) => path.isAbsolute(one))
-  if (given.length) return given.map((one) => path.resolve(one))
-  return SERVICE && STATE_DIR ? [path.join(STATE_DIR, 'vaults')] : []
-}
-/** The real place of a path, links followed; for one that does not exist yet, its nearest existing parent's real place with the rest after it. */
-async function realPlace(dir: string): Promise<string> {
-  const rest: string[] = []
-  for (let here = path.resolve(dir); ; here = path.dirname(here)) {
-    try {
-      return path.join(await fs.realpath(here), ...rest.reverse())
-    } catch {
-      if (here === path.dirname(here)) return path.resolve(dir)
-      rest.push(path.basename(here))
-    }
-  }
-}
-/** Whether `dir` lies in a root (a root itself only when `allowRoot`), by where it really is: a link inside a root that leads out of it does not count. */
-async function insideRoots(dir: string, allowRoot = false): Promise<boolean> {
-  const real = await realPlace(dir)
-  for (const one of vaultRoots()) if (isInside(await realPlace(one), real, allowRoot)) return true
-  return false
-}
-
 api.use(async (c, next) => {
   // A client of the network (the Windows shell, a phone) has shown its key already (see `lanFetch`); its page comes from the server's address.
   const tier = tierOf(c)
@@ -336,8 +304,8 @@ api.post('/vaults/open', async (c) => {
   }
   const dir = path.resolve(body.path.trim())
   const tier = tierOf(c)
-  if (tier === 'phone' && !config.vaults.includes(dir)) throw new HTTPException(403, { message: 'С телефона открываются только хранилища, уже открытые на компьютере' })
-  if (tier === 'shell' && !config.vaults.includes(dir) && !(await insideRoots(dir))) throw new HTTPException(403, { message: `Новые хранилища открываются только в ${vaultRoots().join(', ') || 'уже известных папках'}` })
+  // Which folders are vaults is the owner's to say, at the server itself (`flintnotes vault <folder>`); the window and phones only switch between them.
+  if (tier !== 'admin' && !config.vaults.includes(dir)) throw new HTTPException(403, { message: 'Новые хранилища добавляются только на сервере: flintnotes vault <папка>' })
   const stat = await fs.stat(dir).catch(() => null)
   if (stat && !stat.isDirectory()) throw new HTTPException(400, { message: 'Это файл, а нужна папка' })
   if (!stat && !body.create) throw new HTTPException(404, { message: 'Такой папки нет' })
@@ -362,41 +330,23 @@ api.post('/vaults/forget', async (c) => {
   return c.json(config.vaults.map(vaultInfo))
 })
 
-// The folders under one folder, for choosing a vault where the server's disk is: the shell sees only what lies in the roots.
+// The folders of the server's disk, to choose a vault among: only for the server's own computer (policy.ts).
 api.get('/dirs', async (c) => {
-  const tier = tierOf(c)
-  const roots = tier === 'admin' ? [] : vaultRoots()
-  // The network gets to see folders only where roots say so; with none there is nothing to show.
-  if (tier !== 'admin' && !roots.length) throw new HTTPException(403, { message: 'На этом сервере нет папок для новых хранилищ (FLINT_VAULT_ROOTS)' })
   const asked = c.req.query('path')
+  if (asked && !path.isAbsolute(asked)) throw new HTTPException(400, { message: 'Нужен полный путь' })
+  const at = path.resolve(asked ?? os.homedir())
+  const stat = await fs.stat(at).catch(() => null)
+  if (!stat?.isDirectory()) throw new HTTPException(404, { message: 'Такой папки нет' })
   const entry = (dir: string) => ({ name: path.basename(dir) || dir, path: dir, vault: config.vaults.includes(dir) || existsSync(path.join(dir, '.obsidian')) || existsSync(path.join(dir, '.flint')) })
-  // No place named: the roots to choose among (or, on the server's own computer, its home folder).
-  if (!asked) {
-    if (roots.length) return c.json({ path: null, parent: null, roots, dirs: roots.map(entry) })
-    return c.json(await listDirs(os.homedir(), tier === 'admin'))
+  const found: ReturnType<typeof entry>[] = []
+  for (const one of await fs.readdir(at, { withFileTypes: true }).catch(() => [])) {
+    if (one.name.startsWith('.') || found.length >= 1000) continue
+    const sub = path.join(at, one.name)
+    // A link to a folder counts as one.
+    if (one.isDirectory() || (one.isSymbolicLink() && (await fs.stat(sub).catch(() => null))?.isDirectory())) found.push(entry(sub))
   }
-  if (!path.isAbsolute(asked)) throw new HTTPException(400, { message: 'Нужен полный путь' })
-  const dir = path.resolve(asked)
-  // A root itself may be looked into; a vault is opened inside it, never as the root itself.
-  if (roots.length && !(await insideRoots(dir, true))) throw new HTTPException(403, { message: 'Сюда нельзя: только внутри ' + roots.join(', ') })
-  return c.json(await listDirs(dir, tier === 'admin'))
-
-  async function listDirs(at: string, unrestricted: boolean) {
-    const stat = await fs.stat(at).catch(() => null)
-    if (!stat?.isDirectory()) throw new HTTPException(404, { message: 'Такой папки нет' })
-    const names = await fs.readdir(at, { withFileTypes: true }).catch(() => [])
-    const found: ReturnType<typeof entry>[] = []
-    for (const one of names) {
-      if (one.name.startsWith('.') || found.length >= 1000) continue
-      const sub = path.join(at, one.name)
-      // A link to a folder counts as one, if it does not lead out of the roots.
-      const isDir = one.isDirectory() || (one.isSymbolicLink() && (await fs.stat(sub).catch(() => null))?.isDirectory())
-      if (isDir && (unrestricted || !roots.length || (await insideRoots(sub)))) found.push(entry(sub))
-    }
-    found.sort((a, b) => a.name.localeCompare(b.name, 'ru'))
-    const atRoot = roots.some((one) => path.resolve(one) === at)
-    return { path: at, parent: atRoot || at === path.dirname(at) ? null : path.dirname(at), roots, dirs: found }
-  }
+  found.sort((x, y) => x.name.localeCompare(y.name, 'ru'))
+  return c.json({ path: at, parent: at === path.dirname(at) ? null : path.dirname(at), roots: [], dirs: found })
 })
 
 // The list of a big vault is megabytes of paths (12.8 MB for 75 000 files), which the window fetches at each start and each
@@ -588,10 +538,10 @@ api.post('/exec', async (c) => {
 //
 // The server answers three kinds of askers, which the listener they came through tells apart:
 //   admin   a request on 127.0.0.1 (the computer's own browser, `flintnotes`): it needs no key and may do everything;
-//   shell   the Windows app, over the network, with the shell's key: the notes and their vaults (new ones only inside the
-//           roots, `vaultRoots`) and the programs the owner allowed (`exec`), but nothing that belongs to the server itself;
-//   phone   a phone (a tablet, another computer) with the phones' key: the same, except opening vaults the computer has
-//           not already opened, and forgetting them.
+//   shell   the Windows app, over the network, with the shell's key: the notes of the vaults that exist and the programs
+//           the owner allowed (`exec`), but nothing that belongs to the server itself; it adds and forgets no vault;
+//   phone   a phone (a tablet, another computer) with the phones' key: the same, except the programs.
+// Which folders are vaults is the owner's to say, on the server's own computer (`flintnotes vault <folder>`).
 // The network listener sits on a port of its own. Such a request comes from another machine, so it must show it may: the
 // address that `flintnotes pair` (or the settings' QR code) gives carries a key, and the page it opens keeps the key as a
 // cookie. Without one there is only a page saying where to get it. A new key shuts out everything let in with the old.

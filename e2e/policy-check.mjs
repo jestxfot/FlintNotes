@@ -24,7 +24,7 @@ ok('the notes themselves are open to every tier, whatever the method', TIERS.eve
 ok('the server\'s own things (keys, proxy) are the server\'s computer\'s alone', ['/api/phone', '/api/shell', '/api/proxy', '/api/proxy/test'].every((p) => ['GET', 'POST'].every((m) => may('admin', m, p) && !may('shell', m, p) && !may('phone', m, p))))
 ok('the window runs the owner\'s programs, a phone does not', may('admin', 'POST', '/api/exec') && may('shell', 'POST', '/api/exec') && !may('phone', 'POST', '/api/exec'))
 ok('a look-alike address is not the program route', may('phone', 'GET', '/api/executive-summary') && may('phone', 'GET', '/api/system-commands'))
-ok('a phone may read what a vault list is but not forget a vault or browse folders', may('phone', 'GET', '/api/vaults') && !may('phone', 'POST', '/api/vaults/forget') && !may('phone', 'DELETE', '/api/vaults/forget') && may('shell', 'POST', '/api/vaults/forget') && !may('phone', 'GET', '/api/dirs') && may('shell', 'GET', '/api/dirs'))
+ok('which folders are vaults is the server computer\'s: the window and phones neither forget a vault nor look through folders, but may read the list', TIERS.every((tier) => may(tier, 'GET', '/api/vaults')) && ['shell', 'phone'].every((tier) => !may(tier, 'POST', '/api/vaults/forget') && !may(tier, 'DELETE', '/api/vaults/forget') && !may(tier, 'GET', '/api/dirs')) && may('admin', 'POST', '/api/vaults/forget') && may('admin', 'GET', '/api/dirs'))
 ok('methods are told in any case', !may('phone', 'post', '/api/exec') && may('shell', 'post', '/api/exec'))
 ok('a refusal says why, in words', decide('phone', 'POST', '/api/exec').message.length > 10 && decide('shell', 'POST', '/api/phone').message.length > 10)
 

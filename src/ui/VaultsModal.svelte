@@ -14,8 +14,9 @@
   /** The folder being looked at on the server's disk; null while the chooser is closed. */
   let listing = $state.raw<DirListing | null>(null)
   let newFolder = $state('')
-  // On the server's own computer a path may be typed; from the Windows app or a phone folders are only chosen.
-  const typing = app.vault.tier === 'admin'
+  // Which folders are vaults is the owner's to say, on the server's own computer (`flintnotes vault <folder>`): from the Windows app
+  // or a phone the vaults that exist can be opened, and no more.
+  const owner = app.vault.tier === 'admin'
 
   // The server is Linux: a full path starts with a slash.
   const isAbsolute = (path: string) => path.startsWith('/')
@@ -68,7 +69,7 @@
 <dialog bind:this={dialog} {onclose} onclick={(event) => event.target === dialog && dialog.close()} aria-label="Хранилища">
   <button class="close" aria-label="Закрыть" onclick={() => dialog.close()}>×</button>
   <h2>Хранилища</h2>
-  <p class="hint">Хранилище — обычная папка с заметками на сервере. Здесь перечислены папки, которые вы уже открывали.</p>
+  <p class="hint">Хранилище — обычная папка с заметками на сервере. Здесь перечислены хранилища сервера.{owner ? '' : ' Новые добавляются только на самом сервере: команда flintnotes vault <папка>.'}</p>
 
   <div class="list">
     {#each vaults as vault (vault.path)}
@@ -81,12 +82,13 @@
           <span class="badge">открыто</span>
         {:else}
           <button disabled={!vault.exists} onclick={() => open(vault.path)}>Открыть</button>
-          <button title="Убрать из списка. Папка и заметки останутся на диске" onclick={() => forget(vault)}>Забыть</button>
+          {#if owner}<button title="Убрать из списка. Папка и заметки останутся на диске" onclick={() => forget(vault)}>Забыть</button>{/if}
         {/if}
       </div>
     {/each}
   </div>
 
+  {#if owner}
   <div class="chooser">
     <span class="label">Открыть другую папку как хранилище</span>
     {#if !listing}
@@ -122,7 +124,6 @@
     {/if}
   </div>
 
-  {#if typing}
     <form
       onsubmit={(event) => {
         event.preventDefault()

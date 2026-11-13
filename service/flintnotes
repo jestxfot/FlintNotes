@@ -7,6 +7,7 @@
 #   service/flintnotes remove                      stop it and take the service away (the notes and .service/ stay)
 #   service/flintnotes start | stop | restart | status | logs
 #   service/flintnotes pair [--phone] [--rotate]   the link (and a QR code) for the Windows app, or with --phone for phones
+#   service/flintnotes vault <folder> [--create]   make a folder a vault of this server (the window and phones cannot add vaults)
 #   service/flintnotes unit [folder of notes]      only show the service file `install` would write
 #
 # A new build (`npm run release`) is picked up by the running service by itself. Settings the service reads, one per
@@ -69,7 +70,6 @@ Environment=FLINT_STATE_DIR=$state
 Environment=FLINT_CONFIG=$state/config.json
 Environment=FLINT_CACHE=$state/cache
 Environment=FLINT_FIRST_VAULT=$vault
-Environment=FLINT_VAULT_ROOTS=$state/vaults:$vault
 EnvironmentFile=-$state/env
 ExecStart=$node $here/release/launcher.mjs
 Restart=on-failure
@@ -168,6 +168,7 @@ case $command in
     ;;
   logs) journalctl -u "$name" -n 100 -f ;;
   pair) cli pair "$@" ;;
+  vault) cli vault "$@" ;;
   unit) unit "$@" ;;
   *)
     sed -n '2,/^set -eu/p' "$self" | sed '$d' | sed 's/^# \{0,1\}//'

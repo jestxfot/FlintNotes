@@ -29,9 +29,10 @@ export const RULES: readonly Rule[] = [
   { path: /^\/api\/(proxy|phone|shell)(\/|$)/, tiers: ['admin'], message: NOT_NETWORK },
   // The programs the owner wrote into the server's config (Templater's system commands): the window's own, never a phone's.
   { path: /^\/api\/exec(\/|$)/, tiers: ['admin', 'shell'], message: NOT_PHONE },
-  // Forgetting a vault, and looking through the server's folders to open one.
-  { path: /^\/api\/vaults\/forget(\/|$)/, methods: WRITES, tiers: ['admin', 'shell'], message: NOT_PHONE },
-  { path: /^\/api\/dirs(\/|$)/, tiers: ['admin', 'shell'], message: NOT_PHONE },
+  // Which folders are vaults (adding one, forgetting one, looking through the server's folders to find one) is the owner's,
+  // at the server's own computer. The window and phones only switch between the vaults that exist (`vaults/open` of a known one).
+  { path: /^\/api\/vaults\/forget(\/|$)/, methods: WRITES, tiers: ['admin'], message: NOT_NETWORK },
+  { path: /^\/api\/dirs(\/|$)/, tiers: ['admin'], message: NOT_NETWORK },
 ]
 
 export type Decision = { allowed: true } | { allowed: false; message: string }

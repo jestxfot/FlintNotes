@@ -170,6 +170,13 @@ try {
   ok('the settings show starting with the system (the app does it) and nothing that is the server\'s: no port, proxy or phones', settings.port === 0 && settings.autostart && !/Прокси|Доступ с телефона/.test(settings.text) && (await until(() => fs.existsSync(path.join(dir, 'autostart', 'flintnotes.desktop')))), JSON.stringify(settings))
   await page.keyboard.press('Escape')
 
+  // Which folders are vaults is the server owner's: the window lists them and switches between them, and offers no more.
+  await page.evaluate(() => app.commands.run('core:vaults'))
+  await page.waitForSelector('dialog[aria-label="Хранилища"][open] .vault')
+  const vaultsDialog = { chooser: await page.locator('dialog[open] .chooser').count(), typed: await page.locator('#vault-folder').count(), forget: await page.locator('dialog[open] button', { hasText: 'Забыть' }).count(), text: await page.locator('dialog[open] .hint').innerText() }
+  ok('the vaults dialog of the window lists the server\'s vaults but cannot add or forget one, and says where that is done', vaultsDialog.chooser === 0 && vaultsDialog.typed === 0 && vaultsDialog.forget === 0 && /flintnotes vault/.test(vaultsDialog.text), JSON.stringify(vaultsDialog))
+  await page.keyboard.press('Escape')
+
   await app.evaluate(({ shell }) => (shell.openExternal = async (url) => void (globalThis.opened = url)))
   await page.evaluate(() => window.open('https://example.com/page', '_blank'))
   await page.waitForTimeout(500)

@@ -138,21 +138,23 @@ try {
   ok('a command nobody wrote into the config is refused, even for the window', unwritten.status === 403, String(unwritten.status))
   ok('and it comes only from a page of the app, not from anywhere else', (await post('/api/exec', { name: 'hello' }, { cookie: shell.cookie, origin: 'http://evil.example', 'content-type': 'application/json' })).status === 403)
 
-  // ---- what the shell may do with the server's disk: only inside the roots
-  const outside = path.join(dir, 'outside')
-  fs.mkdirSync(path.join(outside, 'secret'), { recursive: true })
-  fs.symlinkSync(outside, path.join(vaults, 'escape'))
-  const roots = await (await lan('/api/dirs', { headers: shell })).json()
-  ok('without a path the shell is shown the roots', roots.path === null && roots.roots[0] === vaults && roots.dirs.length === 1 && roots.dirs[0].path === vaults, JSON.stringify(roots))
-  const inside = await (await lan(`/api/dirs?path=${encodeURIComponent(vaults)}`, { headers: shell })).json()
-  ok('a root lists its folders, a link that leads out of it left out', inside.dirs.some((d) => d.name === 'FlintNotes') && !inside.dirs.some((d) => d.name === 'escape') && inside.parent === null, JSON.stringify(inside))
-  const looks = [`/`, `${vaults}/..`, `${vaults}/escape`, `${vaults}/escape/secret`, '..'].map((p) => lan(`/api/dirs?path=${encodeURIComponent(p)}`, { headers: shell }))
-  ok('nothing outside the roots is listed: not /, not .., not through a link', (await Promise.all(looks)).every((res) => res.status === 403 || res.status === 400), (await Promise.all(looks)).map((r) => r.status).join())
+  // ---- which folders are vaults is the owner's, at the server itself: the window adds and forgets none, and looks through no folders
   const secondVault = path.join(vaults, 'Second')
-  const made = await post('/api/vaults/open', { path: secondVault, create: true })
-  ok('a new vault opens inside a root', made.status === 200 && fs.existsSync(secondVault), `${made.status} ${await made.text()}`)
-  const opens = [await post('/api/vaults/open', { path: path.join(dir, 'elsewhere'), create: true }), await post('/api/vaults/open', { path: `${vaults}/escape/secret` }), await post('/api/vaults/open', { path: `${vaults}/../elsewhere`, create: true })]
-  ok('not outside it: not elsewhere, not through a link, not through ..', opens.every((res) => res.status === 403) && !fs.existsSync(path.join(dir, 'elsewhere')), opens.map((r) => r.status).join())
+  const own = (await (await lan('/api/vaults', { headers: shell })).json())[0].path
+  const noNew = [
+    await post('/api/vaults/open', { path: secondVault, create: true }),
+    await post('/api/vaults/open', { path: path.join(dir, 'elsewhere'), create: true }),
+    await lan('/api/dirs', { headers: shell }),
+    await lan(`/api/dirs?path=${encodeURIComponent('/')}`, { headers: shell }),
+    await post('/api/vaults/forget', { path: own }),
+  ]
+  ok('the window adds no vault, looks through no folders and forgets none', noNew.every((res) => res.status === 403) && !fs.existsSync(secondVault) && !fs.existsSync(path.join(dir, 'elsewhere')), noNew.map((r) => r.status).join())
+  ok('it can switch to a vault that exists', (await post('/api/vaults/open', { path: own })).status === 200)
+  const added = await flintnotes('vault', secondVault, '--create')
+  ok('`flintnotes vault <folder> --create`, at the server itself, makes a vault', added.code === 0 && fs.existsSync(secondVault) && (await (await lan('/api/vaults', { headers: shell })).json()).some((v) => v.path === secondVault), added.text)
+  ok('the window can then switch to it, and still cannot forget it', (await post('/api/vaults/open', { path: secondVault })).status === 200 && (await post('/api/vaults/forget', { path: secondVault })).status === 403)
+  const missing = await flintnotes('vault', path.join(dir, 'no-such-vault'))
+  ok('a folder that is not there does not become a vault without --create', missing.code !== 0 && !fs.existsSync(path.join(dir, 'no-such-vault')), missing.text)
 
   // ---- a phone has a key of its own, and may do less
   const phonePair = await flintnotes('pair', '--phone')

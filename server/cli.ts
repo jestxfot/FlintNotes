@@ -5,6 +5,8 @@
  *                                for phones (a key of their own, which may do less); --rotate makes a new key, which shuts
  *                                out everything paired with the old
  *   status                       the version running
+ *   vault <folder> [--create]    makes a folder a vault of this server (the window and phones cannot add vaults): it opens at the
+ *                                next start of the window; --create makes the folder if it is not there
  *
  * It talks to the running service on its own computer (127.0.0.1, the port of FLINT_PORT), which answers the
  * computer's own requests without a key; the network listener never does. With the service stopped, `pair` reads the
@@ -84,12 +86,20 @@ async function status(): Promise<void> {
   console.log(`FlintNotes ${info.version} (протокол ${info.protocol}, сборка ${info.build})`)
 }
 
+async function vault(args: string[]): Promise<void> {
+  const given = args.find((arg) => !arg.startsWith('--'))
+  if (!given) throw new Error('service/flintnotes vault <папка с заметками> [--create]')
+  const opened = await admin<{ name: string; path: string }>('/api/vaults/open', { path: path.resolve(given), create: args.includes('--create') })
+  console.log(`Хранилище «${opened.name}» (${opened.path}) теперь у сервера. В окне оно в списке хранилищ (меню внизу слева).`)
+}
+
 const [command, ...rest] = process.argv.slice(2)
 try {
   if (command === 'pair') await pair(rest.includes('--phone'), rest.includes('--rotate'))
   else if (command === 'status') await status()
+  else if (command === 'vault') await vault(rest)
   else {
-    console.log('service/flintnotes pair [--phone] [--rotate] | status')
+    console.log('service/flintnotes pair [--phone] [--rotate] | status | vault <папка> [--create]')
     process.exit(command ? 2 : 0)
   }
 } catch (err) {
