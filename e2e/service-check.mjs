@@ -139,7 +139,20 @@ try {
   const mine = fs.mkdtempSync(path.join(vaults, 'owned-'))
   const shown = await flintnotes('vault', mine, '--print')
   const me = os.userInfo().username
-  ok('`vault --print` shows the change: the folder\'s owner, one folder let through', shown.code === 0 && shown.text.includes(`User=${me}`) && shown.text.includes(`ReadWritePaths=${mine}`) && !shown.text.includes('BindPaths'), shown.text)
+  ok('`vault --print` shows the change: the folder\'s owner, one folder let through', shown.code === 0 && shown.text.includes(`User=${me}`) && shown.text.includes(`ReadWritePaths=${mine}`) && shown.text.includes(`FLINT_FIRST_VAULT=${mine}`) && !shown.text.includes('BindPaths'), shown.text)
+  // The drop-in is read by systemd together with the unit it changes.
+  const lintDir = fs.mkdtempSync(path.join(dir, 'lint-'))
+  fs.mkdirSync(path.join(lintDir, 'flintnotes.service.d'))
+  fs.copyFileSync(path.join(root, 'usr/lib/systemd/system/flintnotes.service'), path.join(lintDir, 'flintnotes.service'))
+  fs.writeFileSync(path.join(lintDir, 'flintnotes.service.d', 'vault.conf'), shown.text)
+  let dropLint = ''
+  try {
+    dropLint = execFileSync('systemd-analyze', ['verify', path.join(lintDir, 'flintnotes.service')], { encoding: 'utf8', stdio: ['ignore', 'pipe', 'pipe'] })
+  } catch (err) {
+    dropLint = String(err.stderr ?? err)
+  }
+  ok('the unit with that change is still one systemd reads', !/Failed to parse|Unknown (section|key)|Invalid|Unknown lvalue/i.test(dropLint), dropLint)
+  ok('the package carries the one command that installs it', fs.existsSync(path.join(published, 'install.sh')) && (fs.statSync(path.join(published, 'install.sh')).mode & 0o111) !== 0)
   const inHome = await flintnotes('vault', '/home/nobody-such', '--print')
   ok('a folder that is not there is said so', inHome.code !== 0 && /нет/.test(inHome.text), inHome.text)
   const refusals = [await flintnotes('vault', '/home', '--print'), await flintnotes('vault', '/', '--print'), await flintnotes('vault', 'relative/dir', '--print'), await flintnotes('vault', '/srv/with space', '--print'), await flintnotes('vault', '/var/lib/flintnotes/vaults', '--print')]

@@ -121,6 +121,7 @@ async function vault(args: string[]): Promise<void> {
   if (args.includes('--remove')) {
     if (!root) throw new Error('нужны права root: sudo flintnotes vault --remove')
     rmSync(DROP_IN, { force: true })
+    if (!existsSync('/run/systemd/system')) return void console.log('Убрано. Здесь systemd не запущен: на самом компьютере выполните  sudo systemctl daemon-reload && sudo systemctl restart flintnotes')
     await restarted()
     console.log('Готово: служба снова работает от своего пользователя, в своих папках. Хранилище, которое она уже знала, остаётся в списке.')
     return
@@ -138,6 +139,11 @@ async function vault(args: string[]): Promise<void> {
   if (!root) throw new Error(`нужны права root: sudo flintnotes vault ${folder}\n\nЭто допишет в ${DROP_IN}:\n${text}`)
   mkdirSync(DROP_IN_DIR, { recursive: true })
   writeFileSync(DROP_IN, text, { mode: 0o644 })
+  // Where systemd is not running (a chroot, a container, an image being made) the change waits for it: the unit reads it at its next start.
+  if (!existsSync('/run/systemd/system')) {
+    console.log(`Записано: ${DROP_IN}. Здесь systemd не запущен; на самом компьютере выполните\n  sudo systemctl daemon-reload && sudo systemctl enable --now flintnotes\nСлужба при первом запуске сама откроет ${folder}.`)
+    return
+  }
   await restarted()
   // The service is the owner of the folder now; the computer's own answer opens it as the vault the next start leads to.
   const opened = await admin<{ name: string; path: string }>('/api/vaults/open', { path: folder })

@@ -38,7 +38,7 @@ function copyProgram(to) {
 const work = fs.mkdtempSync(path.join(os.tmpdir(), 'flint-server-'))
 try {
   fs.mkdirSync(OUT, { recursive: true })
-  for (const old of fs.readdirSync(OUT)) if (/^flintnotes[-_].*\.(deb|tar\.gz)$|^server-latest\.json$/.test(old)) fs.rmSync(path.join(OUT, old))
+  for (const old of fs.readdirSync(OUT)) if (/^flintnotes[-_].*\.(deb|tar\.gz)$|^server-latest\.json$|^install\.sh$/.test(old)) fs.rmSync(path.join(OUT, old))
 
   // ---- the program alone
   const payload = path.join(work, 'payload')
@@ -47,6 +47,9 @@ try {
   const tarball = `flintnotes-server-${version}.tar.gz`
   execFileSync('tar', ['--sort=name', '--owner=0', '--group=0', '--numeric-owner', '--mtime=@0', '-czf', path.join(OUT, tarball), '-C', payload, '.'])
   const sha256 = createHash('sha256').update(fs.readFileSync(path.join(OUT, tarball))).digest('hex')
+  // The one command that puts it all on a Debian computer, beside the package it installs.
+  fs.copyFileSync(path.join(DEBIAN, 'install.sh'), path.join(OUT, 'install.sh'))
+  fs.chmodSync(path.join(OUT, 'install.sh'), 0o755)
   fs.writeFileSync(path.join(OUT, 'server-latest.json'), JSON.stringify({ version, file: tarball, sha256, size: fs.statSync(path.join(OUT, tarball)).size }, null, 2))
 
   // ---- the package

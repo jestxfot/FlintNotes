@@ -44,6 +44,8 @@ export function dropIn(folder: string, user: string, group: string): string {
         ]
       : []),
     `ReadWritePaths=${clean}`,
+    '# What a service that has not opened any vault yet opens first; one that has is told by `flintnotes vault`.',
+    `Environment=FLINT_FIRST_VAULT=${clean}`,
     '',
   ].join('\n')
 }
