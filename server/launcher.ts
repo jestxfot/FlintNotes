@@ -19,10 +19,14 @@ const BUILD = path.join(here, 'build.json')
 const LOG = path.join(here, 'flintnotes.log')
 const selfText = fs.readFileSync(self, 'utf8')
 
+// Run as a service (FLINT_SERVICE=1, from a unit file) the messages go to the service manager's journal: standard error,
+// which it reads. Otherwise there is no window to show them, so they go to a file.
+const SERVICE = process.env.FLINT_SERVICE === '1'
 // The log keeps about the last runs: one grown long is begun anew.
-if ((fs.statSync(LOG, { throwIfNoEntry: false })?.size ?? 0) > 1_000_000) fs.rmSync(LOG, { force: true })
-const log = fs.openSync(LOG, 'a')
-const note = (text: string) => fs.writeSync(log, `${new Date().toLocaleString('ru', { timeZone: 'Europe/Moscow' })}  ${text}\n`)
+if (!SERVICE && (fs.statSync(LOG, { throwIfNoEntry: false })?.size ?? 0) > 1_000_000) fs.rmSync(LOG, { force: true })
+const log = SERVICE ? 2 : fs.openSync(LOG, 'a')
+// The journal stamps its lines itself.
+const note = (text: string) => fs.writeSync(log, SERVICE ? `${text}\n` : `${new Date().toLocaleString('ru', { timeZone: 'Europe/Moscow' })}  ${text}\n`)
 
 const buildId = (): string => {
   try {
@@ -92,5 +96,20 @@ fs.watchFile(BUILD, { interval: 2000 }, () => {
   build = next
   replace()
 })
+
+// Stopped from outside (systemd's SIGTERM, a terminal's Ctrl+C): the server finishes the saves it has begun, then both go.
+// Without this the launcher would die at once and leave the server to be cut off, or restart a server that was told to stop.
+let stopping = false
+function shutDown(): void {
+  if (stopping) return
+  stopping = true
+  fs.unwatchFile(BUILD)
+  const child = server
+  if (!child) process.exit(0)
+  child.once('exit', () => process.exit(0))
+  child.send('stop')
+  setTimeout(() => (child.kill(), process.exit(0)), 10_000).unref()
+}
+for (const signal of ['SIGTERM', 'SIGINT'] as const) process.on(signal, shutDown)
 
 start()

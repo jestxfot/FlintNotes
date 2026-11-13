@@ -14,7 +14,7 @@ import net from 'node:net'
 import os from 'node:os'
 import path from 'node:path'
 import { fileURLToPath } from 'node:url'
-import type { ExternalPluginInfo, RemoteEvent, VaultEntry, VaultInfo } from '../shared/protocol'
+import { PROTOCOL, type BuildInfo, type ExternalPluginInfo, type RemoteEvent, type VaultEntry, type VaultInfo } from '../shared/protocol'
 import { checkWay, chooseProxy, computerProxy, describe, parseProxy, telegramName, viaProxy, webFetch, webGet, youtubeVideo } from './web'
 import { keptTrees, limiter } from './kept'
 import { TreeCache } from './tree-cache'
@@ -32,7 +32,7 @@ interface Config {
   /** Programs that templates of a vault may run, by vault folder; see `/system-commands`. */
   systemCommands?: Record<string, SystemCommands>
   /** FlintNotes for the phones of the home network; see «a phone on the home network». */
-  phone?: { on?: boolean; port?: number; key?: string }
+  phone?: { on?: boolean; port?: number; key?: string; /** The address to listen on; every network card of the computer when not given (FLINT_BIND wins). */ host?: string }
 }
 
 interface SystemCommands {
@@ -51,7 +51,7 @@ async function readConfig(): Promise<Config> {
       port: validPort(data.port) ? data.port : undefined,
       proxy: typeof data.proxy === 'string' ? data.proxy : undefined,
       systemCommands: data.systemCommands && typeof data.systemCommands === 'object' ? data.systemCommands : undefined,
-      phone: data.phone && typeof data.phone === 'object' ? { on: data.phone.on === true, port: validPort(data.phone.port) ? data.phone.port : undefined, key: typeof data.phone.key === 'string' && data.phone.key.length >= 16 ? data.phone.key : undefined } : undefined,
+      phone: data.phone && typeof data.phone === 'object' ? { on: data.phone.on === true, port: validPort(data.phone.port) ? data.phone.port : undefined, key: typeof data.phone.key === 'string' && data.phone.key.length >= 16 ? data.phone.key : undefined, host: typeof data.phone.host === 'string' && net.isIP(data.phone.host) ? data.phone.host : undefined } : undefined,
     }
   } catch {
     return { vaults: [] }
@@ -567,6 +567,8 @@ let phoneServer: Server | null = null
 let phoneError: string | null = null
 const phoneOn = () => !!config.phone?.on && !!config.phone.key
 const phonePort = () => config.phone?.port ?? PHONE_PORT
+/** FLINT_BIND (a service's unit file) wins over the config; an address that is none falls back to every card. */
+const phoneHost = () => (process.env.FLINT_BIND && net.isIP(process.env.FLINT_BIND) ? process.env.FLINT_BIND : config.phone?.host ?? '0.0.0.0')
 const fromPhone = (c: Context) => (c.env as { phone?: unknown } | undefined)?.phone === true
 const hostOf = (url: string) => {
   try {
@@ -603,6 +605,8 @@ function phoneFetch(req: Request, env: object): Response | Promise<Response> {
   const key = config.phone?.key
   if (!phoneOn() || !key) return new Response('FlintNotes: доступ с телефона выключен', { status: 503 })
   const url = new URL(req.url)
+  // Which program and protocol this is: told to anyone, so that a client can see what it has reached before it asks for the key.
+  if (req.method === 'GET' && url.pathname === '/api/build') return app.fetch(req, { ...env, phone: true })
   const given = url.searchParams.get('key')
   if (given !== null) {
     if (!sameKey(given, key)) return new Response(LOCKED_PAGE, { status: 401, headers: { 'content-type': 'text/html; charset=utf-8' } })
@@ -624,8 +628,8 @@ async function listenPhone(): Promise<void> {
   if (!phoneOn()) return
   const wanted = phonePort()
   await new Promise<void>((done) => {
-    const server = serve({ fetch: phoneFetch, port: wanted, hostname: '0.0.0.0' }, () => {
-      console.log(`Для телефона: ${homeAddresses().map((ip) => `http://${ip}:${wanted}`).join(', ') || `порт ${wanted}`}`)
+    const server = serve({ fetch: phoneFetch, port: wanted, hostname: phoneHost() }, () => {
+      console.log(`Для телефона: ${phoneAddresses(wanted).join(', ') || `порт ${wanted}`}`)
       done()
     }) as Server
     server.on('error', (err: NodeJS.ErrnoException) => {
@@ -638,7 +642,9 @@ async function listenPhone(): Promise<void> {
   })
 }
 
-const phoneInfo = () => ({ on: phoneOn(), port: phonePort(), error: phoneError, key: config.phone?.key ?? null, addresses: homeAddresses().map((ip) => `http://${ip}:${phonePort()}`) })
+/** The addresses a phone can open: bound to one address, only that one; bound to every card, the computer's own. */
+const phoneAddresses = (on: number) => (phoneHost() === '0.0.0.0' ? homeAddresses() : [phoneHost()]).map((ip) => `http://${ip}:${on}`)
+const phoneInfo = () => ({ on: phoneOn(), port: phonePort(), error: phoneError, key: config.phone?.key ?? null, addresses: phoneAddresses(phonePort()) })
 
 api.get('/phone', (c) => {
   if (fromPhone(c)) throw new HTTPException(403, { message: 'Это делается только на компьютере' })
@@ -1035,18 +1041,23 @@ app.onError((err, c) => {
   return c.text(err.message, 500)
 })
 
+// What this server is (the shell reads it before it shows the key; see `phoneFetch`). Before `app.route`, which copies the routes it has.
+api.get('/build', (c) => c.json({ version: VERSION, protocol: PROTOCOL, build: BUILD } satisfies BuildInfo))
+
 app.route('/api', api)
 
 // The built app: next to this file in a release, in `dist` when run from the sources.
 const here = path.dirname(fileURLToPath(import.meta.url))
 /** The build this server belongs to: `npm run release` writes it next to the server last. From the sources, `dev`. */
-const BUILD: string = (() => {
+const buildFile: { id?: string; version?: string } = (() => {
   try {
-    return JSON.parse(readFileSync(path.join(here, 'build.json'), 'utf8')).id
+    return JSON.parse(readFileSync(path.join(here, 'build.json'), 'utf8'))
   } catch {
-    return 'dev'
+    return {}
   }
 })()
+const BUILD: string = buildFile.id ?? 'dev'
+const VERSION: string = buildFile.version ?? 'dev'
 // FLINT_STATIC points at another build, e.g. an unminified one for profiling.
 const staticDir = [process.env.FLINT_STATIC ?? '', path.join(here, 'public'), path.resolve('dist')].find((dir) => dir && existsSync(path.join(dir, 'index.html')))
 
@@ -1108,7 +1119,11 @@ server.on('error', (err: NodeJS.ErrnoException) => {
 })
 
 // ---- stepping aside: the launcher (release/launcher.mjs) asks for it when a new build is ready
+let stopping = false
 async function stop(): Promise<void> {
+  // A second word to stop (a signal on top of the launcher's message) must not run the same drain twice.
+  if (stopping) return
+  stopping = true
   server.close()
   phoneServer?.close()
   // Saves that have begun are let finish: a note cut off mid-write would be lost.
@@ -1122,3 +1137,6 @@ process.on('message', (message) => message === 'stop' && void stop())
 parentPort?.on('message', (message) => message.data === 'stop' && void stop())
 // The launcher is gone (stopped, or the user signed out): the server goes with it instead of holding the port.
 process.on('disconnect', () => void stop())
+// A service manager (systemd) stops a program with SIGTERM, a terminal with SIGINT: the same orderly stop, so that a save
+// begun is finished and the list of files kept, rather than the program being cut off.
+for (const signal of ['SIGTERM', 'SIGINT'] as const) process.on(signal, () => void stop())

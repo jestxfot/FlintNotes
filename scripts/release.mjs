@@ -52,6 +52,8 @@ fs.cpSync('desktop/icons', path.join(OUT, 'icons'), { recursive: true })
 // The desktop app's sandbox: a vault of examples, made anew from this at every start.
 fs.rmSync(path.join(OUT, 'sandbox'), { recursive: true, force: true })
 fs.cpSync('desktop/sandbox', path.join(OUT, 'sandbox'), { recursive: true })
-fs.writeFileSync(path.join(OUT, 'build.json'), JSON.stringify({ id, files }, null, 2))
+// The version rides along so the server can tell it to a client (`GET /api/build`) without knowing package.json.
+const { version } = JSON.parse(fs.readFileSync('package.json', 'utf8'))
+fs.writeFileSync(path.join(OUT, 'build.json'), JSON.stringify({ id, version, files }, null, 2))
 
 console.log('Готово: release/ (приложение FlintNotes подхватит сборку само; в браузере — node release/launcher.mjs)')

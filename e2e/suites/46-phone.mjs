@@ -154,6 +154,11 @@ export async function run(t) {
   const there = `http://127.0.0.1:${PORT}`
   const bare = await fetch(`${there}/`)
   ok('without the key a phone gets only the page saying where to find it', bare.status === 401 && (await bare.text()).includes('Нужен ключ'))
+  // What the program is (its version and the protocol a client must speak) is told without the key, and nothing else is.
+  const built = await fetch(`${there}/api/build`)
+  const builtInfo = await built.json().catch(() => ({}))
+  ok('without the key a client may still ask which program and protocol this is', built.status === 200 && Number.isInteger(builtInfo.protocol) && typeof builtInfo.version === 'string' && typeof builtInfo.build === 'string', JSON.stringify(builtInfo))
+  ok('but the notes stay locked', (await fetch(`${there}/api/tree`)).status === 401 && (await fetch(`${there}/api/build`, { method: 'POST' })).status !== 200)
   const wrong = await fetch(`${there}/?key=nope`, { redirect: 'manual' })
   ok('a wrong key lets nobody in', wrong.status === 401)
   const right = await fetch(`${there}/?key=${access.key}`, { redirect: 'manual' })
