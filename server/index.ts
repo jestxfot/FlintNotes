@@ -617,17 +617,17 @@ const sameKey = (given: string, key: string) => given.length === key.length && c
 /** The key of a tier, when it has one (a phone's counts only when phones are let in). */
 const keyOf = (tier: 'shell' | 'phone'): string | undefined => (tier === 'shell' ? config.shell?.key : config.phone?.key && (SERVICE || config.phone.on) ? config.phone.key : undefined)
 
-/** The addresses of this computer in the home network: the usual home ranges first, the virtual adapters of containers, VPNs and virtual machines last. */
+/**
+ * The addresses of this computer in the home network: the usual home ranges first (192.168, then 172.16-31, then 10),
+ * the virtual interfaces of containers, bridges and VPNs, and the address ranges of VPNs (Tailscale's 100.64/10) last.
+ * Not by the maker of a card: this computer may itself be a virtual machine, and its only real card then looks like one.
+ */
 function homeAddresses(): string[] {
-  const VIRTUAL = /VirtualBox|VMware|docker|br-|veth|virbr|tun|tap|wg|zt|Tailscale|VPN/i
-  // A virtual machine's adapter may be named like a real one: its maker's MAC prefix, or the subnet its program
-  // gives by default (VirtualBox 192.168.56.*, Docker Machine 192.168.99.*), tells it apart from the real network.
-  const VIRTUAL_MAC = /^(0a:00:27|08:00:27|00:50:56|00:0c:29|00:05:69|00:1c:14|00:15:5d|02:42:)/i
-  const VIRTUAL_NET = /^192\.168\.(56|99)\./
-  const virtual = (name: string, ip: string, mac: string) => VIRTUAL.test(name) || VIRTUAL_MAC.test(mac) || VIRTUAL_NET.test(ip)
-  const rank = (name: string, ip: string, mac: string) => (virtual(name, ip, mac) ? 10 : 0) + (ip.startsWith('192.168.') ? 0 : ip.startsWith('10.') ? 1 : ip.startsWith('172.') ? 2 : 3)
+  const VIRTUAL = /docker|br-|veth|virbr|tun|tap|wg|zt|tailscale/i
+  const range = (ip: string) => (ip.startsWith('192.168.') ? 0 : /^172\.(1[6-9]|2\d|3[01])\./.test(ip) ? 1 : ip.startsWith('10.') ? 2 : 3)
+  const rank = (name: string, ip: string) => (VIRTUAL.test(name) ? 10 : 0) + range(ip)
   return Object.entries(os.networkInterfaces())
-    .flatMap(([name, list]) => (list ?? []).filter((one) => one.family === 'IPv4' && !one.internal && !one.address.startsWith('169.254.')).map((one) => ({ ip: one.address, rank: rank(name, one.address, one.mac) })))
+    .flatMap(([name, list]) => (list ?? []).filter((one) => one.family === 'IPv4' && !one.internal && !one.address.startsWith('169.254.')).map((one) => ({ ip: one.address, rank: rank(name, one.address) })))
     .sort((a, b) => a.rank - b.rank)
     .map((one) => one.ip)
 }
