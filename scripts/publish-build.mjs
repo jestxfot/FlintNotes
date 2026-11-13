@@ -20,6 +20,9 @@ try {
   const env = { ...process.env, FLINT_PROJECT: ROOT, FLINT_RELEASE_OUT: path.join(tree, 'release'), FLINT_PUBLISH_OUT: process.env.FLINT_PUBLISH_OUT ?? path.join(ROOT, 'publish') }
   execFileSync(process.execPath, ['scripts/release.mjs'], { cwd: tree, env, stdio: 'inherit' })
   execFileSync(process.execPath, ['scripts/installer.mjs'], { cwd: tree, env, stdio: 'inherit' })
+  // A Samba share runs a file only when it has the executable bit (no `acl allow execute always`): without it Windows
+  // answers «Access is denied» to the installer opened from \\host\FlintNotes\publish.
+  for (const f of fs.readdirSync(env.FLINT_PUBLISH_OUT)) if (f.endsWith('.exe')) fs.chmodSync(path.join(env.FLINT_PUBLISH_OUT, f), 0o755)
 } finally {
   git('worktree', 'remove', '--force', tree)
   fs.rmSync(work, { recursive: true, force: true })
