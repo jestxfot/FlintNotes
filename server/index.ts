@@ -120,12 +120,22 @@ const toEntry = (abs: string, stat: Stats, base = root()): VaultEntry => ({
   ctime: stat.birthtimeMs || Math.min(stat.mtimeMs, stat.ctimeMs),
 })
 
+/**
+ * Whether `abs` lies inside `base` (`base` itself only when `allowRoot`). Asked through path.relative, never by comparing text:
+ * on Windows path.resolve() gives a network share's root WITH a trailing separator (`\\host\share\`), so `base + path.sep`
+ * matched nothing and every file of a vault on a share was «outside the vault» (2026-11-13, \\192.168.1.50\obsidian).
+ */
+export function isInside(base: string, abs: string, allowRoot = false): boolean {
+  const rel = path.relative(base, abs)
+  if (rel === '') return allowRoot
+  return rel !== '..' && !rel.startsWith('..' + path.sep) && !path.isAbsolute(rel)
+}
+
 /** Resolves a vault-relative path, refusing anything that escapes the vault. */
 function resolveInVault(rel: string | undefined, allowRoot = false): string {
   if (rel === undefined) throw new HTTPException(400, { message: 'Missing path' })
   const abs = path.resolve(root(), rel)
-  const inside = abs.startsWith(root() + path.sep) || (allowRoot && abs === root())
-  if (!inside) throw new HTTPException(400, { message: 'Path is outside the vault' })
+  if (!isInside(root(), abs, allowRoot)) throw new HTTPException(400, { message: 'Path is outside the vault' })
   return abs
 }
 
@@ -1043,7 +1053,7 @@ const staticDir = [process.env.FLINT_STATIC ?? '', path.join(here, 'public'), pa
 app.get('*', async (c) => {
   if (!staticDir) return c.text('Приложение не собрано: выполните `npm run build`.', 404)
   const wanted = path.join(staticDir, decodeURIComponent(new URL(c.req.url).pathname))
-  const inside = wanted.startsWith(staticDir + path.sep)
+  const inside = isInside(staticDir, wanted)
   const isFile = inside && (await fs.stat(wanted).catch(() => null))?.isFile()
   // Any other address is a place inside the app, which the app itself resolves.
   const file = isFile ? wanted : path.join(staticDir, 'index.html')
