@@ -41,10 +41,10 @@ export default class Templates extends Plugin {
       name: 'Системные команды шаблонов',
       callback: async () => {
         const { file, vault, commands } = await app.vault.systemCommands()
-        const example = JSON.stringify({ systemCommands: { [vault]: { commands: { hello: 'echo Hello, %name%' }, timeout: 5 } } }, null, 2)
+        const example = JSON.stringify({ systemCommands: { [vault]: { commands: { hello: 'echo "Hello, $name"' }, timeout: 5 } } }, null, 2)
         // Shown in a text field so that the example can be copied.
         void prompt(
-          `Разрешено сейчас: ${commands.join(', ') || 'ничего'}. Команды вписываются вручную в файл ${file} — так заметка или скрипт из хранилища не может разрешить запуск программы сама. В шаблоне: <% await tp.user.hello({ name: "мир" }) %>`,
+          `Разрешено сейчас: ${commands.join(', ') || 'ничего'}. Команды вписываются вручную в файл ${file} на сервере (они запускаются там, от имени службы; аргументы шаблона приходят переменными окружения) — так заметка или скрипт из хранилища не может разрешить запуск программы сама. В шаблоне: <% await tp.user.hello({ name: "мир" }) %>`,
           example,
           true,
         )

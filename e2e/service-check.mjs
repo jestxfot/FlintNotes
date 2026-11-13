@@ -138,10 +138,20 @@ try {
   const origin = `http://127.0.0.1:${LAN}`
   const shell = { cookie: `flint-shell=${key2}`, origin, 'content-type': 'application/json' }
   const post = (p, body, headers = shell) => lan(p, { method: 'POST', headers, body: JSON.stringify(body) })
-  const refused = [await post('/api/server/update', {}), await post('/api/phone', { newKey: true }), await post('/api/shell', { newKey: true }), await post('/api/exec', { name: 'x' }), await post('/api/proxy', { proxy: 'off' })]
-  ok("the shell's key does not reach what is the server's own: updating, keys, programs, the proxy", refused.every((res) => res.status === 403), refused.map((res) => res.status).join())
+  const refused = [await post('/api/server/update', {}), await post('/api/phone', { newKey: true }), await post('/api/shell', { newKey: true }), await post('/api/proxy', { proxy: 'off' })]
+  ok("the shell's key does not reach what is the server's own: updating, keys, the proxy", refused.every((res) => res.status === 403), refused.map((res) => res.status).join())
   const info = await (await lan('/api/vault', { headers: shell })).json()
   ok('the page is told it is the shell, so that it shows no settings of the server', info.tier === 'shell', JSON.stringify(info))
+
+  // ---- the programs the owner allowed (Templater's system commands) run for the window, and only the ones written into the config by hand
+  const written = JSON.parse(fs.readFileSync(config, 'utf8'))
+  written.systemCommands = { [info.path]: { commands: { hello: 'echo "Hello, $who"' }, timeout: 5 } }
+  fs.writeFileSync(config, JSON.stringify(written))
+  const ran = await post('/api/exec', { name: 'hello', env: { who: 'window' } })
+  ok('the window runs a command the owner allowed, its arguments arrive as variables', ran.status === 200 && (await ran.json()).output === 'Hello, window', String(ran.status))
+  const unwritten = await post('/api/exec', { name: 'rm-everything' })
+  ok('a command nobody wrote into the config is refused, even for the window', unwritten.status === 403, String(unwritten.status))
+  ok('and it comes only from a page of the app, not from anywhere else', (await post('/api/exec', { name: 'hello' }, { cookie: shell.cookie, origin: 'http://evil.example', 'content-type': 'application/json' })).status === 403)
 
   // ---- what the shell may do with the server's disk: only inside the roots
   const outside = path.join(dir, 'outside')
@@ -164,8 +174,8 @@ try {
   const phoneKey = JSON.parse(fs.readFileSync(config, 'utf8')).phone?.key
   ok('`pair --phone` makes the phones\' key, a different one', phonePair.code === 0 && phoneKey && phoneKey !== key2 && phonePair.text.includes(phoneKey), phonePair.text)
   const phone = { cookie: `flint-key=${phoneKey}`, origin, 'content-type': 'application/json' }
-  const asPhone = [await lan('/api/tree', { headers: phone }), await lan('/api/dirs', { headers: phone }), await post('/api/vaults/open', { path: path.join(vaults, 'Third'), create: true }, phone), await post('/api/vaults/forget', { path: secondVault }, phone)]
-  ok('a phone reads the notes but opens no new vault, browses no folders, forgets none', asPhone.map((r) => r.status).join() === '200,403,403,403', asPhone.map((r) => r.status).join())
+  const asPhone = [await lan('/api/tree', { headers: phone }), await lan('/api/dirs', { headers: phone }), await post('/api/vaults/open', { path: path.join(vaults, 'Third'), create: true }, phone), await post('/api/vaults/forget', { path: secondVault }, phone), await post('/api/exec', { name: 'hello', env: { who: 'phone' } }, phone)]
+  ok('a phone reads the notes but opens no new vault, browses no folders, forgets none, runs no program', asPhone.map((r) => r.status).join() === '200,403,403,403,403', asPhone.map((r) => r.status).join())
   ok("and one tier's cookie is not the other's key", (await lan('/api/tree', { headers: { cookie: `flint-shell=${phoneKey}` } })).status === 401)
 
   // ---- files: ranges, and a large one that is not held whole in memory

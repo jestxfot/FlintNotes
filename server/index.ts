@@ -18,6 +18,7 @@ import { pipeline } from 'node:stream/promises'
 import { fileURLToPath } from 'node:url'
 import { PROTOCOL, type BuildInfo, type DirListing, type ExternalPluginInfo, type RemoteEvent, type Tier, type VaultEntry, type VaultInfo } from '../shared/protocol'
 import { checkWay, chooseProxy, computerProxy, describe, parseProxy, telegramName, viaProxy, webFetch, webGet, youtubeVideo } from './web'
+import { decide } from './policy'
 import { keptTrees, limiter } from './kept'
 import { TreeCache } from './tree-cache'
 import { DEFAULT_FEED, checkServerUpdate, lastUpdateStatus, startServerUpdates } from './update'
@@ -271,9 +272,9 @@ api.use(async (c, next) => {
   if (!remote && !isLocal(`http://${c.req.header('host') ?? ''}`)) throw new HTTPException(403, { message: 'Forbidden host' })
   const origin = c.req.header('origin')
   if (origin && (remote ? hostOf(origin) !== c.req.header('host') : !isLocal(origin))) throw new HTTPException(403, { message: 'Forbidden origin' })
-  // What belongs to the server itself (its proxy, programs, keys, updates) is not done over the network, whatever the key; only what version it is may be read.
-  if (remote && ADMIN_ONLY.test(c.req.path) && !(c.req.method === 'GET' && c.req.path === '/api/server')) throw new HTTPException(403, { message: 'Это делается только на самом сервере' })
-  if (tier === 'phone' && c.req.method !== 'GET' && PHONE_NOT.test(c.req.path)) throw new HTTPException(403, { message: 'Это делается только на компьютере' })
+  // What each tier may ask for is one list (policy.ts); what depends on the data (the vault roots) is checked by the route.
+  const verdict = decide(tier, c.req.method, c.req.path)
+  if (!verdict.allowed) throw new HTTPException(403, { message: verdict.message })
   // Which vault the request is about: named in a header (requests of the app) or in the address
   // (pictures, the stream of changes). None named: the vault opened last.
   // A page that is only finding out which vault its address means names none yet.
@@ -363,7 +364,6 @@ api.post('/vaults/forget', async (c) => {
 // The folders under one folder, for choosing a vault where the server's disk is: the shell sees only what lies in the roots.
 api.get('/dirs', async (c) => {
   const tier = tierOf(c)
-  if (tier === 'phone') throw new HTTPException(403, { message: 'Это делается только на компьютере' })
   const roots = tier === 'admin' ? [] : vaultRoots()
   // The network gets to see folders only where roots say so; with none there is nothing to show.
   if (tier !== 'admin' && !roots.length) throw new HTTPException(403, { message: 'На этом сервере нет папок для новых хранилищ (FLINT_VAULT_ROOTS)' })
@@ -579,7 +579,7 @@ api.post('/exec', async (c) => {
 // The server answers three kinds of askers, which the listener they came through tells apart:
 //   admin   a request on 127.0.0.1 (the computer's own browser, `flintnotes`): it needs no key and may do everything;
 //   shell   the Windows app, over the network, with the shell's key: the notes and their vaults (new ones only inside the
-//           roots, `vaultRoots`), but nothing that belongs to the server itself (`ADMIN_ONLY`);
+//           roots, `vaultRoots`) and the programs the owner allowed (`exec`), but nothing that belongs to the server itself;
 //   phone   a phone (a tablet, another computer) with the phones' key: the same, except opening vaults the computer has
 //           not already opened, and forgetting them.
 // The network listener sits on a port of its own. Such a request comes from another machine, so it must show it may: the
@@ -588,10 +588,6 @@ api.post('/exec', async (c) => {
 const PHONE_PORT = 4620
 /** The cookie each key is kept in: a browser holds both when it is the shell and has also opened a phone's link. */
 const COOKIES = { shell: 'flint-shell', phone: 'flint-key' } as const
-/** What only the server itself does, never over the network: its proxy, programs, keys and updates. */
-const ADMIN_ONLY = /^\/api\/(proxy|exec|phone|shell|server)(\/|$)/
-/** What a phone may not change besides. */
-const PHONE_NOT = /^\/api\/vaults\/forget(\/|$)/
 let phoneServer: Server | null = null
 let phoneError: string | null = null
 /** Whether the network listener is on: as a service whenever a key exists; otherwise when the settings turned the phones' access on. */
