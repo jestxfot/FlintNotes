@@ -64,7 +64,13 @@ try {
   const page = await app.firstWindow()
   const state = () => app.evaluate(({ BrowserWindow }) => {
     const window = BrowserWindow.getAllWindows()[0]
-    return { visible: window.isVisible(), top: window.isAlwaysOnTop() }
+    // Without a display (headless Chromium) the window never keeps always-on-top, so what the app asked for is recorded.
+    if (!window.__raise) {
+      window.__raise = { asked: window.isAlwaysOnTop() }
+      const set = window.setAlwaysOnTop.bind(window)
+      window.setAlwaysOnTop = (value, ...rest) => { window.__raise.asked = value; return set(value, ...rest) }
+    }
+    return { visible: window.isVisible(), top: window.__raise.asked }
   })
   await page.waitForSelector('.task-alert.banner[open]', { state: 'attached' })
   await page.waitForTimeout(1500)
