@@ -92,7 +92,7 @@ export async function run(t) {
   // ---- items in the file menu
   await t.row('Note').click({ button: 'right' })
   ok('a command of the user in the file menu', (await page.locator('.menu button', { hasText: 'Graph from the menu' }).count()) === 1)
-  ok('what the menu already offers is not added a second time', (await page.locator('.menu button', { hasText: /explorer|проводник/i }).count()) === 1)
+  ok('a command with no counterpart here (showing a file in the system explorer: the files are on the server) is left out', (await page.locator('.menu button', { hasText: /explorer|проводник/i }).count()) === 0)
   await page.keyboard.press('Escape')
   await page.mouse.click(700, 500)
 
@@ -131,6 +131,6 @@ export async function run(t) {
 
   // ---- the rule: every panel and every plugin has commands
   const ids = await page.evaluate(() => app.commands.list().map((c) => c.id))
-  const need = ['calendar:show-calendar', 'tasks:show-tasks', 'core:toggle-plugin:word-count', 'core:go-back', 'core:next-tab', 'core:reveal-active', 'core:font-bigger', 'buttons:insert', 'widgets:insert-quote', 'tasks:insert-calendar', 'graph:open']
+  const need = ['calendar:show-calendar', 'tasks:show-tasks', 'core:toggle-plugin:word-count', 'core:go-back', 'core:next-tab', 'core:font-bigger', 'buttons:insert', 'widgets:insert-quote', 'tasks:insert-calendar', 'graph:open']
   ok('panels, plugins and frame actions are all commands', need.every((id) => ids.includes(id)), need.filter((id) => !ids.includes(id)).join())
 }

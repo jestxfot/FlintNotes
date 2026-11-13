@@ -2,14 +2,13 @@
  * Asking pages of the web from the server, the way the browser reaches them.
  *
  * A browser follows the computer's proxy settings; Node's own requests do not.
- * Where the web is reached through a proxy (one set for the whole system on
- * Windows, or in HTTPS_PROXY / HTTP_PROXY), the server would not get through
- * where the browser does: a link card would say the page did not answer while
- * the page opens fine in the browser. So the proxy is looked up and used here.
+ * Where the web is reached through a proxy (HTTPS_PROXY / HTTP_PROXY of the
+ * server's environment), the server would not get through where the browser
+ * does: a link card would say the page did not answer while the page opens
+ * fine in the browser. So the proxy is looked up and used here.
  * A proxy can also be given in the settings (an HTTP or a SOCKS one), or none
  * used at all.
  */
-import { execFile } from 'node:child_process'
 import http from 'node:http'
 import https from 'node:https'
 import net from 'node:net'
@@ -61,23 +60,11 @@ async function systemProxy(): Promise<URL | null> {
   return computerProxy()
 }
 
-/** The proxy of this computer, if there is one: from the environment, or Windows' own settings. Looked up once a minute. */
+/** The proxy of this computer, if there is one: from the environment. Looked up once a minute. */
 export async function computerProxy(): Promise<URL | null> {
   if (proxyCache && Date.now() - proxyCache.at < 60_000) return proxyCache.proxy
   const parse = parseProxy
-  let proxy = parse(process.env.HTTPS_PROXY ?? process.env.https_proxy ?? process.env.HTTP_PROXY ?? process.env.http_proxy ?? process.env.ALL_PROXY ?? process.env.all_proxy)
-  if (!proxy && process.platform === 'win32') {
-    const settings = await new Promise<string>((resolve) =>
-      execFile('reg', ['query', 'HKCU\\Software\\Microsoft\\Windows\\CurrentVersion\\Internet Settings'], { windowsHide: true, timeout: 3000 }, (err, out) => resolve(err ? '' : out)),
-    )
-    const enabled = /ProxyEnable\s+REG_DWORD\s+0x1\b/i.test(settings)
-    const server = /ProxyServer\s+REG_SZ\s+(\S+)/i.exec(settings)?.[1]
-    if (enabled && server) {
-      // "host:port", or one per kind: "http=host:port;https=host:port".
-      const parts = Object.fromEntries(server.split(';').map((part) => (part.includes('=') ? part.split('=') : ['all', part])))
-      proxy = parse(parts.https ?? parts.http ?? parts.all) ?? (parts.socks ? parse(`socks5://${parts.socks}`) : null)
-    }
-  }
+  const proxy = parse(process.env.HTTPS_PROXY ?? process.env.https_proxy ?? process.env.HTTP_PROXY ?? process.env.http_proxy ?? process.env.ALL_PROXY ?? process.env.all_proxy)
   proxyCache = { proxy, at: Date.now() }
   return proxy
 }
@@ -220,21 +207,8 @@ async function readText(body: AsyncIterable<Uint8Array>, limit: number): Promise
 }
 
 /** Gets a page of the web, through the computer's proxy when it has one; redirects are followed. */
-export async function webGet(address: string, options: { timeout?: number; limit?: number } = {}): Promise<WebPage> {
-  try {
-    return await nodeGet(address, options)
-  } catch (err) {
-    // Windows reaches the web with all of its own settings, a proxy given by an automatic
-    // configuration script (PAC) included, which Node knows nothing of. Asked through
-    // Windows itself, the page comes the way it comes to the browser.
-    if (process.platform !== 'win32') throw err
-    const reason = describe(err)
-    try {
-      return await windowsGet(address, options)
-    } catch (again) {
-      throw new Error(`${reason}; через Windows: ${describe(again)}`)
-    }
-  }
+export function webGet(address: string, options: { timeout?: number; limit?: number } = {}): Promise<WebPage> {
+  return nodeGet(address, options)
 }
 
 /** What went wrong, in a few words: the system's error code if there is one. */
@@ -243,31 +217,6 @@ export function describe(err: unknown): string {
   const code = cause?.code ?? (err as { code?: string })?.code
   const message = cause?.message ?? (err instanceof Error ? err.message : String(err))
   return code && !message.includes(code) ? `${code}: ${message}` : message
-}
-
-/** A page asked through Windows' own web client (PowerShell), with the system's proxy settings. */
-function windowsGet(address: string, { timeout = 8000, limit = 600_000 }: { timeout?: number; limit?: number }): Promise<WebPage> {
-  // The address goes in by the environment, never into the command's text.
-  const script = [
-    '$ProgressPreference = "SilentlyContinue"',
-    '[Console]::OutputEncoding = [System.Text.Encoding]::UTF8',
-    '[System.Net.ServicePointManager]::SecurityProtocol = [System.Net.SecurityProtocolType]::Tls12',
-    `$r = Invoke-WebRequest -UseBasicParsing -Uri $env:FLINT_URL -TimeoutSec ${Math.ceil(timeout / 1000) + 5} -UserAgent $env:FLINT_AGENT -Headers @{ 'Accept-Language' = 'ru,en;q=0.8' }`,
-    '[Console]::Out.Write([string]$r.StatusCode + "`n" + $r.BaseResponse.ResponseUri.AbsoluteUri + "`n")',
-    '[Console]::Out.Write($r.Content)',
-  ].join('; ')
-  return new Promise((resolve, reject) => {
-    execFile(
-      'powershell.exe',
-      ['-NoProfile', '-NonInteractive', '-ExecutionPolicy', 'Bypass', '-Command', script],
-      { env: { ...process.env, FLINT_URL: address, FLINT_AGENT: BROWSER_HEADERS['user-agent'] }, windowsHide: true, timeout: timeout + 10_000, maxBuffer: Math.max(limit * 4, 8_000_000), encoding: 'utf8' },
-      (err, out, errors) => {
-        if (err) return reject(new Error((errors || err.message).trim().split(/\r?\n/)[0] || 'PowerShell'))
-        const [status, url, ...rest] = out.split('\n')
-        resolve({ status: Number(status) || 200, url: url?.trim() || address, text: rest.join('\n').slice(0, limit) })
-      },
-    )
-  })
 }
 
 /** What came back from a request: as it is, bytes and all. */
@@ -293,80 +242,37 @@ async function readBytes(body: AsyncIterable<Uint8Array>, limit: number): Promis
 /**
  * Any request to the web (a picture, an API's answer), made the way pages are asked: through
  * the proxy chosen in the settings or the computer's. Redirects of reading requests are followed.
- * Where Node does not get through on Windows, a reading request is asked through Windows itself.
  */
 export async function webFetch(address: string, { timeout = 12_000, limit = 25_000_000, ...send }: Sending & { timeout?: number; limit?: number } = {}): Promise<WebAnswer> {
   const method = (send.method ?? 'GET').toUpperCase()
   const headers = { ...BROWSER_HEADERS, accept: '*/*', ...send.headers }
-  try {
-    const proxy = await systemProxy()
-    if (!proxy) {
-      const res = await fetch(address, { method, headers, body: method === 'GET' || method === 'HEAD' ? undefined : send.body, signal: AbortSignal.timeout(timeout), redirect: 'follow' })
-      return { status: res.status, url: res.url || address, headers: Object.fromEntries(res.headers), bytes: res.body ? await readBytes(res.body as unknown as AsyncIterable<Uint8Array>, limit) : Buffer.alloc(0) }
-    }
-    let url = new URL(address)
-    let sending: Sending = { method, headers, body: send.body }
-    for (let hops = 0; hops < 6; hops++) {
-      const res = await throughProxy(url, proxy, timeout, sending)
-      const location = res.headers.location
-      if (res.statusCode && [301, 302, 303, 307, 308].includes(res.statusCode) && location) {
-        res.resume()
-        url = new URL(location, url)
-        // As a browser does: after a 303 (and a 301 or 302 of a form) the next request only reads.
-        if (res.statusCode === 303 || (res.statusCode <= 302 && sending.method !== 'GET' && sending.method !== 'HEAD')) sending = { method: 'GET', headers }
-        continue
-      }
-      const bytes = await readBytes(res, limit)
-      res.destroy()
-      const answered: Record<string, string> = {}
-      for (const [key, value] of Object.entries(res.headers)) if (value !== undefined) answered[key] = Array.isArray(value) ? value.join(', ') : value
-      return { status: res.statusCode ?? 0, url: url.href, headers: answered, bytes }
-    }
-    throw new Error('too many redirects')
-  } catch (err) {
-    if (process.platform !== 'win32' || method !== 'GET') throw err
-    const reason = describe(err)
-    try {
-      return await windowsFetch(address, timeout, limit)
-    } catch (again) {
-      throw new Error(`${reason}; через Windows: ${describe(again)}`)
-    }
+  const proxy = await systemProxy()
+  if (!proxy) {
+    const res = await fetch(address, { method, headers, body: method === 'GET' || method === 'HEAD' ? undefined : send.body, signal: AbortSignal.timeout(timeout), redirect: 'follow' })
+    return { status: res.status, url: res.url || address, headers: Object.fromEntries(res.headers), bytes: res.body ? await readBytes(res.body as unknown as AsyncIterable<Uint8Array>, limit) : Buffer.alloc(0) }
   }
+  let url = new URL(address)
+  let sending: Sending = { method, headers, body: send.body }
+  for (let hops = 0; hops < 6; hops++) {
+    const res = await throughProxy(url, proxy, timeout, sending)
+    const location = res.headers.location
+    if (res.statusCode && [301, 302, 303, 307, 308].includes(res.statusCode) && location) {
+      res.resume()
+      url = new URL(location, url)
+      // As a browser does: after a 303 (and a 301 or 302 of a form) the next request only reads.
+      if (res.statusCode === 303 || (res.statusCode <= 302 && sending.method !== 'GET' && sending.method !== 'HEAD')) sending = { method: 'GET', headers }
+      continue
+    }
+    const bytes = await readBytes(res, limit)
+    res.destroy()
+    const answered: Record<string, string> = {}
+    for (const [key, value] of Object.entries(res.headers)) if (value !== undefined) answered[key] = Array.isArray(value) ? value.join(', ') : value
+    return { status: res.statusCode ?? 0, url: url.href, headers: answered, bytes }
+  }
+  throw new Error('too many redirects')
 }
 
-/** A file of the web fetched through Windows' own web client (PowerShell) into a temporary file, with the system's proxy settings. */
-async function windowsFetch(address: string, timeout: number, limit: number): Promise<WebAnswer> {
-  const { mkdtemp, readFile, rm } = await import('node:fs/promises')
-  const { tmpdir } = await import('node:os')
-  const { join } = await import('node:path')
-  const dir = await mkdtemp(join(tmpdir(), 'flint-web-'))
-  const file = join(dir, 'answer')
-  const script = [
-    '$ProgressPreference = "SilentlyContinue"',
-    '[Console]::OutputEncoding = [System.Text.Encoding]::UTF8',
-    '[System.Net.ServicePointManager]::SecurityProtocol = [System.Net.SecurityProtocolType]::Tls12',
-    `$r = Invoke-WebRequest -UseBasicParsing -Uri $env:FLINT_URL -OutFile $env:FLINT_FILE -PassThru -TimeoutSec ${Math.ceil(timeout / 1000) + 5} -UserAgent $env:FLINT_AGENT`,
-    '[Console]::Out.Write([string]$r.StatusCode + "`n" + $r.BaseResponse.ResponseUri.AbsoluteUri + "`n" + [string]$r.Headers["Content-Type"])',
-  ].join('; ')
-  try {
-    const out = await new Promise<string>((resolve, reject) =>
-      execFile(
-        'powershell.exe',
-        ['-NoProfile', '-NonInteractive', '-ExecutionPolicy', 'Bypass', '-Command', script],
-        { env: { ...process.env, FLINT_URL: address, FLINT_FILE: file, FLINT_AGENT: BROWSER_HEADERS['user-agent'] }, windowsHide: true, timeout: timeout + 10_000, encoding: 'utf8' },
-        (err, stdout, errors) => (err ? reject(new Error((errors || err.message).trim().split(/\r?\n/)[0] || 'PowerShell')) : resolve(stdout)),
-      ),
-    )
-    const [status, url, type] = out.split('\n')
-    const bytes = await readFile(file)
-    if (bytes.length > limit) throw new Error('слишком большой ответ')
-    return { status: Number(status) || 200, url: url?.trim() || address, headers: type?.trim() ? { 'content-type': type.trim() } : {}, bytes }
-  } finally {
-    await rm(dir, { recursive: true, force: true }).catch(() => {})
-  }
-}
-
-/** A page asked by Node itself: straight, or through the proxy of the environment or of Windows' settings. */
+/** A page asked by Node itself: straight, or through the proxy of the environment or of the settings. */
 async function nodeGet(address: string, { timeout = 8000, limit = 600_000 }: { timeout?: number; limit?: number } = {}): Promise<WebPage> {
   const proxy = await systemProxy()
   if (!proxy) {
@@ -479,7 +385,7 @@ export async function checkWay(address: string): Promise<NetStep[]> {
     const proxy = await systemProxy()
     if (proxyChoice === 'off') return 'выключен в настройках FlintNotes'
     if (proxyChoice !== 'system') return proxy ? `из настроек FlintNotes: ${proxy.protocol}//${proxy.host}` : `в настройках FlintNotes непонятный адрес: ${proxyChoice}`
-    return proxy ? `компьютера: ${proxy.protocol}//${proxy.host}` : 'не задан (ни в настройках FlintNotes, ни HTTPS_PROXY, ни в настройках Windows)'
+    return proxy ? `компьютера: ${proxy.protocol}//${proxy.host}` : 'не задан (ни в настройках FlintNotes, ни HTTPS_PROXY)'
   })
   await timed(`Адрес ${url.hostname} (DNS)`, async () => {
     const { lookup } = await import('node:dns/promises')
@@ -491,7 +397,6 @@ export async function checkWay(address: string): Promise<NetStep[]> {
   })
   const proxy = await systemProxy()
   if (proxy) await timed(`Через прокси ${proxy.protocol}//${proxy.host}`, async () => sayPage(await nodeGet(address, { timeout: 10_000, limit: 3_000_000 })))
-  if (process.platform === 'win32') await timed('Через Windows (PowerShell)', async () => sayPage(await windowsGet(address, { timeout: 15_000, limit: 3_000_000 })))
   return steps
 }
 

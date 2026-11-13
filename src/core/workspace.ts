@@ -19,6 +19,8 @@ export interface FileView {
   revealLine?(line: number): void
   /** Write unsaved changes now. `unloading` means the page is closing. */
   flush?(unloading?: boolean): void | Promise<void>
+  /** Whether it holds text that is not saved (a save that failed leaves it so). */
+  unsaved?(): boolean
   focus?(): void
   /**
    * A view that has these is kept for a while when its file is left (another note opened in its tab, the tab
@@ -320,6 +322,11 @@ export class Workspace extends Events<WorkspaceEvents> {
   }
 
   /** Writes unsaved changes of every tab. */
+  /** Whether any open view holds text that is not saved: a save the server did not take stays on the page. */
+  hasUnsaved(): boolean {
+    return [...this.leaves, ...this.embedded].some((shown) => shown.view?.unsaved?.())
+  }
+
   async flushAll(unloading = false): Promise<void> {
     await Promise.all([...this.leaves, ...this.embedded].map((shown) => shown.view?.flush?.(unloading)))
   }

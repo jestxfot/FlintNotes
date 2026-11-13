@@ -84,10 +84,9 @@
     const items: MenuItem[] = [
       { section: 'new', icon: 'square-pen', title: 'Новая заметка', onClick: () => create('file', folder) },
       { section: 'new', icon: 'folder-plus', title: 'Новая папка', onClick: () => create('folder', folder) },
-      { section: 'system', icon: 'arrow-up-right', title: 'Показать в проводнике', onClick: () => reveal(entry) },
     ]
     if (entry) {
-      const absolute = `${vault.path}/${entry.path}`.replace(/\//g, vault.path.includes('\\') ? '\\' : '/')
+      const absolute = `${vault.path}/${entry.path}`
       const copy = (text: string) => navigator.clipboard.writeText(text).then(() => app.notice('Скопировано'), () => app.notice('Не удалось скопировать'))
       if (entry.kind === 'file') {
         items.push(
@@ -104,7 +103,8 @@
           title: 'Копировать путь',
           submenu: [
             { title: 'Путь в хранилище', onClick: () => copy(entry.path) },
-            { title: 'Полный путь', onClick: () => copy(absolute) },
+            // A path on the server's disk means something only at the server itself.
+            ...(app.vault.tier === 'admin' ? [{ title: 'Полный путь', onClick: () => copy(absolute) }] : []),
             ...(entry.kind === 'file' ? [{ title: 'Ссылка на заметку', onClick: () => copy(`[[${app.metadata.linkText(entry.path, '')}]]`) }] : []),
           ],
         },
@@ -253,14 +253,6 @@
       await vault.trash(entry.path)
     } catch (err) {
       app.notice(`Не удалось удалить: ${errorMessage(err)}`)
-    }
-  }
-
-  async function reveal(entry: VaultEntry | null) {
-    try {
-      await vault.reveal(entry?.path ?? '')
-    } catch (err) {
-      app.notice(errorMessage(err))
     }
   }
 

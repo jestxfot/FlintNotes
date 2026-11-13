@@ -116,7 +116,7 @@ export const phoneSetting = (app: App): SettingsSection['defs'][number] => ({
       renew.onclick = () => change({ newKey: true }, 'Делаю новый ключ…')
       const warn = steps.appendChild(document.createElement('div'))
       warn.className = 'phone-note'
-      warn.append(app.icons.draw('shield'), text('span', 'Ссылка с ключом открывает заметки — не пересылайте её. Не открывается? Проверьте, что сеть одна, и разрешите FlintNotes в брандмауэре Windows для частных сетей'))
+      warn.append(app.icons.draw('shield'), text('span', 'Ссылка с ключом открывает заметки — не пересылайте её. Не открывается? Проверьте, что сеть одна, и проверьте брандмауэр компьютера: порт должен быть открыт для домашней сети'))
     }
 
     toggle.onchange = () => change({ on: toggle.checked }, toggle.checked ? 'Включаю…' : 'Выключаю…')

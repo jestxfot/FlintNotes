@@ -35,7 +35,6 @@ function light() {
 }
 
 function start(build) {
-  process.env.FLINT_BUNDLED = '1'
   // Which version this is, to compare with the newest release; and where light updates go.
   process.env.FLINT_SHELL = build.shell
   process.env.FLINT_BUILDS = builds

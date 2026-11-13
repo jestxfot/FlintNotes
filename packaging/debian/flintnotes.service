@@ -1,0 +1,49 @@
+[Unit]
+Description=FlintNotes server (notes for the Windows shell and the phones of the network)
+Documentation=https://github.com/jestxfot/FlintNotes
+After=network-online.target
+Wants=network-online.target
+
+[Service]
+Type=simple
+User=flintnotes
+Group=flintnotes
+# What the administrator changes lives in /etc/default/flintnotes (FLINT_BIND, FLINT_PORT, FLINT_VAULT_ROOTS ...).
+EnvironmentFile=-/etc/default/flintnotes
+Environment=NODE_ENV=production
+Environment=FLINT_SERVICE=1
+Environment=FLINT_STATE_DIR=/var/lib/flintnotes
+Environment=FLINT_CONFIG=/var/lib/flintnotes/config.json
+Environment=FLINT_CACHE=/var/cache/flintnotes
+Environment=FLINT_FIRST_VAULT=/var/lib/flintnotes/vaults/FlintNotes
+ExecStart=/usr/bin/node /usr/lib/flintnotes/launcher.mjs
+Restart=on-failure
+RestartSec=2
+StartLimitIntervalSec=60
+StartLimitBurst=5
+# SIGTERM reaches the launcher and the server together; the server finishes the saves it has begun (up to 5 s).
+TimeoutStopSec=15
+StateDirectory=flintnotes
+StateDirectoryMode=0750
+CacheDirectory=flintnotes
+
+# The service reads and writes its own folders and the vaults, and nothing else.
+NoNewPrivileges=yes
+ProtectSystem=strict
+ProtectHome=yes
+PrivateTmp=yes
+PrivateDevices=yes
+ProtectKernelTunables=yes
+ProtectKernelModules=yes
+ProtectControlGroups=yes
+RestrictAddressFamilies=AF_INET AF_INET6 AF_UNIX
+RestrictNamespaces=yes
+LockPersonality=yes
+RestrictSUIDSGID=yes
+# A vault outside /var/lib/flintnotes (a disk, a share): `systemctl edit flintnotes`, then
+#   [Service]
+#   ReadWritePaths=/srv/notes
+ReadWritePaths=-/srv/flintnotes
+
+[Install]
+WantedBy=multi-user.target

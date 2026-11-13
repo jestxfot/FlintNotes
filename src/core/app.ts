@@ -42,7 +42,7 @@ const coreSettings: SettingsSection = {
       key: 'theme',
       group: 'Оформление',
       name: 'Тема',
-      desc: '«Как в системе» — тема меняется вместе с темой Windows или браузера',
+      desc: '«Как в системе» — тема меняется вместе с темой системы или браузера',
       type: 'select',
       default: 'system',
       options: [
@@ -224,58 +224,6 @@ const vaultsSetting = (app: App): SettingsSection['defs'][number] => ({
   },
 })
 
-/** The port is the program's, not a vault's: the server keeps it with the list of vaults. */
-const portSetting = (app: App): SettingsSection['defs'][number] => ({
-  key: 'port',
-  group: 'Программа',
-  section: 'Запуск',
-  name: 'Порт',
-  desc: 'Адрес в браузере — http://localhost:порт. Меняйте, если порт занят другой программой: страница сама перейдёт на новый адрес, старые закладки перестанут работать',
-  type: 'custom',
-  render: (el) => {
-    const row = el.appendChild(document.createElement('div'))
-    row.className = 'port-setting'
-    const input = row.appendChild(document.createElement('input'))
-    input.type = 'number'
-    input.min = '1024'
-    input.max = '65535'
-    input.disabled = true
-    const apply = row.appendChild(document.createElement('button'))
-    apply.className = 'setting-button'
-    apply.textContent = 'Применить'
-    apply.disabled = true
-    const note = row.appendChild(document.createElement('small'))
-    let current = 0
-    const fail = (err: unknown) => {
-      note.textContent = err instanceof Error ? err.message : String(err)
-      apply.disabled = false
-    }
-    void app.vault.port().then(({ port, fixed }) => {
-      current = port
-      input.value = String(port)
-      input.disabled = fixed
-      note.textContent = fixed ? 'Задан при запуске переменной FLINT_PORT' : ''
-    }, fail)
-    input.oninput = () => (apply.disabled = Number(input.value) === current)
-    apply.onclick = () => {
-      apply.disabled = true
-      note.textContent = 'Перехожу на новый порт…'
-      // What is not saved yet goes to the server while it still listens here.
-      void Promise.all([app.workspace.flushAll(), app.state.flush()])
-        .then(() => app.vault.setPort(Number(input.value)))
-        .then(async ({ port }) => {
-        const next = new URL(location.href)
-        next.port = String(port)
-        // In development the page comes from Vite, which keeps its own port: only the server moves.
-        if (location.port !== String(current)) return void (note.textContent = `Сервер перешёл на порт ${port}`)
-        await waitFor(next.origin)
-        location.href = next.href
-      }, fail)
-    }
-    return () => row.remove()
-  },
-})
-
 /** The proxy is the program's too: link cards and video descriptions come through it. */
 const proxySetting = (app: App): SettingsSection['defs'][number] => ({
   key: 'proxy',
@@ -354,14 +302,8 @@ const proxySetting = (app: App): SettingsSection['defs'][number] => ({
   },
 })
 
-/** Waits until the server answers at its new address (it moves a moment after saying yes). */
-async function waitFor(origin: string): Promise<void> {
-  for (let tries = 0; tries < 50; tries++) {
-    // Another port is another site to the browser: an opaque answer is enough to know someone is there.
-    if (await fetch(`${origin}/api/port`, { mode: 'no-cors', cache: 'no-store' }).then(() => true, () => false)) return
-    await new Promise((resume) => setTimeout(resume, 100))
-  }
-}
+/** Whether the settings of the platform (the Windows app's, or the browser's) are in the list already: the page may be set up again when a vault is switched. */
+let platformSettings = false
 
 /** A build id (the time it was made) as a date to read. */
 const builtAt = (id: string) => (/^\d{4}-/.test(id) ? new Date(id).toLocaleString('ru', { day: 'numeric', month: 'long', hour: '2-digit', minute: '2-digit' }) : 'для разработки')
@@ -529,9 +471,7 @@ const autostartSetting = (app: App): SettingsSection['defs'][number] => ({
   group: 'Программа',
   section: 'Запуск',
   name: 'Запускать вместе с компьютером',
-  desc: desktop
-    ? 'FlintNotes запускается при входе в Windows в область уведомлений: напоминания приходят, даже если окно не открывали. Настройка одна для всех хранилищ'
-    : 'Сервер FlintNotes запускается при входе в систему без окна, и хранилища сразу открываются в браузере. Настройка одна для всех хранилищ, она хранится на компьютере',
+  desc: 'FlintNotes запускается при входе в Windows в область уведомлений: напоминания приходят, даже если окно не открывали. Настройка одна для всех хранилищ',
   type: 'custom',
   render: (el) => {
     const row = el.appendChild(document.createElement('label'))
@@ -610,19 +550,28 @@ export class App {
     this.panels.init()
     // Once only: the page may be set up again (a vault is switched), the list of settings is the same object.
     if (!coreSettings.defs.some((def) => def.key === 'panels')) coreSettings.defs.splice(coreSettings.defs.findIndex((def) => def.key === 'zoom'), 0, panelsSetting(this))
-    if (!coreSettings.defs.some((def) => def.key === 'autostart')) coreSettings.defs.push(
-        // The desktop app has no port and no addresses to open in a browser.
-        ...(desktop ? [autostartSetting(this), proxySetting(this), phoneSetting(this), appUpdatesSetting(this)] : [autostartSetting(this), portSetting(this), proxySetting(this), phoneSetting(this), buildSetting(), vaultsSetting(this)]),
+    // What belongs to the server itself (its proxy, who may come in from the network) is changed at the server, not from the Windows app or a phone.
+    const ownServer = this.vault.tier === 'admin' ? [proxySetting(this), phoneSetting(this)] : []
+    if (!platformSettings) {
+      platformSettings = true
+      coreSettings.defs.push(
+        // The Windows app is only a window: it has no address to open in a browser, and starts with Windows by itself.
+        ...(desktop ? [autostartSetting(this), ...ownServer, appUpdatesSetting(this)] : [...ownServer, buildSetting(), vaultsSetting(this)]),
       )
+    }
     this.settings.addSection(coreSettings)
     // One plain sign that the server is not answering, instead of an error from every part that asks it something.
     const down = this.statusBar.addItem()
     down.className = 'status-item server-down'
-    down.textContent = 'Нет связи с сервером FlintNotes — запустите его заново'
+    down.textContent = 'Нет связи с сервером FlintNotes — как только он вернётся, всё продолжится само'
     down.hidden = connection.online
     connection.on('change', (online) => {
       down.hidden = online
-      if (online) notice('Связь с сервером FlintNotes восстановлена')
+      if (online) {
+        notice('Связь с сервером FlintNotes восстановлена')
+        // What was typed while the server was away and could not be saved goes now, not at the next keystroke.
+        void this.workspace.flushAll()
+      }
     })
     // Every widget of the sidebars can also be opened as a tab of its own, with the whole page to itself.
     // Nothing is asked of the plugins for it: a widget is the same thing in either place.
@@ -711,7 +660,7 @@ export class App {
           if (!editor.hasFocus) editor.focus()
         },
       })
-    this.commands.add({
+    if (desktop) this.commands.add({
       id: 'core:toggle-autostart',
       name: 'Включить или выключить запуск вместе с компьютером',
       icon: 'power',
@@ -742,18 +691,16 @@ export class App {
         callback: () => void desktop?.installUpdate().then((started) => { if (!started) notice('Нет загруженного обновления: проверьте наличие новых версий') }, (err) => notice(err instanceof Error ? err.message : String(err))),
       })
     }
-    this.commands.add({
+    if (desktop) this.commands.add({
       id: 'core:quit',
-      name: desktop ? 'Выйти из FlintNotes' : 'Остановить FlintNotes',
+      name: 'Выйти из FlintNotes',
       icon: 'power-off',
       // What is not saved yet goes to the server first, while it still listens.
       callback: () =>
-        void Promise.all([this.workspace.flushAll(), this.state.flush()])
-          .then(() => this.vault.quit())
-          .then(
-            () => desktop || notice('FlintNotes остановлен. Запустить снова — node release/launcher.mjs', 10_000),
-            (err) => notice(err instanceof Error ? err.message : String(err)),
-          ),
+        void Promise.all([this.workspace.flushAll(), this.state.flush()]).then(
+          () => desktop?.quit(),
+          (err) => notice(err instanceof Error ? err.message : String(err)),
+        ),
     })
     this.metadata.init()
     this.livePreview.init()

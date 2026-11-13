@@ -12,6 +12,7 @@ import { pathToFileURL } from 'node:url'
 import { gzipSync } from 'node:zlib'
 import { _electron } from 'playwright'
 import { buildVault, ROOT } from './helpers.mjs'
+import { shellFlags, startShellServer } from './shell-server.mjs'
 
 const dir = fs.mkdtempSync(path.join(os.tmpdir(), 'flint-updates-menu-'))
 const out = process.env.FLINT_E2E_RELEASE || path.join(dir, 'release')
@@ -54,6 +55,7 @@ const feed = http.createServer((request, response) => {
   response.writeHead(404); response.end()
 })
 let application
+let server
 let passed = 0
 const check = (name, value) => { assert.ok(value, name); passed++; console.log(`✓ ${name}`) }
 const until = async (read, timeout = 15000) => {
@@ -63,15 +65,15 @@ const until = async (read, timeout = 15000) => {
 try {
   if (!process.env.FLINT_E2E_RELEASE) execFileSync(process.execPath, ['scripts/release.mjs'], { cwd: ROOT, env: { ...process.env, FLINT_RELEASE_OUT: out }, stdio: 'pipe' })
   await new Promise((resolve) => feed.listen(0, '127.0.0.1', resolve))
+  server = await startShellServer({ release: out, vault, dir })
   const libs = process.env.FLINT_E2E_LIBS || path.join(os.homedir(), '.cache/flintnotes/gtk-libs')
   application = await _electron.launch({
-    executablePath: createRequire(import.meta.url)('electron'), args: [wrapper],
-    env: { ...process.env, DISPLAY: process.env.DISPLAY || ':0', WAYLAND_DISPLAY: '',
+    executablePath: createRequire(import.meta.url)('electron'), args: [...shellFlags(), wrapper],
+    env: { ...process.env, WAYLAND_DISPLAY: '', FLINT_WINDOW_DELAY: '1500', FLINT_SERVER_URL: server.link(),
       ...(fs.existsSync(libs) ? { LD_LIBRARY_PATH: [libs, process.env.LD_LIBRARY_PATH].filter(Boolean).join(':') } : {}),
-      FLINT_VAULT: vault, FLINT_CONFIG: path.join(dir, 'config.json'), FLINT_USER_DATA: profile,
-      FLINT_AUTOSTART_DIR: path.join(dir, 'autostart'), FLINT_CACHE: path.join(dir, 'cache'),
+      FLINT_USER_DATA: profile, FLINT_AUTOSTART_DIR: path.join(dir, 'autostart'),
       FLINT_SHELL: path.join(dir, 'shell.json'), FLINT_BUILDS: path.join(dir, 'builds'),
-      FLINT_UPDATE_FEED: `http://127.0.0.1:${feed.address().port}/latest.json`, FLINT_UPDATE_DELAY: '3600000', FLINT_BUNDLED: '1' },
+      FLINT_UPDATE_FEED: `http://127.0.0.1:${feed.address().port}/latest.json`, FLINT_UPDATE_DELAY: '3600000' },
   })
   const page = await application.firstWindow()
   const errors = []
@@ -130,6 +132,7 @@ try {
   throw error
 } finally {
   await application?.close()
+  server?.stop()
   await new Promise((resolve) => feed.close(resolve))
   fs.rmSync(dir, { recursive: true, force: true })
 }

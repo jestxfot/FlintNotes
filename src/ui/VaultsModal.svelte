@@ -1,5 +1,6 @@
 <script lang="ts">
   import { onMount } from 'svelte'
+  import type { DirListing } from '../../shared/protocol'
   import { errorMessage } from '../core/notice'
   import { vaultAddress, type VaultInfo } from '../core/vault'
   import { app } from '../instance'
@@ -10,14 +11,19 @@
   let vaults = $state.raw<VaultInfo[]>([])
   let folder = $state('')
   let error = $state('')
+  /** The folder being looked at on the server's disk; null while the chooser is closed. */
+  let listing = $state.raw<DirListing | null>(null)
+  let newFolder = $state('')
+  // On the server's own computer a path may be typed; from the Windows app or a phone folders are only chosen.
+  const typing = app.vault.tier === 'admin'
 
-  // `/home/me/notes`, `D:\Notes` or a network path `\\server\share`.
-  const isAbsolute = (path: string) => /^(\/|[a-zA-Z]:[\\/]|\\\\)/.test(path)
+  // The server is Linux: a full path starts with a slash.
+  const isAbsolute = (path: string) => path.startsWith('/')
 
   async function open(path: string, create = false) {
     error = ''
     if (!isAbsolute(path)) {
-      error = 'Укажите полный путь к папке, например D:\\Заметки'
+      error = 'Укажите полный путь к папке, например /var/lib/flintnotes/vaults/Заметки'
       return
     }
     try {
@@ -41,6 +47,18 @@
     }
   }
 
+  /** Shows the folders under `path` (the roots with none given). */
+  async function browse(path?: string) {
+    error = ''
+    try {
+      listing = await app.vault.dirs(path)
+    } catch (err) {
+      error = errorMessage(err)
+    }
+  }
+
+  const here = $derived(listing?.path ?? null)
+
   onMount(async () => {
     dialog.showModal()
     vaults = await app.vault.vaults().catch(() => [])
@@ -50,7 +68,7 @@
 <dialog bind:this={dialog} {onclose} onclick={(event) => event.target === dialog && dialog.close()} aria-label="Хранилища">
   <button class="close" aria-label="Закрыть" onclick={() => dialog.close()}>×</button>
   <h2>Хранилища</h2>
-  <p class="hint">Хранилище — обычная папка с заметками. Здесь перечислены папки, которые вы уже открывали.</p>
+  <p class="hint">Хранилище — обычная папка с заметками на сервере. Здесь перечислены папки, которые вы уже открывали.</p>
 
   <div class="list">
     {#each vaults as vault (vault.path)}
@@ -69,19 +87,56 @@
     {/each}
   </div>
 
-  <form
-    onsubmit={(event) => {
-      event.preventDefault()
-      if (folder.trim()) void open(folder.trim())
-    }}
-  >
-    <label for="vault-folder">Открыть другую папку как хранилище</label>
-    <div class="row">
-      <input id="vault-folder" placeholder="Полный путь, например D:\Заметки" bind:value={folder} />
-      <button class="primary" disabled={!folder.trim()}>Открыть</button>
-    </div>
-    {#if error}<p class="error">{error}</p>{/if}
-  </form>
+  <div class="chooser">
+    <span class="label">Открыть другую папку как хранилище</span>
+    {#if !listing}
+      <button class="choose" onclick={() => browse()}>Выбрать папку на сервере…</button>
+    {:else}
+      <div class="where">
+        <button class="up" disabled={here === null} onclick={() => browse(listing?.parent ?? undefined)} title="Выше" aria-label="Выше">↑</button>
+        <span class="here">{here ?? 'Папки для хранилищ'}</span>
+        {#if here}<button class="primary" onclick={() => open(here)}>Открыть эту папку</button>{/if}
+      </div>
+      <div class="folders">
+        {#each listing.dirs as dir (dir.path)}
+          <div class="folder">
+            <button class="enter" onclick={() => browse(dir.path)}>{dir.name}</button>
+            {#if dir.vault}<button onclick={() => open(dir.path)}>Открыть как хранилище</button>{/if}
+          </div>
+        {:else}
+          <p class="empty">Здесь нет вложенных папок</p>
+        {/each}
+      </div>
+      {#if here}
+        <form
+          class="row"
+          onsubmit={(event) => {
+            event.preventDefault()
+            if (newFolder.trim()) void open(`${here.replace(/\/$/, '')}/${newFolder.trim()}`, true)
+          }}
+        >
+          <input aria-label="Имя новой папки" placeholder="Новая папка для нового хранилища" bind:value={newFolder} />
+          <button disabled={!newFolder.trim()}>Создать</button>
+        </form>
+      {/if}
+    {/if}
+  </div>
+
+  {#if typing}
+    <form
+      onsubmit={(event) => {
+        event.preventDefault()
+        if (folder.trim()) void open(folder.trim())
+      }}
+    >
+      <label for="vault-folder">Или укажите путь к папке</label>
+      <div class="row">
+        <input id="vault-folder" placeholder="Полный путь, например /home/me/notes" bind:value={folder} />
+        <button class="primary" disabled={!folder.trim()}>Открыть</button>
+      </div>
+    </form>
+  {/if}
+  {#if error}<p class="error">{error}</p>{/if}
 </dialog>
 
 <style>
@@ -193,6 +248,59 @@
     border: 1px solid var(--border);
     border-radius: var(--radius-m);
     background: var(--bg);
+  }
+
+  .chooser {
+    margin-bottom: 16px;
+  }
+
+  .chooser .label {
+    display: block;
+    margin-bottom: 6px;
+    color: var(--text-muted);
+    font-size: 13px;
+  }
+
+  .where {
+    display: flex;
+    align-items: center;
+    gap: 8px;
+    margin-bottom: 6px;
+  }
+
+  .here {
+    flex: 1;
+    min-width: 0;
+    overflow: hidden;
+    font-weight: 600;
+    text-overflow: ellipsis;
+    white-space: nowrap;
+  }
+
+  .folders {
+    max-height: 220px;
+    margin-bottom: 8px;
+    overflow-y: auto;
+    border: 1px solid var(--border);
+    border-radius: var(--radius-m);
+  }
+
+  .folder {
+    display: flex;
+    align-items: center;
+    gap: 8px;
+    padding: 2px 6px;
+  }
+
+  .folder .enter {
+    flex: 1;
+    border: 0 !important;
+    text-align: left;
+  }
+
+  .empty {
+    margin: 10px;
+    color: var(--text-muted);
   }
 
   .primary {

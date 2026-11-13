@@ -35,6 +35,31 @@ export type RemoteEvent =
   /** The page fell too far behind the changes: it reads the list of files anew. */
   | { type: 'resync' }
 
+/**
+ * Who is asking the server: `admin` the server's own computer (no key; may do everything), `shell` the Windows app over
+ * the network (the notes and their vaults, but nothing of the server itself), `phone` a phone (the same, but it opens no
+ * vault the computer has not opened already).
+ */
+export type Tier = 'admin' | 'shell' | 'phone'
+
+/** One folder in the list `GET /api/dirs` gives for choosing a vault. */
+export interface DirEntry {
+  name: string
+  path: string
+  /** It is a vault already (or looks like one: it has `.obsidian` or `.flint`). */
+  vault: boolean
+}
+
+/** The folders under one folder of the server's disk. */
+export interface DirListing {
+  /** The folder listed; null for the list of roots a client may open vaults in. */
+  path: string | null
+  /** The folder above it, or null where there is none a client may go to. */
+  parent: string | null
+  roots: string[]
+  dirs: DirEntry[]
+}
+
 /** A folder the user has opened as a vault. */
 export interface VaultInfo {
   /** Absolute path on disk. */

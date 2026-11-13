@@ -1,10 +1,10 @@
-import type { ExternalPluginInfo, RemoteEvent, VaultEntry, VaultInfo } from '../../shared/protocol'
+import type { DirListing, ExternalPluginInfo, RemoteEvent, Tier, VaultEntry, VaultInfo } from '../../shared/protocol'
 import { desktop } from './desktop'
 import { Events } from './events'
 import { join } from './path'
 import { pause } from './pause'
 
-export type { VaultEntry, VaultInfo }
+export type { DirListing, Tier, VaultEntry, VaultInfo }
 
 type VaultEvents = {
   create: [entry: VaultEntry]
@@ -95,6 +95,8 @@ export class Vault extends Events<VaultEvents> {
   urlName = ''
   /** Absolute path of the vault's folder on disk. */
   path = ''
+  /** Who this page is for (see `Tier`): what belongs to the server itself is shown only to `admin`. */
+  tier: Tier = 'admin'
   /** Obsidian's settings folders found in the vault (`.obsidian`, ...), the most recently used first. */
   obsidianConfigs: string[] = []
   private entries = new Map<string, VaultEntry>()
@@ -110,12 +112,13 @@ export class Vault extends Events<VaultEvents> {
     vaultInAddress = ''
     const where: { known: boolean; name: string } = await (await request(`/api/where?name=${encodeURIComponent(asked)}`)).json()
     vaultInAddress = where.name
-    const info: { name: string; path: string; obsidianConfigs?: string[] } = await (await request('/api/vault')).json()
+    const info: { name: string; path: string; tier?: Tier; obsidianConfigs?: string[] } = await (await request('/api/vault')).json()
     vaultInAddress = info.name
     this.urlName = info.name
     if (!where.known) history.replaceState(null, '', `/${encodeURIComponent(info.name)}${asked ? location.pathname : '/'}${location.search}${location.hash}`)
     this.name = info.name
     this.path = info.path
+    this.tier = info.tier ?? 'admin'
     this.obsidianConfigs = info.obsidianConfigs ?? []
   }
 
@@ -159,6 +162,11 @@ export class Vault extends Events<VaultEvents> {
     return (await request('/api/vaults/open', json({ path, create }))).json()
   }
 
+  /** The folders under `path` on the server's disk (the roots a vault may be opened in, with none given), for choosing a vault. */
+  async dirs(path?: string): Promise<DirListing> {
+    return (await request(`/api/dirs${path ? `?path=${encodeURIComponent(path)}` : ''}`)).json()
+  }
+
   /** Removes a vault from the list without touching its folder. */
   async forgetVault(path: string): Promise<VaultInfo[]> {
     return (await request('/api/vaults/forget', json({ path }))).json()
@@ -193,11 +201,6 @@ export class Vault extends Events<VaultEvents> {
     return (await request(url('file', path))).arrayBuffer()
   }
 
-  /** Shows a file or folder in the system's file manager; `''` is the vault's own folder. */
-  async reveal(path: string): Promise<void> {
-    await request(url('reveal', path), { method: 'POST' })
-  }
-
   /** Programs that templates of this vault may run (their names), and the file where they are allowed. */
   async systemCommands(): Promise<{ file: string; vault: string; commands: string[] }> {
     return (await request('/api/system-commands')).json()
@@ -209,21 +212,15 @@ export class Vault extends Events<VaultEvents> {
     return ((await res.json()) as { output: string }).output
   }
 
-  /** Whether the server starts by itself when the user signs in to the computer. */
+  /** Whether the app starts with the computer: the Windows app does it by the system's own list, which only the app reaches. */
   async autostart(): Promise<{ supported: boolean; enabled: boolean; file?: string; reason?: string }> {
-    // The desktop app starts with the system by the system's own list, which only the app reaches.
-    if (desktop) return { supported: true, ...(await desktop.autostart()) }
-    return this.answer(await request('/api/autostart'))
+    if (!desktop) return { supported: false, enabled: false, reason: 'Запуск вместе с компьютером настраивается в приложении FlintNotes для Windows' }
+    return { supported: true, ...(await desktop.autostart()) }
   }
 
   async setAutostart(enabled: boolean): Promise<{ supported: boolean; enabled: boolean; file?: string }> {
-    if (desktop) return { supported: true, ...(await desktop.setAutostart(enabled)) }
-    return this.answer(await request('/api/autostart', { method: 'POST', headers: { 'content-type': 'application/json' }, body: JSON.stringify({ enabled }) }))
-  }
-
-  /** The port the server listens on, and whether it was fixed at start (FLINT_PORT) and cannot be changed from here. */
-  async port(): Promise<{ port: number; fixed: boolean }> {
-    return this.answer(await request('/api/port'))
+    if (!desktop) throw new Error('Запуск вместе с компьютером настраивается в приложении FlintNotes для Windows')
+    return { supported: true, ...(await desktop.setAutostart(enabled)) }
   }
 
   /** How the server reaches the web (`system`, `off` or a proxy's address), and the proxy this computer has, if any. */
@@ -236,12 +233,6 @@ export class Vault extends Events<VaultEvents> {
     return this.answer(await request('/api/proxy', json({ proxy })))
   }
 
-  /** Stops the server, and with it the launcher that would start it again. */
-  async quit(): Promise<void> {
-    if (desktop) return desktop.quit()
-    await this.answer(await request('/api/quit', { method: 'POST' }))
-  }
-
   /** Whether phones of the home network may open FlintNotes, on which port, with which key, at which addresses of this computer. */
   async phone(): Promise<PhoneAccess> {
     return this.answer(await request('/api/phone'))
@@ -250,11 +241,6 @@ export class Vault extends Events<VaultEvents> {
   /** Turns the phones' access on or off, moves it to another port, or makes a new key that shuts out the phones let in before. */
   async setPhone(change: { on?: boolean; port?: number; newKey?: boolean }): Promise<PhoneAccess> {
     return this.answer(await request('/api/phone', json(change)))
-  }
-
-  /** Moves the server to another port; it is remembered for the next starts too. */
-  async setPort(port: number): Promise<{ port: number }> {
-    return this.answer(await request('/api/port', json({ port })))
   }
 
   /** The server's answer; a server started before an update does not know newer requests and sends the page instead. */

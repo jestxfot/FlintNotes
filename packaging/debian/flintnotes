@@ -1,0 +1,7 @@
+#!/bin/sh
+# The command of the FlintNotes service: flintnotes pair | status | update | version
+set -a
+[ -r /etc/default/flintnotes ] && . /etc/default/flintnotes
+: "${FLINT_CONFIG:=/var/lib/flintnotes/config.json}"
+set +a
+exec /usr/bin/node /usr/lib/flintnotes/cli.mjs "$@"

@@ -1,23 +1,26 @@
-import { createAdaptorServer, serve } from '@hono/node-server'
+import { serve } from '@hono/node-server'
 import chokidar from 'chokidar'
 import { Hono, type Context } from 'hono'
 import { HTTPException } from 'hono/http-exception'
 import { stream, streamSSE } from 'hono/streaming'
 import { AsyncLocalStorage } from 'node:async_hooks'
-import { exec, execFile, spawn } from 'node:child_process'
+import { exec } from 'node:child_process'
 import crypto from 'node:crypto'
 import { lookup } from 'node:dns/promises'
-import { existsSync, readFileSync, rmSync, watch as fsWatch, type Stats } from 'node:fs'
+import { createReadStream, createWriteStream, existsSync, readFileSync, watch as fsWatch, type Stats } from 'node:fs'
 import fs from 'node:fs/promises'
 import type { Server } from 'node:http'
 import net from 'node:net'
 import os from 'node:os'
 import path from 'node:path'
+import { Readable, Transform } from 'node:stream'
+import { pipeline } from 'node:stream/promises'
 import { fileURLToPath } from 'node:url'
-import { PROTOCOL, type BuildInfo, type ExternalPluginInfo, type RemoteEvent, type VaultEntry, type VaultInfo } from '../shared/protocol'
+import { PROTOCOL, type BuildInfo, type DirListing, type ExternalPluginInfo, type RemoteEvent, type Tier, type VaultEntry, type VaultInfo } from '../shared/protocol'
 import { checkWay, chooseProxy, computerProxy, describe, parseProxy, telegramName, viaProxy, webFetch, webGet, youtubeVideo } from './web'
 import { keptTrees, limiter } from './kept'
 import { TreeCache } from './tree-cache'
+import { DEFAULT_FEED, checkServerUpdate, lastUpdateStatus, startServerUpdates } from './update'
 
 // The vaults the user has opened are remembered between runs, outside any vault.
 const CONFIG = process.env.FLINT_CONFIG ?? path.join(os.homedir(), '.flintnotes.json')
@@ -33,6 +36,8 @@ interface Config {
   systemCommands?: Record<string, SystemCommands>
   /** FlintNotes for the phones of the home network; see «a phone on the home network». */
   phone?: { on?: boolean; port?: number; key?: string; /** The address to listen on; every network card of the computer when not given (FLINT_BIND wins). */ host?: string }
+  /** The key of the Windows shell (the service's network listener has it beside the phones' key; see «who may ask»). */
+  shell?: { key?: string }
 }
 
 interface SystemCommands {
@@ -52,6 +57,7 @@ async function readConfig(): Promise<Config> {
       proxy: typeof data.proxy === 'string' ? data.proxy : undefined,
       systemCommands: data.systemCommands && typeof data.systemCommands === 'object' ? data.systemCommands : undefined,
       phone: data.phone && typeof data.phone === 'object' ? { on: data.phone.on === true, port: validPort(data.phone.port) ? data.phone.port : undefined, key: typeof data.phone.key === 'string' && data.phone.key.length >= 16 ? data.phone.key : undefined, host: typeof data.phone.host === 'string' && net.isIP(data.phone.host) ? data.phone.host : undefined } : undefined,
+      shell: data.shell && typeof data.shell === 'object' && typeof data.shell.key === 'string' && data.shell.key.length >= 16 ? { key: data.shell.key } : undefined,
     }
   } catch {
     return { vaults: [] }
@@ -62,19 +68,21 @@ const DEFAULT_PORT = 4600
 const validPort = (value: unknown): value is number => Number.isInteger(value) && (value as number) >= 1024 && (value as number) <= 65535
 
 const config = await readConfig()
+/**
+ * Run as the Debian service (flintnotes.service, FLINT_SERVICE=1): the notes are for the Windows shell and the phones of
+ * the network, so the listener for them is on whenever a key exists; the shell's is made at the first start (`flintnotes pair` shows it);
+ * the program updates itself into STATE_DIR (server/update.ts).
+ */
+const SERVICE = process.env.FLINT_SERVICE === '1'
+const STATE_DIR = process.env.FLINT_STATE_DIR
+const newKey = () => crypto.randomBytes(18).toString('base64url')
+if (SERVICE && !config.shell?.key) config.shell = { key: newKey() }
 chooseProxy(config.proxy ?? 'system')
 // FLINT_PORT (tests, development) wins over the port chosen in the settings; then that port can not be changed from the app.
 const fixedPort = process.env.FLINT_PORT ? Number(process.env.FLINT_PORT) : undefined
 let port = fixedPort ?? config.port ?? DEFAULT_PORT
-/**
- * In the desktop app (server/desktop.ts) the server opens no port at all: it listens on a named pipe
- * (a socket file elsewhere) that only the app's window process talks to. Everything else stays as it is.
- */
-const PIPE = process.env.FLINT_PIPE
-/** Electron's channel to the desktop app, when the server runs as its utility process. */
-const parentPort = (process as unknown as { parentPort?: { on(event: 'message', listener: (message: { data: unknown }) => void): void; postMessage(message: unknown): void } }).parentPort
 // A vault named on the command line wins over the one used last time. The first start of all has `vault`
-// next to the program, or the place the desktop app gives (FLINT_FIRST_VAULT: Documents\FlintNotes).
+// next to the program, or the place the service's unit file gives (FLINT_FIRST_VAULT).
 let defaultRoot = path.resolve(process.argv[2] ?? process.env.FLINT_VAULT ?? config.current ?? process.env.FLINT_FIRST_VAULT ?? 'vault')
 /**
  * The server serves every known vault at once: each request says which vault it
@@ -115,15 +123,14 @@ const toEntry = (abs: string, stat: Stats, base = root()): VaultEntry => ({
   kind: stat.isDirectory() ? 'folder' : 'file',
   size: stat.isDirectory() ? 0 : stat.size,
   mtime: stat.mtimeMs,
-  // Some filesystems (Windows drives under WSL) do not report a creation time;
+  // Some filesystems (a network disk) do not report a creation time;
   // the earliest time known for the file stands in for it.
   ctime: stat.birthtimeMs || Math.min(stat.mtimeMs, stat.ctimeMs),
 })
 
 /**
- * Whether `abs` lies inside `base` (`base` itself only when `allowRoot`). Asked through path.relative, never by comparing text:
- * on Windows path.resolve() gives a network share's root WITH a trailing separator (`\\host\share\`), so `base + path.sep`
- * matched nothing and every file of a vault on a share was «outside the vault» (2026-11-13, \\192.168.1.50\obsidian).
+ * Whether `abs` lies inside `base` (`base` itself only when `allowRoot`). Asked through path.relative, never by comparing
+ * text: a root that ends in a separator (`/`, a share's top folder) would otherwise match nothing.
  */
 export function isInside(base: string, abs: string, allowRoot = false): boolean {
   const rel = path.relative(base, abs)
@@ -154,8 +161,8 @@ const disk = limiter(24)
 
 /**
  * Every file and folder under `dir`, with paths relative to the vault `base`. What the system will
- * not let us read (a protected folder, a file held open by another program, a cloud placeholder on
- * Windows) is left out instead of failing the whole vault; only the vault's own folder must be readable.
+ * not let us read (a protected folder, a file held open by another program, a cloud placeholder)
+ * is left out instead of failing the whole vault; only the vault's own folder must be readable.
  */
 async function walk(dir: string, base = dir): Promise<VaultEntry[]> {
   const listed = await disk(() => fs.readdir(dir, { withFileTypes: true })).catch((err) => {
@@ -225,13 +232,48 @@ function vaultName(dir: string): string {
 }
 const vaultByName = (name: string) => config.vaults.find((dir) => vaultName(dir) === name)
 
+/**
+ * The folders in which a client of the network (the Windows shell) may open new vaults: FLINT_VAULT_ROOTS (absolute
+ * folders, separated by colons), or, as a service, the service's own `vaults` folder. A request on the server's own
+ * computer is asked nothing; with no roots and no service the network gets only the vaults already known.
+ */
+const vaultRoots = (): string[] => {
+  const given = (process.env.FLINT_VAULT_ROOTS ?? '')
+    .split(':')
+    .map((one) => one.trim())
+    .filter((one) => path.isAbsolute(one))
+  if (given.length) return given.map((one) => path.resolve(one))
+  return SERVICE && STATE_DIR ? [path.join(STATE_DIR, 'vaults')] : []
+}
+/** The real place of a path, links followed; for one that does not exist yet, its nearest existing parent's real place with the rest after it. */
+async function realPlace(dir: string): Promise<string> {
+  const rest: string[] = []
+  for (let here = path.resolve(dir); ; here = path.dirname(here)) {
+    try {
+      return path.join(await fs.realpath(here), ...rest.reverse())
+    } catch {
+      if (here === path.dirname(here)) return path.resolve(dir)
+      rest.push(path.basename(here))
+    }
+  }
+}
+/** Whether `dir` lies in a root (a root itself only when `allowRoot`), by where it really is: a link inside a root that leads out of it does not count. */
+async function insideRoots(dir: string, allowRoot = false): Promise<boolean> {
+  const real = await realPlace(dir)
+  for (const one of vaultRoots()) if (isInside(await realPlace(one), real, allowRoot)) return true
+  return false
+}
+
 api.use(async (c, next) => {
-  // A phone of the home network has shown its key already (see `phoneFetch`); its page comes from its own address.
-  const phone = fromPhone(c)
-  if (!phone && !isLocal(`http://${c.req.header('host') ?? ''}`)) throw new HTTPException(403, { message: 'Forbidden host' })
+  // A client of the network (the Windows shell, a phone) has shown its key already (see `lanFetch`); its page comes from the server's address.
+  const tier = tierOf(c)
+  const remote = tier !== 'admin'
+  if (!remote && !isLocal(`http://${c.req.header('host') ?? ''}`)) throw new HTTPException(403, { message: 'Forbidden host' })
   const origin = c.req.header('origin')
-  if (origin && (phone ? hostOf(origin) !== c.req.header('host') : !isLocal(origin))) throw new HTTPException(403, { message: 'Forbidden origin' })
-  if (phone && c.req.method !== 'GET' && COMPUTER_ONLY.test(c.req.path)) throw new HTTPException(403, { message: 'Это делается только на компьютере' })
+  if (origin && (remote ? hostOf(origin) !== c.req.header('host') : !isLocal(origin))) throw new HTTPException(403, { message: 'Forbidden origin' })
+  // What belongs to the server itself (its proxy, programs, keys, updates) is not done over the network, whatever the key; only what version it is may be read.
+  if (remote && ADMIN_ONLY.test(c.req.path) && !(c.req.method === 'GET' && c.req.path === '/api/server')) throw new HTTPException(403, { message: 'Это делается только на самом сервере' })
+  if (tier === 'phone' && c.req.method !== 'GET' && PHONE_NOT.test(c.req.path)) throw new HTTPException(403, { message: 'Это делается только на компьютере' })
   // Which vault the request is about: named in a header (requests of the app) or in the address
   // (pictures, the stream of changes). None named: the vault opened last.
   // A page that is only finding out which vault its address means names none yet.
@@ -277,7 +319,7 @@ api.get('/vault', async (c) => {
     defaultRoot = root()
     void remember()
   }
-  return c.json({ name: vaultName(root()), path: root(), obsidianConfigs: await obsidianConfigs() })
+  return c.json({ name: vaultName(root()), path: root(), tier: tierOf(c), obsidianConfigs: await obsidianConfigs() })
 })
 
 const vaultInfo = (dir: string): VaultInfo => ({ path: dir, name: vaultName(dir), current: dir === root(), exists: existsSync(dir) })
@@ -288,10 +330,12 @@ api.get('/vaults', (c) => c.json(config.vaults.map(vaultInfo)))
 api.post('/vaults/open', async (c) => {
   const body = await c.req.json<{ path: string; create?: boolean }>()
   if (!body.path?.trim() || !path.isAbsolute(body.path.trim())) {
-    throw new HTTPException(400, { message: 'Укажите полный путь к папке, например D:\\Заметки' })
+    throw new HTTPException(400, { message: 'Укажите полный путь к папке, например /var/lib/flintnotes/vaults/Заметки' })
   }
   const dir = path.resolve(body.path.trim())
-  if (fromPhone(c) && !config.vaults.includes(dir)) throw new HTTPException(403, { message: 'С телефона открываются только хранилища, уже открытые на компьютере' })
+  const tier = tierOf(c)
+  if (tier === 'phone' && !config.vaults.includes(dir)) throw new HTTPException(403, { message: 'С телефона открываются только хранилища, уже открытые на компьютере' })
+  if (tier === 'shell' && !config.vaults.includes(dir) && !(await insideRoots(dir))) throw new HTTPException(403, { message: `Новые хранилища открываются только в ${vaultRoots().join(', ') || 'уже известных папках'}` })
   const stat = await fs.stat(dir).catch(() => null)
   if (stat && !stat.isDirectory()) throw new HTTPException(400, { message: 'Это файл, а нужна папка' })
   if (!stat && !body.create) throw new HTTPException(404, { message: 'Такой папки нет' })
@@ -314,6 +358,44 @@ api.post('/vaults/forget', async (c) => {
   trees.forget(dir)
   await remember()
   return c.json(config.vaults.map(vaultInfo))
+})
+
+// The folders under one folder, for choosing a vault where the server's disk is: the shell sees only what lies in the roots.
+api.get('/dirs', async (c) => {
+  const tier = tierOf(c)
+  if (tier === 'phone') throw new HTTPException(403, { message: 'Это делается только на компьютере' })
+  const roots = tier === 'admin' ? [] : vaultRoots()
+  // The network gets to see folders only where roots say so; with none there is nothing to show.
+  if (tier !== 'admin' && !roots.length) throw new HTTPException(403, { message: 'На этом сервере нет папок для новых хранилищ (FLINT_VAULT_ROOTS)' })
+  const asked = c.req.query('path')
+  const entry = (dir: string) => ({ name: path.basename(dir) || dir, path: dir, vault: config.vaults.includes(dir) || existsSync(path.join(dir, '.obsidian')) || existsSync(path.join(dir, '.flint')) })
+  // No place named: the roots to choose among (or, on the server's own computer, its home folder).
+  if (!asked) {
+    if (roots.length) return c.json({ path: null, parent: null, roots, dirs: roots.map(entry) })
+    return c.json(await listDirs(os.homedir(), tier === 'admin'))
+  }
+  if (!path.isAbsolute(asked)) throw new HTTPException(400, { message: 'Нужен полный путь' })
+  const dir = path.resolve(asked)
+  // A root itself may be looked into; a vault is opened inside it, never as the root itself.
+  if (roots.length && !(await insideRoots(dir, true))) throw new HTTPException(403, { message: 'Сюда нельзя: только внутри ' + roots.join(', ') })
+  return c.json(await listDirs(dir, tier === 'admin'))
+
+  async function listDirs(at: string, unrestricted: boolean) {
+    const stat = await fs.stat(at).catch(() => null)
+    if (!stat?.isDirectory()) throw new HTTPException(404, { message: 'Такой папки нет' })
+    const names = await fs.readdir(at, { withFileTypes: true }).catch(() => [])
+    const found: ReturnType<typeof entry>[] = []
+    for (const one of names) {
+      if (one.name.startsWith('.') || found.length >= 1000) continue
+      const sub = path.join(at, one.name)
+      // A link to a folder counts as one, if it does not lead out of the roots.
+      const isDir = one.isDirectory() || (one.isSymbolicLink() && (await fs.stat(sub).catch(() => null))?.isDirectory())
+      if (isDir && (unrestricted || !roots.length || (await insideRoots(sub)))) found.push(entry(sub))
+    }
+    found.sort((a, b) => a.name.localeCompare(b.name, 'ru'))
+    const atRoot = roots.some((one) => path.resolve(one) === at)
+    return { path: at, parent: atRoot || at === path.dirname(at) ? null : path.dirname(at), roots, dirs: found }
+  }
 })
 
 api.get('/tree', async (c) => c.body(await trees.json(root()), 200, { 'content-type': 'application/json; charset=utf-8' }))
@@ -351,21 +433,72 @@ api.get('/file', async (c) => {
   // An address that names the file's version (`v`, its time and size) always means the same bytes:
   // the browser keeps them and asks no more. A changed file gets another address.
   const version = c.req.query('v')
-  return c.body(new Uint8Array(await fs.readFile(abs)), 200, {
+  const headers: Record<string, string> = {
     'content-type': MIME[ext] ?? 'application/octet-stream',
     'cache-control': version && version === `${Math.round(stat.mtimeMs)}-${stat.size}` ? 'private, max-age=31536000, immutable' : 'no-store',
-  })
+    // A video or a long recording is played from where it is asked for, over a network that may be slow.
+    'accept-ranges': 'bytes',
+  }
+  const range = parseRange(c.req.header('range'), stat.size)
+  if (range === 'bad') return c.body(null, 416, { 'content-range': `bytes */${stat.size}` })
+  const [start, end] = range ?? [0, stat.size - 1]
+  headers['content-length'] = String(stat.size ? end - start + 1 : 0)
+  if (range) headers['content-range'] = `bytes ${start}-${end}/${stat.size}`
+  // Sent as it is read, not read whole first: a large file takes no more memory than a small one.
+  const status = range ? 206 : 200
+  if (!stat.size) return c.body(null, status, headers)
+  return c.body(Readable.toWeb(createReadStream(abs, { start, end })) as ReadableStream, status, headers)
 })
 
+/** One range of `Range: bytes=a-b`, `a-` or `-n` for a file `size` long, start and end both included; null if there is none (the whole file), 'bad' if it lies outside the file. */
+function parseRange(header: string | undefined, size: number): [number, number] | 'bad' | null {
+  const match = /^bytes=(\d*)-(\d*)$/.exec(header ?? '')
+  if (!match || (!match[1] && !match[2])) return null
+  if (!match[1]) {
+    const last = Number(match[2])
+    return last === 0 || size === 0 ? 'bad' : [Math.max(0, size - last), size - 1]
+  }
+  const start = Number(match[1])
+  const end = match[2] ? Math.min(Number(match[2]), size - 1) : size - 1
+  return start >= size || start > end ? 'bad' : [start, end]
+}
+
 // Files are written in place rather than via temp file + rename: a replaced file
-// would lose its creation time, which notes expose as `file.ctime`.
+// would lose its creation time, which notes expose as `file.ctime`. (Only a large file, which is not a note, is
+// received into a file of its own first.)
+/** What one file may weigh, and from what size it is received as a stream rather than taken whole. */
+const MAX_UPLOAD = Number(process.env.FLINT_MAX_UPLOAD) || 4 * 1024 ** 3
+const STREAM_FROM = 8 * 1024 ** 2
 api.put('/file', async (c) => {
   const abs = target(c)
   if (c.req.query('create') && existsSync(abs)) {
     throw new HTTPException(409, { message: 'Already exists' })
   }
+  const length = Number(c.req.header('content-length') ?? NaN)
+  if (length > MAX_UPLOAD) throw new HTTPException(413, { message: 'Файл слишком большой' })
   await fs.mkdir(path.dirname(abs), { recursive: true })
-  await fs.writeFile(abs, new Uint8Array(await c.req.arrayBuffer()))
+  if (length <= STREAM_FROM) {
+    // A note or a small file: taken whole first, so a save cut off half way leaves what was there.
+    await fs.writeFile(abs, new Uint8Array(await c.req.arrayBuffer()))
+  } else {
+    // A large file (a picture, a recording) goes to a hidden file beside it as it arrives and takes its place at the end;
+    // it never sits whole in memory, and a transfer cut off leaves the old file alone.
+    const part = path.join(path.dirname(abs), `.${path.basename(abs)}.flint-part`)
+    let received = 0
+    const counted = new Transform({
+      transform(chunk: Buffer, _encoding, done) {
+        received += chunk.length
+        done(received > MAX_UPLOAD ? new HTTPException(413, { message: 'Файл слишком большой' }) : null, chunk)
+      },
+    })
+    try {
+      await pipeline(c.req.raw.body ? Readable.fromWeb(c.req.raw.body as never) : Readable.from([]), counted, createWriteStream(part))
+      await fs.rename(part, abs)
+    } catch (err) {
+      await fs.rm(part, { force: true })
+      throw err
+    }
+  }
   return c.json(toEntry(abs, await fs.stat(abs)))
 })
 
@@ -401,37 +534,6 @@ api.delete('/file', async (c) => {
   return c.body(null, 204)
 })
 
-// Shows a file or folder in the system's file manager (Explorer, Finder, ...).
-api.post('/reveal', async (c) => {
-  const abs = resolveInVault(c.req.query('path') ?? '', true)
-  if (!existsSync(abs)) throw new HTTPException(404, { message: 'File not found' })
-  // Explorer wants `/select,"path"` exactly so; Node's own quoting would break it.
-  const explorer = (winPath: string, isRoot: boolean): [string, string[], object] => ['explorer.exe', isRoot ? [`"${winPath}"`] : [`/select,"${winPath}"`], { windowsVerbatimArguments: true }]
-  let launch: [string, string[], object]
-  if (process.platform === 'win32') launch = explorer(abs, abs === root())
-  else if (process.platform === 'darwin') launch = ['open', abs === root() ? [abs] : ['-R', abs], {}]
-  else if (process.env.WSL_DISTRO_NAME) {
-    // Under WSL the file manager is Windows Explorer, which needs the path in its Windows form.
-    const winPath = await new Promise<string>((resolve, reject) =>
-      execFile('wslpath', ['-w', abs], (err, out) => (err ? reject(new HTTPException(500, { message: 'Не удалось получить путь Windows (wslpath)' })) : resolve(out.trim()))),
-    )
-    launch = explorer(winPath, abs === root())
-  } else launch = ['xdg-open', [abs === root() ? abs : path.dirname(abs)], {}]
-  const [command, args, options] = launch
-  await new Promise<void>((resolve, reject) => {
-    const child = spawn(command, args, { stdio: 'ignore', ...options })
-    child.on('error', (err) => {
-      console.error(`Показать в проводнике: не удалось запустить ${command}: ${err.message}`)
-      reject(new HTTPException(500, { message: `Не удалось запустить ${command}: ${err.message}` }))
-    })
-    // Explorer reports failure even when it opens the window, so starting is all that is checked.
-    child.on('spawn', () => resolve())
-    child.unref()
-  })
-  console.log(`Показать в проводнике: ${command} ${args.join(' ')}`)
-  return c.body(null, 204)
-})
-
 // Names of the files in one folder of the vault, hidden folders included: the
 // tree leaves those out, but plugins read Obsidian's own files (its custom icons).
 api.get('/list', async (c) => {
@@ -464,7 +566,7 @@ api.post('/exec', async (c) => {
   const variables = Object.fromEntries(Object.entries(env ?? {}).map(([key, value]) => [key, typeof value === 'string' ? value : JSON.stringify(value)]))
   const timeout = Math.min(600, Math.max(1, Number(allowed?.timeout) || 5)) * 1000
   const output = await new Promise<string>((resolve, reject) => {
-    exec(command, { cwd: root(), timeout, env: { ...process.env, ...variables }, windowsHide: true, maxBuffer: 4 * 1024 * 1024 }, (err, stdout, stderr) => {
+    exec(command, { cwd: root(), timeout, env: { ...process.env, ...variables }, maxBuffer: 4 * 1024 * 1024 }, (err, stdout, stderr) => {
       if (err) reject(new HTTPException(500, { message: (stderr || err.message).trim().slice(0, 500) }))
       else resolve(stdout)
     })
@@ -472,104 +574,32 @@ api.post('/exec', async (c) => {
   return c.json({ output: output.trimEnd() })
 })
 
-// ---- starting with the computer: a small file where the system looks for programs to run at sign-in
-const AUTOSTART_DIR = process.env.FLINT_AUTOSTART_DIR
-function autostart(): { file: string; text: string } | { reason: string } {
-  // The desktop app starts with Windows by Windows' own means (server/desktop.ts), not by a script of the server's.
-  if (PIPE) return { reason: 'Приложение запускается вместе с Windows своими средствами' }
-  const script = process.argv[1] ? path.resolve(process.argv[1]) : ''
-  if (!script) return { reason: 'Не удалось определить, откуда запущен сервер' }
-  // The same Node and the same program as now; the vault is the one opened last, so no folder is named.
-  // Started by the launcher, the launcher itself: it keeps the server up and puts new builds in place.
-  const launcher = process.env.FLINT_LAUNCHER
-  const command = launcher ? [process.execPath, launcher] : [process.execPath, ...process.execArgv, script]
-  // On Windows it is the desktop app that starts with the system (desktop/main.ts), not a server of the browser's.
-  if (process.platform === 'win32' && !AUTOSTART_DIR) return { reason: 'На Windows вместе с системой запускается приложение FlintNotes: включите это в его настройках или в меню значка в трее' }
-  if (process.platform === 'darwin') {
-    const dir = AUTOSTART_DIR ?? path.join(os.homedir(), 'Library', 'LaunchAgents')
-    const escape = (text: string) => text.replace(/&/g, '&amp;').replace(/</g, '&lt;')
-    return {
-      file: path.join(dir, 'com.flintnotes.server.plist'),
-      text: `<?xml version="1.0" encoding="UTF-8"?>\n<!DOCTYPE plist PUBLIC "-//Apple//DTD PLIST 1.0//EN" "http://www.apple.com/DTDs/PropertyList-1.0.dtd">\n<plist version="1.0"><dict>\n<key>Label</key><string>com.flintnotes.server</string>\n<key>ProgramArguments</key><array>${command.map((part) => `<string>${escape(part)}</string>`).join('')}</array>\n<key>RunAtLoad</key><true/>\n</dict></plist>\n`,
-    }
-  }
-  if (!AUTOSTART_DIR && /microsoft/i.test(os.release())) return { reason: 'Сервер запущен внутри WSL: вместе с Windows запускается приложение FlintNotes, это включается в нём самом' }
-  const dir = AUTOSTART_DIR ?? path.join(process.env.XDG_CONFIG_HOME ?? path.join(os.homedir(), '.config'), 'autostart')
-  const quoted = command.map((part) => `"${part.replace(/(["\\$`])/g, '\\$1')}"`).join(' ')
-  return { file: path.join(dir, 'flintnotes.desktop'), text: `[Desktop Entry]\nType=Application\nName=FlintNotes\nComment=Сервер заметок FlintNotes\nExec=${quoted}\nTerminal=false\nX-GNOME-Autostart-enabled=true\n` }
-}
-
-api.get('/autostart', (c) => {
-  const entry = autostart()
-  return c.json('reason' in entry ? { supported: false, enabled: false, reason: entry.reason } : { supported: true, enabled: existsSync(entry.file), file: entry.file })
-})
-
-api.post('/autostart', async (c) => {
-  const origin = c.req.header('origin')
-  if (!origin || new URL(origin).host !== c.req.header('host')) throw new HTTPException(403, { message: 'Только со страницы самого приложения' })
-  const { enabled } = (await c.req.json()) as { enabled: boolean }
-  const entry = autostart()
-  if ('reason' in entry) throw new HTTPException(400, { message: entry.reason })
-  if (enabled) {
-    await fs.mkdir(path.dirname(entry.file), { recursive: true })
-    await fs.writeFile(entry.file, entry.text)
-  } else await fs.rm(entry.file, { force: true })
-  return c.json({ supported: true, enabled, file: entry.file })
-})
-
-// ---- stopping from the app: with no window of its own, this is how FlintNotes is turned off
-api.post('/quit', (c) => {
-  const origin = c.req.header('origin')
-  if (!origin || new URL(origin).host !== c.req.header('host')) throw new HTTPException(403, { message: 'Только со страницы самого приложения' })
-  console.log('Остановлен из приложения')
-  // The answer leaves first. Exiting with 0 tells the launcher not to start the server again.
-  setTimeout(() => void stop(), 200)
-  return c.json({ stopping: true })
-})
-
-// ---- the port: chosen in the settings, kept in the config with the vaults
-api.get('/port', (c) => c.json({ port, fixed: fixedPort !== undefined || !!PIPE }))
-
-const isFree = (wanted: number) =>
-  new Promise<boolean>((resolve) => {
-    const probe = net.createServer()
-    probe.once('error', () => resolve(false))
-    probe.listen(wanted, '127.0.0.1', () => probe.close(() => resolve(true)))
-  })
-
-api.post('/port', async (c) => {
-  const origin = c.req.header('origin')
-  if (!origin || new URL(origin).host !== c.req.header('host')) throw new HTTPException(403, { message: 'Только со страницы самого приложения' })
-  const wanted = Number(((await c.req.json()) as { port?: unknown }).port)
-  if (fixedPort !== undefined) throw new HTTPException(400, { message: `Порт задан при запуске (FLINT_PORT=${fixedPort}) и отсюда не меняется` })
-  if (PIPE) throw new HTTPException(400, { message: 'Приложению порт не нужен' })
-  if (!validPort(wanted)) throw new HTTPException(400, { message: 'Порт — целое число от 1024 до 65535' })
-  if (wanted !== port && !(await isFree(wanted))) throw new HTTPException(409, { message: `Порт ${wanted} занят другой программой` })
-  config.port = wanted
-  await remember()
-  // The answer leaves first; then the server moves, and the page follows it to the new address.
-  if (wanted !== port) setTimeout(() => listenOn(wanted), 200)
-  return c.json({ port: wanted })
-})
-
-// ---- a phone on the home network
+// ---- who may ask: the server's own computer, the Windows shell, a phone
 //
-// The server listens to this computer only. Turned on in the settings, it listens to the home network as well,
-// on a port of its own, and a phone (a tablet, another computer) opens FlintNotes there. Such a request comes
-// from another machine, so it must show it may: the address the settings give, as a link or a QR code, carries
-// a key, and the page it opens keeps the key as a cookie. Without it there is only a page saying where to get it.
-// A new key in the settings shuts out every phone let in before. What belongs to the computer itself (stopping
-// the server, its port and proxy, starting with the system, programs, the explorer) stays the computer's.
+// The server answers three kinds of askers, which the listener they came through tells apart:
+//   admin   a request on 127.0.0.1 (the computer's own browser, `flintnotes`): it needs no key and may do everything;
+//   shell   the Windows app, over the network, with the shell's key: the notes and their vaults (new ones only inside the
+//           roots, `vaultRoots`), but nothing that belongs to the server itself (`ADMIN_ONLY`);
+//   phone   a phone (a tablet, another computer) with the phones' key: the same, except opening vaults the computer has
+//           not already opened, and forgetting them.
+// The network listener sits on a port of its own. Such a request comes from another machine, so it must show it may: the
+// address that `flintnotes pair` (or the settings' QR code) gives carries a key, and the page it opens keeps the key as a
+// cookie. Without one there is only a page saying where to get it. A new key shuts out everything let in with the old.
 const PHONE_PORT = 4620
-const PHONE_COOKIE = 'flint-key'
-const COMPUTER_ONLY = /^\/api\/(quit|port|proxy|autostart|reveal|exec|phone|vaults\/forget)(\/|$)/
+/** The cookie each key is kept in: a browser holds both when it is the shell and has also opened a phone's link. */
+const COOKIES = { shell: 'flint-shell', phone: 'flint-key' } as const
+/** What only the server itself does, never over the network: its proxy, programs, keys and updates. */
+const ADMIN_ONLY = /^\/api\/(proxy|exec|phone|shell|server)(\/|$)/
+/** What a phone may not change besides. */
+const PHONE_NOT = /^\/api\/vaults\/forget(\/|$)/
 let phoneServer: Server | null = null
 let phoneError: string | null = null
-const phoneOn = () => !!config.phone?.on && !!config.phone.key
+/** Whether the network listener is on: as a service whenever a key exists; otherwise when the settings turned the phones' access on. */
+const phoneOn = () => (SERVICE ? !!(config.shell?.key || config.phone?.key) : !!config.phone?.key && !!config.phone.on)
 const phonePort = () => config.phone?.port ?? PHONE_PORT
 /** FLINT_BIND (a service's unit file) wins over the config; an address that is none falls back to every card. */
 const phoneHost = () => (process.env.FLINT_BIND && net.isIP(process.env.FLINT_BIND) ? process.env.FLINT_BIND : config.phone?.host ?? '0.0.0.0')
-const fromPhone = (c: Context) => (c.env as { phone?: unknown } | undefined)?.phone === true
+const tierOf = (c: Context): Tier => (c.env as { tier?: Tier } | undefined)?.tier ?? 'admin'
 const hostOf = (url: string) => {
   try {
     return new URL(url).host
@@ -578,11 +608,13 @@ const hostOf = (url: string) => {
   }
 }
 const sameKey = (given: string, key: string) => given.length === key.length && crypto.timingSafeEqual(Buffer.from(given), Buffer.from(key))
+/** The key of a tier, when it has one (a phone's counts only when phones are let in). */
+const keyOf = (tier: 'shell' | 'phone'): string | undefined => (tier === 'shell' ? config.shell?.key : config.phone?.key && (SERVICE || config.phone.on) ? config.phone.key : undefined)
 
-/** The addresses of this computer in the home network: the usual home ranges first, the virtual adapters of WSL, VPNs and virtual machines last. */
+/** The addresses of this computer in the home network: the usual home ranges first, the virtual adapters of containers, VPNs and virtual machines last. */
 function homeAddresses(): string[] {
-  const VIRTUAL = /vEthernet|WSL|Hyper-V|VirtualBox|VMware|docker|br-|veth|tun|tap|wg|zt|Tailscale|VPN/i
-  // Windows often names a virtual machine's adapter «Ethernet 2»: its maker's MAC prefix, or the subnet its program
+  const VIRTUAL = /VirtualBox|VMware|docker|br-|veth|virbr|tun|tap|wg|zt|Tailscale|VPN/i
+  // A virtual machine's adapter may be named like a real one: its maker's MAC prefix, or the subnet its program
   // gives by default (VirtualBox 192.168.56.*, Docker Machine 192.168.99.*), tells it apart from the real network.
   const VIRTUAL_MAC = /^(0a:00:27|08:00:27|00:50:56|00:0c:29|00:05:69|00:1c:14|00:15:5d|02:42:)/i
   const VIRTUAL_NET = /^192\.168\.(56|99)\./
@@ -598,28 +630,64 @@ const LOCKED_PAGE = `<!doctype html><html lang="ru"><meta charset="utf-8"><meta 
 <body style="margin:0;display:grid;place-items:center;min-height:100vh;font:16px/1.5 system-ui,sans-serif;color:#333;background:#fafafa;text-align:center">
 <div style="max-width:340px;padding:24px">
 <h1 style="font-size:22px;margin:0 0 12px">Нужен ключ</h1>
-<p>Откройте FlintNotes на компьютере: Настройки → Программа → «Телефон», и наведите камеру телефона на QR-код или откройте ссылку оттуда.</p></div></body></html>`
+<p>Ссылку с ключом показывает команда <code>flintnotes pair</code> на сервере (или Настройки → Программа → «Телефон» в FlintNotes на самом компьютере): откройте её или наведите камеру на QR-код.</p></div></body></html>`
 
-/** What a phone's request goes through before the app's own handling: the key, from the address or the cookie. */
-function phoneFetch(req: Request, env: object): Response | Promise<Response> {
-  const key = config.phone?.key
-  if (!phoneOn() || !key) return new Response('FlintNotes: доступ с телефона выключен', { status: 503 })
-  const url = new URL(req.url)
-  // Which program and protocol this is: told to anyone, so that a client can see what it has reached before it asks for the key.
-  if (req.method === 'GET' && url.pathname === '/api/build') return app.fetch(req, { ...env, phone: true })
-  const given = url.searchParams.get('key')
-  if (given !== null) {
-    if (!sameKey(given, key)) return new Response(LOCKED_PAGE, { status: 401, headers: { 'content-type': 'text/html; charset=utf-8' } })
-    // The key leaves the address (and the history of the phone's browser) for a cookie.
-    url.searchParams.delete('key')
-    return new Response(null, { status: 302, headers: { location: url.pathname + url.search, 'set-cookie': `${PHONE_COOKIE}=${key}; Path=/; Max-Age=34560000; HttpOnly; SameSite=Strict`, 'cache-control': 'no-store' } })
+/**
+ * Askers who showed a wrong key lately, by address: a key is not to be guessed at, however fast the network is. Guessing
+ * means trying different keys, so each wrong one counts once: a browser that keeps showing the same stale cookie (the key
+ * was changed) is not shut out for it, and a request that shows no key at all counts for nothing.
+ */
+const failures = new Map<string, { count: number; since: number; seen: Set<string> }>()
+const FAILURE_LIMIT = 10
+const FAILURE_WINDOW = 60_000
+const tooMany = (who: string) => {
+  const seen = failures.get(who)
+  if (seen && Date.now() - seen.since > FAILURE_WINDOW) failures.delete(who)
+  return (failures.get(who)?.count ?? 0) >= FAILURE_LIMIT
+}
+const failed = (who: string, shown: string) => {
+  const seen = failures.get(who)
+  if (seen && Date.now() - seen.since <= FAILURE_WINDOW) {
+    if (seen.seen.has(shown) || seen.seen.size > 100) return
+    seen.seen.add(shown)
+    seen.count++
+  } else {
+    if (failures.size > 5000) failures.clear()
+    failures.set(who, { count: 1, since: Date.now(), seen: new Set([shown]) })
   }
-  const cookie = new RegExp(`(?:^|;\\s*)${PHONE_COOKIE}=([^;]*)`).exec(req.headers.get('cookie') ?? '')?.[1] ?? ''
-  if (!sameKey(cookie, key)) return new Response(LOCKED_PAGE, { status: 401, headers: { 'content-type': 'text/html; charset=utf-8' } })
-  return app.fetch(req, { ...env, phone: true })
 }
 
-/** Starts, moves or stops the phones' listener as the settings say; done once it listens or has failed. */
+/** What a network client's request goes through before the app's own handling: the key, from the address or a cookie. */
+function lanFetch(req: Request, env: object): Response | Promise<Response> {
+  if (!phoneOn()) return new Response('FlintNotes: доступ по сети выключен', { status: 503 })
+  const url = new URL(req.url)
+  // Which program and protocol this is: told to anyone, so that a client can see what it has reached before it asks for the key.
+  if (req.method === 'GET' && url.pathname === '/api/build') return app.fetch(req, { ...env, tier: 'phone' })
+  const who = (env as { incoming?: { socket?: { remoteAddress?: string } } }).incoming?.socket?.remoteAddress ?? '?'
+  const locked = (shown = '') => {
+    if (shown) failed(who, shown)
+    return new Response(LOCKED_PAGE, { status: 401, headers: { 'content-type': 'text/html; charset=utf-8' } })
+  }
+  if (tooMany(who)) return new Response('Слишком много неверных ключей: подождите минуту', { status: 429, headers: { 'retry-after': '60' } })
+  const tiers = ['shell', 'phone'] as const
+  const given = url.searchParams.get('key')
+  if (given !== null) {
+    const tier = tiers.find((one) => keyOf(one) && sameKey(given, keyOf(one)!))
+    if (!tier) return locked(given)
+    // The key leaves the address (and the history of the browser) for a cookie.
+    url.searchParams.delete('key')
+    return new Response(null, { status: 302, headers: { location: url.pathname + url.search, 'set-cookie': `${COOKIES[tier]}=${keyOf(tier)}; Path=/; Max-Age=34560000; HttpOnly; SameSite=Strict`, 'cache-control': 'no-store' } })
+  }
+  const cookies = req.headers.get('cookie') ?? ''
+  const shown = (one: 'shell' | 'phone') => new RegExp(`(?:^|;\\s*)${COOKIES[one]}=([^;]*)`).exec(cookies)?.[1] ?? ''
+  const tier = tiers.find((one) => {
+    const key = keyOf(one)
+    return key && sameKey(shown(one), key)
+  })
+  return tier ? app.fetch(req, { ...env, tier }) : locked(shown('shell') || shown('phone'))
+}
+
+/** Starts, moves or stops the network listener as the settings say; done once it listens or has failed. */
 async function listenPhone(): Promise<void> {
   const old = phoneServer
   phoneServer = null
@@ -628,13 +696,13 @@ async function listenPhone(): Promise<void> {
   if (!phoneOn()) return
   const wanted = phonePort()
   await new Promise<void>((done) => {
-    const server = serve({ fetch: phoneFetch, port: wanted, hostname: phoneHost() }, () => {
-      console.log(`Для телефона: ${phoneAddresses(wanted).join(', ') || `порт ${wanted}`}`)
+    const server = serve({ fetch: lanFetch, port: wanted, hostname: phoneHost() }, () => {
+      console.log(`Для телефона и приложения: ${phoneAddresses(wanted).join(', ') || `порт ${wanted}`}`)
       done()
     }) as Server
     server.on('error', (err: NodeJS.ErrnoException) => {
       phoneError = err.code === 'EADDRINUSE' ? `Порт ${wanted} занят другой программой` : err.message
-      console.error(`Доступ с телефона: ${phoneError}`)
+      console.error(`Доступ по сети: ${phoneError}`)
       if (phoneServer === server) phoneServer = null
       done()
     })
@@ -642,32 +710,45 @@ async function listenPhone(): Promise<void> {
   })
 }
 
-/** The addresses a phone can open: bound to one address, only that one; bound to every card, the computer's own. */
+/** The addresses a client can open: bound to one address, only that one; bound to every card, the computer's own. */
 const phoneAddresses = (on: number) => (phoneHost() === '0.0.0.0' ? homeAddresses() : [phoneHost()]).map((ip) => `http://${ip}:${on}`)
 const phoneInfo = () => ({ on: phoneOn(), port: phonePort(), error: phoneError, key: config.phone?.key ?? null, addresses: phoneAddresses(phonePort()) })
 
-api.get('/phone', (c) => {
-  if (fromPhone(c)) throw new HTTPException(403, { message: 'Это делается только на компьютере' })
-  return c.json(phoneInfo())
-})
+api.get('/phone', (c) => c.json(phoneInfo()))
 
-api.post('/phone', async (c) => {
+const sameOrigin = (c: Context) => {
   const origin = c.req.header('origin')
   if (!origin || hostOf(origin) !== c.req.header('host')) throw new HTTPException(403, { message: 'Только со страницы самого приложения' })
+}
+
+api.post('/phone', async (c) => {
+  sameOrigin(c)
   const body = (await c.req.json()) as { on?: unknown; port?: unknown; newKey?: unknown }
   const next = { ...config.phone }
   if (body.port !== undefined) {
     const wanted = Number(body.port)
     if (!validPort(wanted)) throw new HTTPException(400, { message: 'Порт — целое число от 1024 до 65535' })
-    if (wanted === port && !PIPE) throw new HTTPException(400, { message: 'Этот порт у FlintNotes на компьютере; для телефона нужен другой' })
+    if (wanted === port) throw new HTTPException(400, { message: 'Этот порт у FlintNotes на компьютере; для телефона нужен другой' })
     next.port = wanted
   }
   if (typeof body.on === 'boolean') next.on = body.on
-  if (body.newKey === true || !next.key) next.key = crypto.randomBytes(18).toString('base64url')
+  if (body.newKey === true || !next.key) next.key = newKey()
   config.phone = next
   await remember()
   await listenPhone()
   return c.json(phoneInfo())
+})
+
+// The shell's key: read, or made anew (which shuts out every shell let in before), at the server itself by `flintnotes pair`.
+api.get('/shell', (c) => c.json({ ...phoneInfo(), key: config.shell?.key ?? null }))
+
+api.post('/shell', async (c) => {
+  sameOrigin(c)
+  const body = (await c.req.json().catch(() => ({}))) as { newKey?: unknown }
+  if (body.newKey === true || !config.shell?.key) config.shell = { key: newKey() }
+  await remember()
+  await listenPhone()
+  return c.json({ ...phoneInfo(), key: config.shell.key })
 })
 
 // ---- the way to the web: the computer's proxy, none, or one given here; kept in the config with the vaults
@@ -924,7 +1005,7 @@ api.get('/events', (c) => {
     listeners.add(send)
     stream.onAbort(() => void listeners.delete(send))
     // Which build answers: a page made by an older one reloads itself (see the launcher).
-    send({ type: 'hello', build: BUILD, updates: !!process.env.FLINT_LAUNCHER || process.env.FLINT_UPDATES === '1' })
+    send({ type: 'hello', build: BUILD, updates: !!process.env.FLINT_LAUNCHER })
     while (!stream.aborted && !stream.closed) {
       await stream.sleep(30_000)
       await stream.writeSSE({ event: 'ping', data: '' })
@@ -935,8 +1016,8 @@ api.get('/events', (c) => {
 
 const broadcast = (dir: string, event: RemoteEvent) => clients.get(dir)?.forEach((send) => send(event))
 
-// Windows drives mounted into WSL (/mnt/c, ...) deliver no file events, so poll there.
-const needsPolling = (dir = root()) => (process.env.FLINT_POLL ? process.env.FLINT_POLL !== '0' : /^\/mnt\/[a-z]\//.test(`${dir}/`))
+// A vault on a network disk (SMB, NFS) delivers no file events: FLINT_POLL=1 looks for changes by polling.
+const needsPolling = () => !!process.env.FLINT_POLL && process.env.FLINT_POLL !== '0'
 
 const watchers = new Map<string, { close(): unknown }>()
 
@@ -949,8 +1030,8 @@ const isHiddenIn = (dir: string, abs: string) =>
 /** Follows changes in a vault's folder, from the first time the vault is asked for. */
 function watch(dir: string): void {
   if (watchers.has(dir)) return
-  // FLINT_WATCH=native tries the Windows way elsewhere too (tests on Linux).
-  const native = process.env.FLINT_WATCH === 'native' || ((process.platform === 'win32' || process.platform === 'darwin') && !needsPolling(dir))
+  // FLINT_WATCH=native has the system watch a whole tree at once (inotify) instead of chokidar looking at every file first.
+  const native = process.env.FLINT_WATCH === 'native' && !needsPolling()
   watchers.set(dir, native ? watchNatively(dir) : watchWithChokidar(dir))
 }
 
@@ -963,7 +1044,7 @@ const remove = (dir: string, rel: string) => {
   broadcast(dir, { type: 'delete', path: rel })
 }
 
-// A folder that cannot be watched (no access; on Windows also a watched folder being deleted)
+// A folder that cannot be watched (no access, or a watched folder being deleted)
 // only loses its live updates. Unhandled, this error would stop the whole server.
 const watchFailed = (dir: string) => (err: unknown) => {
   const code = (err as NodeJS.ErrnoException).code
@@ -972,7 +1053,7 @@ const watchFailed = (dir: string) => (err: unknown) => {
 }
 
 /**
- * Windows and macOS watch a whole tree by themselves: one handle, ready at once. Chokidar would
+ * The system watches a whole tree by itself: one handle, ready at once. Chokidar would
  * first look at every file and set a watcher on each, which in a vault of tens of thousands of
  * files keeps the server busy for minutes, and the page waits all that time.
  */
@@ -1001,10 +1082,10 @@ function watchNatively(dir: string): { close(): unknown } {
   return watcher
 }
 
-/** Elsewhere (Linux, and Windows drives under WSL, which have to be polled) chokidar does the watching. */
+/** Chokidar watches by default (and polls where FLINT_POLL says): it is the one that sees every kind of disk. */
 function watchWithChokidar(dir: string): { close(): unknown } {
   return chokidar
-    .watch(dir, { ignored: (abs: string) => isHiddenIn(dir, abs), ignoreInitial: true, usePolling: needsPolling(dir), interval: 1000, binaryInterval: 3000 })
+    .watch(dir, { ignored: (abs: string) => isHiddenIn(dir, abs), ignoreInitial: true, usePolling: needsPolling(), interval: 1000, binaryInterval: 3000 })
     .on('all', async (event, abs) => {
       if (abs === dir) return
       if (event === 'unlink' || event === 'unlinkDir') return remove(dir, toRel(abs, dir))
@@ -1034,15 +1115,29 @@ app.use(async (c, next) => {
 app.onError((err, c) => {
   if (err instanceof HTTPException) return c.text(err.message, err.status)
   if ((err as NodeJS.ErrnoException).code === 'ENOENT') return c.text('File not found', 404)
-  // The page went away while sending (a tab closed or reloaded mid-save; on Windows the browser
-  // drops the connection outright). Nobody is left to answer, and the server is fine.
+  // The page went away while sending (a tab closed or reloaded mid-save; a browser may drop the
+  // connection outright). Nobody is left to answer, and the server is fine.
   if (c.req.raw.signal.aborted || (err as NodeJS.ErrnoException).code === 'ECONNRESET') return c.body(null, 499 as 400)
   console.error(err)
   return c.text(err.message, 500)
 })
 
-// What this server is (the shell reads it before it shows the key; see `phoneFetch`). Before `app.route`, which copies the routes it has.
+// What this server is (the shell reads it before it shows the key; see `lanFetch`). Before `app.route`, which copies the routes it has.
 api.get('/build', (c) => c.json({ version: VERSION, protocol: PROTOCOL, build: BUILD } satisfies BuildInfo))
+
+// ---- the service's own updates (server/update.ts); asked for from the server's own computer (`flintnotes update`)
+/** Whether this server fetches newer versions of itself: only the service, from a build, unless told not to. */
+const updatesOn = () => SERVICE && !!STATE_DIR && VERSION !== 'dev' && process.env.FLINT_SERVER_UPDATES !== '0'
+const updateOptions = () => ({ state: STATE_DIR ?? '', version: VERSION, feed: process.env.FLINT_SERVER_FEED ?? DEFAULT_FEED })
+
+api.get('/server', (c) => c.json({ version: VERSION, protocol: PROTOCOL, build: BUILD, service: SERVICE, updates: updatesOn(), status: lastUpdateStatus() }))
+
+api.post('/server/update', async (c) => {
+  const origin = c.req.header('origin')
+  if (!origin || hostOf(origin) !== c.req.header('host')) throw new HTTPException(403, { message: 'Только со страницы самого приложения' })
+  if (!updatesOn()) throw new HTTPException(400, { message: 'Этот сервер сам не обновляется (не служба, не из сборки или FLINT_SERVER_UPDATES=0)' })
+  return c.json(await checkServerUpdate(updateOptions()))
+})
 
 app.route('/api', api)
 
@@ -1078,37 +1173,24 @@ app.get('*', async (c) => {
 
 const started = (where: string) => () => {
   console.log(`FlintNotes: ${where}`)
-  console.log(`Хранилище: ${defaultRoot}${needsPolling(defaultRoot) ? ' (опрос изменений)' : ''}`)
+  console.log(`Хранилище: ${defaultRoot}${needsPolling() ? ' (опрос изменений)' : ''}`)
   if (!staticDir) console.log('Приложение не собрано: выполните `npm run build` или запустите `npm run dev`.')
-  // The app sends the window's requests here from now on.
-  parentPort?.postMessage({ type: 'ready', build: BUILD })
+  if (updatesOn()) startServerUpdates(updateOptions(), { first: Number(process.env.FLINT_SERVER_UPDATE_FIRST) || undefined })
 }
 
-let server: Server
-if (PIPE) {
-  // A socket file left by a server that fell over would keep the new one from listening (Windows pipes leave nothing).
-  if (process.platform !== 'win32') rmSync(PIPE, { force: true })
-  server = createAdaptorServer({ fetch: app.fetch }) as Server
-  server.listen(PIPE, started(`канал ${PIPE}`))
-} else server = serve({ fetch: app.fetch, port, hostname: '127.0.0.1' }, started(`http://localhost:${port}`)) as Server
+// This one answers the server's own computer only (the browser there, `flintnotes`); the network's listener is below.
+const server = serve({ fetch: app.fetch, port, hostname: '127.0.0.1' }, started(`http://localhost:${port}`)) as Server
 void listenPhone()
 
-/** Moves the server to another port: the pages open now lose their connection and go to the new address themselves. */
-function listenOn(next: number): void {
-  port = next
-  server.close(() => server.listen(port, '127.0.0.1', () => console.log(`FlintNotes теперь на http://localhost:${port}`)))
-  server.closeAllConnections()
-}
-
-// The port is taken: most likely FlintNotes is running already (started with the computer or a second
-// double-click). Then there is nothing to do; the one that runs serves the notes.
+// The port is taken: most likely FlintNotes is running already (a second start). Then there is nothing to do; the one
+// that runs serves the notes.
 server.on('error', (err: NodeJS.ErrnoException) => {
-  if (err.code !== 'EADDRINUSE' || PIPE) throw err
+  if (err.code !== 'EADDRINUSE') throw err
   const url = `http://localhost:${port}`
-  void fetch(`${url}/api/autostart`, { signal: AbortSignal.timeout(3000) })
+  void fetch(`${url}/api/build`, { signal: AbortSignal.timeout(3000) })
     .then((res) => res.json())
-    .then((answer: { supported?: unknown }) => {
-      if (typeof answer?.supported !== 'boolean') throw new Error('not FlintNotes')
+    .then((answer: { protocol?: unknown }) => {
+      if (typeof answer?.protocol !== 'number') throw new Error('not FlintNotes')
       console.log(`FlintNotes уже запущен: ${url}`)
       setTimeout(() => process.exit(0), 300)
     })
@@ -1133,8 +1215,6 @@ async function stop(): Promise<void> {
   process.exit(0)
 }
 process.on('message', (message) => message === 'stop' && void stop())
-// The same, from the desktop app when a new build replaces this server.
-parentPort?.on('message', (message) => message.data === 'stop' && void stop())
 // The launcher is gone (stopped, or the user signed out): the server goes with it instead of holding the port.
 process.on('disconnect', () => void stop())
 // A service manager (systemd) stops a program with SIGTERM, a terminal with SIGINT: the same orderly stop, so that a save

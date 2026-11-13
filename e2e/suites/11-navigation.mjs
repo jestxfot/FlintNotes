@@ -96,16 +96,14 @@ export async function run(t) {
   await wait(500)
   ok('an address of a note that is gone falls back to the open one', address() !== '/no/such/note', address())
 
-  // The file manager itself cannot be opened in a test; what is checked is what the app asks for.
-  const asked = []
-  await page.route('**/api/reveal**', (route) => {
-    asked.push(new URL(route.request().url()).searchParams.get('path'))
-    return route.fulfill({ status: 204 })
-  })
+  // The server's disk is not the user's: no menu offers to show a file in a file manager.
   await t.row('Plan').click({ button: 'right' })
-  await page.locator('.menu button', { hasText: 'Показать в проводнике' }).click()
+  await wait(200)
+  const menuText = await page.locator('.menu').innerText()
+  await page.keyboard.press('Escape')
   await page.locator('.tree').click({ button: 'right', position: { x: 60, y: 600 } })
-  await page.locator('.menu button', { hasText: 'Показать в проводнике' }).click()
-  await wait(300)
-  ok('the menu asks to show the file, or the vault itself from the empty area', JSON.stringify(asked) === JSON.stringify(['Projects/Plan.md', '']), JSON.stringify(asked))
+  await wait(200)
+  const emptyMenuText = await page.locator('.menu').innerText()
+  await page.keyboard.press('Escape')
+  ok("the menus of a file and of the empty area do not offer a file manager", !menuText.includes('проводнике') && !emptyMenuText.includes('проводнике') && menuText.includes('Копировать путь'), `${menuText} | ${emptyMenuText}`)
 }

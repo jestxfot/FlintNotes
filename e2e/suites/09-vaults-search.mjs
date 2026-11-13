@@ -2,6 +2,9 @@
 import fs from 'node:fs'
 import path from 'node:path'
 
+// The folder browser is asked on purpose for a file and for a relative path; the browser reports those refusals.
+export const expectsNetworkErrors = /Failed to load resource: the server responded with a status of (400|404)/
+
 export const vault = {
   plugins: ['search', 'quick-switcher', 'links'],
   files: {
@@ -137,23 +140,33 @@ export async function run(t) {
   await wait(500)
   ok('a vault can be forgotten; its folder stays', (await t.count('dialog .vault')) === 1 && fs.existsSync(path.join(second, 'Second note.md')))
   fs.rmSync(second, { recursive: true, force: true })
+  await page.keyboard.press('Escape')
+  await wait(300)
 
-  // ---- starting with the computer: a file where the system looks for programs to run at sign-in
+  // ---- choosing a folder on the server's disk
+  const chosen = fs.mkdtempSync(`${t.vault}-choose-`)
+  for (const name of ['Alpha', 'Beta', '.hidden']) fs.mkdirSync(path.join(chosen, name))
+  fs.mkdirSync(path.join(chosen, 'Beta', '.obsidian'))
+  fs.writeFileSync(path.join(chosen, 'file.md'), 'not a folder\n')
+  const dirsOf = await page.evaluate((dir) => app.vault.dirs(dir), chosen)
+  ok('the folders under a folder are listed: no files, no hidden ones, a vault marked', JSON.stringify(dirsOf.dirs.map((d) => [d.name, d.vault])) === JSON.stringify([['Alpha', false], ['Beta', true]]) && dirsOf.parent === path.dirname(chosen), JSON.stringify(dirsOf))
+  ok('a path that is no folder, or no full path, is refused', (await page.evaluate((dir) => app.vault.dirs(`${dir}/file.md`).then(() => 'listed', (e) => e.message), chosen)) !== 'listed' && (await page.evaluate(() => app.vault.dirs('relative').then(() => 'listed', (e) => e.message))) !== 'listed')
+  await openManager()
+  await page.locator('dialog button', { hasText: 'Выбрать папку на сервере' }).click()
+  await page.waitForSelector('dialog .where .here')
+  ok('the manager offers to choose a folder on the server', (await page.locator('dialog .folders').count()) === 1)
+  await page.keyboard.press('Escape')
+  fs.rmSync(chosen, { recursive: true, force: true })
+
+  // ---- the settings page: only what a window of the Windows app or a browser can do for itself
   await page.keyboard.press('Escape')
   await wait(400)
   const state = await page.evaluate(() => app.vault.autostart())
-  ok('start with the computer is offered and off at first', state.supported === true && state.enabled === false && /flintnotes/i.test(state.file), JSON.stringify(state))
+  ok('start with the computer is the Windows app\'s business, not a browser\'s', state.supported === false, JSON.stringify(state))
   await page.evaluate(() => app.commands.run('core:settings'))
   await page.locator('nav button', { hasText: 'Программа' }).click()
   await wait(700)
   ok('the program page lists the vaults with their addresses', (await page.locator('.panel-setting a').first().getAttribute('href')) === `/${encodeURIComponent(vaultName)}/`, await page.locator('.panel-settings').innerText().catch(() => 'none'))
-  await page.locator('.autostart-switch').check()
-  await wait(900)
-  const files = await import('node:fs')
-  const made = files.existsSync(state.file) ? files.readFileSync(state.file, 'utf8') : ''
-  ok('switching it on writes that file, naming this server', made.includes('server') && (await t.flat(page.locator('.autostart'))).includes('Включено'), made.slice(0, 200))
-  await page.locator('.autostart-switch').uncheck()
-  await wait(900)
-  ok('switching it off removes the file', !files.existsSync(state.file) && (await t.flat(page.locator('.autostart'))).includes('Выключено'))
+  ok('and the settings have neither a switch for it nor a port to change', (await page.locator('.autostart-switch').count()) === 0 && (await page.locator('.port-setting').count()) === 0)
   await page.keyboard.press('Escape')
 }

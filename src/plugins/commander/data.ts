@@ -60,8 +60,6 @@ const TWINS: Record<string, string> = {
   'app:open-help': 'core:help',
   'app:open-vault': 'core:vaults',
   'file-explorer:new-file': 'core:new-note',
-  'file-explorer:reveal-active-file': 'core:reveal-active',
-  'open-with-default-app:show': 'core:reveal-active',
   'workspace:close': 'core:close-tab',
   'workspace:next-tab': 'core:next-tab',
   'workspace:previous-tab': 'core:previous-tab',
@@ -78,7 +76,7 @@ const TWINS: Record<string, string> = {
  * Commands a menu offers by itself. In Obsidian they come from plugins, so a
  * Commander setup may add them to the menu; here that would show them twice.
  */
-const BUILT_IN: Partial<Record<Place, string[]>> = { fileMenu: ['core:reveal-active'] }
+const BUILT_IN: Partial<Record<Place, string[]>> = {}
 
 /** Takes out buttons that repeat what their place already has. Returns whether anything was removed. */
 export function dropBuiltIn(data: CommanderData): boolean {

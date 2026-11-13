@@ -1,0 +1,14 @@
+#!/bin/sh
+set -e
+if [ "$1" = configure ]; then
+  getent group flintnotes >/dev/null || addgroup --system flintnotes >/dev/null
+  getent passwd flintnotes >/dev/null || adduser --system --ingroup flintnotes --home /var/lib/flintnotes --no-create-home --shell /usr/sbin/nologin --gecos "FlintNotes service" flintnotes >/dev/null
+  install -d -o flintnotes -g flintnotes -m 0750 /var/lib/flintnotes /var/lib/flintnotes/vaults
+  if [ -d /run/systemd/system ]; then
+    systemctl daemon-reload
+    systemctl enable flintnotes.service >/dev/null 2>&1 || true
+    systemctl restart flintnotes.service || true
+    echo "FlintNotes is running. Connect the Windows app with:  flintnotes pair"
+  fi
+fi
+exit 0

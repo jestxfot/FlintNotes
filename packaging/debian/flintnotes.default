@@ -1,0 +1,22 @@
+# FlintNotes service settings (read by flintnotes.service and the `flintnotes` command; `systemctl restart flintnotes` applies them).
+
+# The address the notes are served on, for the Windows shell and phones. Empty: every network card of this computer.
+# Name the card of the home network to keep other networks (Docker, VPN, a second network card) out:
+#FLINT_BIND=192.168.1.50
+
+# The port of that listener is chosen in the config (phone.port, 4620 by default). The computer's own, for
+# `flintnotes pair|status|update`, answers on 127.0.0.1 only:
+#FLINT_PORT=4600
+
+# The folders vaults may be opened in, separated by colons. The default is /var/lib/flintnotes/vaults.
+# A folder outside needs write access in the unit too (see flintnotes.service, ReadWritePaths).
+#FLINT_VAULT_ROOTS=/var/lib/flintnotes/vaults:/srv/flintnotes
+
+# A vault on a network disk (SMB, NFS) gives no change events: look for changes by polling.
+#FLINT_POLL=1
+
+# The way the server reaches the web (link cards, updates), if it needs a proxy:
+#HTTPS_PROXY=http://127.0.0.1:8080
+
+# 0: the service does not fetch newer versions of itself.
+#FLINT_SERVER_UPDATES=0

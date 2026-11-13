@@ -17,6 +17,7 @@ import os from 'node:os'
 import path from 'node:path'
 import zlib from 'node:zlib'
 import * as ResEdit from 'resedit'
+import { assertNothingPersonal, walk } from './personal.mjs'
 
 const ROOT = path.resolve(import.meta.dirname, '..')
 // Elsewhere for a try that must not touch the project's own (FLINT_RELEASE_OUT as for release.mjs, FLINT_PUBLISH_OUT).
@@ -65,17 +66,7 @@ async function electronFor(platform, dir) {
   fs.rmSync(path.join(dir, 'resources', 'default_app.asar'), { force: true })
 }
 
-// Nothing of this computer may go out with the app: its folders, the name and address its git signs with.
-const gitConfig = (key) => {
-  try {
-    return execFileSync('git', ['config', key], { cwd: ROOT, encoding: 'utf8' }).trim()
-  } catch {
-    return ''
-  }
-}
-// Built from a copy of the commit (scripts/publish-build.mjs), the project's own folder is looked for too.
-const personal = [ROOT, process.env.FLINT_PROJECT ?? '', os.homedir(), gitConfig('user.name'), gitConfig('user.email')].filter((mark) => mark.length > 3)
-const walk = (dir) => fs.readdirSync(dir, { withFileTypes: true }).flatMap((entry) => (entry.isDirectory() ? walk(path.join(dir, entry.name)) : [path.join(dir, entry.name)]))
+// Nothing of this computer may go out with the app: its folders, the name and address its git signs with (scripts/personal.mjs).
 
 /** What the app runs (resources/app): the stub and its own copy of the build, checked to carry nothing personal. */
 function appFolder(resources) {
@@ -83,14 +74,11 @@ function appFolder(resources) {
   fs.mkdirSync(app, { recursive: true })
   fs.copyFileSync(path.join(ROOT, 'desktop', 'stub.cjs'), path.join(app, 'main.cjs'))
   fs.writeFileSync(path.join(app, 'package.json'), JSON.stringify({ name: 'flintnotes', productName: 'FlintNotes', version: pkg.version, main: 'main.cjs', private: true }, null, 2))
-  for (const name of ['desktop.mjs', 'preload.cjs', 'server.mjs', 'build.json', 'icons', 'public', 'sandbox']) fs.cpSync(path.join(RELEASE, name), path.join(app, 'release', name), { recursive: true })
+  // Only the window: no server and no notes' page, which live on the server.
+  for (const name of ['desktop.mjs', 'preload.cjs', 'build.json', 'icons', 'shell']) fs.cpSync(path.join(RELEASE, name), path.join(app, 'release', name), { recursive: true })
   // Which version this is: the app compares it with the newest release.
   fs.writeFileSync(path.join(app, 'shell.json'), JSON.stringify({ version: pkg.version, electron: ELECTRON, build }, null, 2))
-  for (const file of walk(app).filter((one) => /\.(mjs|cjs|js|json|html|css|txt|map|md)$/.test(one))) {
-    const text = fs.readFileSync(file, 'utf8')
-    const found = personal.find((mark) => text.includes(mark))
-    if (found) throw new Error(`В сборку попало бы личное («${found}») в ${path.relative(app, file)}: сборка остановлена`)
-  }
+  assertNothingPersonal(app)
 }
 
 const published = (file) => ({ file: path.basename(file), sha256: createHash('sha256').update(fs.readFileSync(file)).digest('hex'), size: fs.statSync(file).size })

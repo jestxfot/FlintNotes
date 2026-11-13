@@ -86,7 +86,7 @@ export async function run(t) {
   const box = await menu.boundingBox()
   ok('the menu stays on the screen', box.y >= 0 && box.y + box.height <= 700 && box.x + box.width <= 1300, JSON.stringify(box))
   const text = await t.flat(menu)
-  ok('the menu has the usual items in sections', /Новая заметка Новая папка.*Открыть в новой вкладке.*Создать копию.*Копировать путь.*Показать в проводнике.*Задать значок….*Переименовать Удалить/.test(text) && (await menu.locator('hr').count()) >= 5, text)
+  ok('the menu has the usual items in sections', /Новая заметка Новая папка.*Открыть в новой вкладке.*Создать копию.*Копировать путь.*Задать значок….*Переименовать Удалить/.test(text) && (await menu.locator('hr').count()) >= 5, text)
   ok('items have icons, deleting is red', (await menu.locator('.menu-icon svg').count()) >= 8 && (await menu.locator('button.danger').innerText()).includes('Удалить'))
   await menu.locator('button', { hasText: 'Копировать путь' }).hover()
   await wait(300)

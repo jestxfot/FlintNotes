@@ -29,7 +29,7 @@ export const vault = {
 async function startServer(t, port, cache) {
   const child = spawn(process.execPath, ['--import', 'tsx', 'server/index.ts'], {
     cwd: ROOT,
-    env: { ...process.env, FLINT_VAULT: t.vault, FLINT_PORT: String(port), FLINT_CONFIG: `${t.vault}.config2.json`, FLINT_AUTOSTART_DIR: `${t.vault}.autostart2`, FLINT_CACHE: cache },
+    env: { ...process.env, FLINT_VAULT: t.vault, FLINT_PORT: String(port), FLINT_CONFIG: `${t.vault}.config2.json`, FLINT_CACHE: cache },
     stdio: ['ignore', 'pipe', 'pipe', 'ipc'],
   })
   await new Promise((resolve, reject) => {
@@ -92,7 +92,7 @@ export async function run(t) {
     ok('and its list is right again', after.includes('New.md') && !after.includes('Gone.md'), after.join(', '))
   } finally {
     await stopServer(server).catch(() => {})
-    for (const extra of [cache, `${t.vault}.config2.json`, `${t.vault}.autostart2`]) fs.rmSync(extra, { recursive: true, force: true })
+    for (const extra of [cache, `${t.vault}.config2.json`]) fs.rmSync(extra, { recursive: true, force: true })
   }
 
   // ---- pictures of the vault are kept by the browser until the file changes

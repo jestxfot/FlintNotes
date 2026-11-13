@@ -1,0 +1,55 @@
+<!doctype html>
+<html lang="ru">
+<head>
+<meta charset="utf-8">
+<meta http-equiv="Content-Security-Policy" content="default-src 'none'; style-src 'unsafe-inline'; script-src 'unsafe-inline'">
+<title>FlintNotes</title>
+<style>
+  :root { color-scheme: light dark; --bg: #fafafa; --text: #2b2b2b; --muted: #777; --border: #d8d8d8; --accent: #7b5cff; --error: #d0342c; }
+  @media (prefers-color-scheme: dark) { :root { --bg: #262626; --text: #dadada; --muted: #999; --border: #444; --error: #ff7b72; } }
+  html, body { height: 100%; margin: 0; background: var(--bg); color: var(--text); font: 15px/1.5 system-ui, 'Segoe UI', sans-serif; }
+  /* The bar of tabs is the title bar of this window; here there are no tabs, only the place to drag by. */
+  .drag { height: 40px; -webkit-app-region: drag; }
+  main { max-width: 520px; margin: 8vh auto 0; padding: 0 24px; }
+  h1 { margin: 0 0 12px; font-size: 22px; }
+  p { margin: 0 0 14px; color: var(--muted); }
+  code { padding: 1px 5px; border-radius: 4px; background: rgb(128 128 128 / 0.18); color: var(--text); }
+  form { display: flex; gap: 8px; }
+  input { flex: 1; min-width: 0; padding: 8px 10px; border: 1px solid var(--border); border-radius: 6px; background: transparent; color: inherit; font: inherit; }
+  button { padding: 8px 16px; border: 1px solid var(--accent); border-radius: 6px; background: var(--accent); color: #fff; font: inherit; cursor: pointer; }
+  button:disabled { opacity: 0.6; cursor: default; }
+  .message { margin-top: 12px; color: var(--error); min-height: 1.5em; }
+</style>
+</head>
+<body>
+<div class="drag"></div>
+<main>
+  <h1>Подключение к серверу</h1>
+  <p>FlintNotes работает на сервере, а это приложение — только его окно. На сервере выполните <code>flintnotes pair</code> и вставьте сюда ссылку, которую покажет команда.</p>
+  <form id="form">
+    <input id="link" placeholder="http://192.168.1.50:4620/?key=…" autocomplete="off" spellcheck="false" autofocus>
+    <button id="go">Подключиться</button>
+  </form>
+  <p id="message" class="message" role="alert"></p>
+</main>
+<script>
+  const form = document.getElementById('form')
+  const link = document.getElementById('link')
+  const go = document.getElementById('go')
+  const message = document.getElementById('message')
+  window.flintShell.state().then((state) => {
+    if (state.message) message.textContent = state.message
+    if (state.origin) link.placeholder = state.origin + '/?key=…'
+  })
+  form.onsubmit = async (event) => {
+    event.preventDefault()
+    go.disabled = true
+    message.textContent = ''
+    const answer = await window.flintShell.connect(link.value)
+    // On success the window moves to the server's page by itself.
+    if (!answer.ok) message.textContent = answer.message
+    go.disabled = false
+  }
+</script>
+</body>
+</html>

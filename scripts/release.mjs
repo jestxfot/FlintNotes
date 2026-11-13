@@ -1,8 +1,9 @@
 // Builds a self-contained copy of the app into `release/`:
 //   release/launcher.mjs   keeps the server running and puts new builds in place (see server/launcher.ts)
 //   release/server.mjs     the server with all its libraries in one file
+//   release/cli.mjs        the `flintnotes` command of the Debian service (pair, status, update; see server/cli.ts)
 //   release/public/        the app for the browser
-//   release/desktop.mjs    the desktop app's main process (see desktop/main.ts), with preload.cjs and icons/
+//   release/desktop.mjs    the Windows app's main process (see desktop/main.ts), with preload.cjs, icons/ and shell/ (its own pages)
 //   release/build.json     which build this is; written last, it tells the running app (or launcher) the build is complete
 // On Windows the app (npm run installer) runs it; in a browser it needs Node.js only, no `npm install`: node release/launcher.mjs
 import { build as bundle } from 'esbuild'
@@ -45,13 +46,14 @@ const common = {
 }
 await bundle({ ...common, entryPoints: ['server/index.ts'], outfile: `${OUT}/server.mjs` })
 await bundle({ ...common, entryPoints: ['server/launcher.ts'], outfile: `${OUT}/launcher.mjs` })
+await bundle({ ...common, entryPoints: ['server/cli.ts'], outfile: `${OUT}/cli.mjs` })
 // The desktop app's own parts: Electron gives them `electron`. Its preload runs in a sandbox, which only knows CommonJS.
 await bundle({ ...common, entryPoints: ['desktop/main.ts'], outfile: `${OUT}/desktop.mjs`, external: ['electron'] })
 await bundle({ ...common, banner: {}, format: 'cjs', entryPoints: ['desktop/preload.ts'], outfile: `${OUT}/preload.cjs`, external: ['electron'] })
 fs.cpSync('desktop/icons', path.join(OUT, 'icons'), { recursive: true })
-// The desktop app's sandbox: a vault of examples, made anew from this at every start.
-fs.rmSync(path.join(OUT, 'sandbox'), { recursive: true, force: true })
-fs.cpSync('desktop/sandbox', path.join(OUT, 'sandbox'), { recursive: true })
+// The desktop app's own pages (connecting to a server, no connection): the only pages it has; the notes come from the server.
+fs.rmSync(path.join(OUT, 'shell'), { recursive: true, force: true })
+fs.cpSync('desktop/pages', path.join(OUT, 'shell'), { recursive: true })
 // The version rides along so the server can tell it to a client (`GET /api/build`) without knowing package.json.
 const { version } = JSON.parse(fs.readFileSync('package.json', 'utf8'))
 fs.writeFileSync(path.join(OUT, 'build.json'), JSON.stringify({ id, version, files }, null, 2))

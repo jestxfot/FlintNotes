@@ -169,6 +169,10 @@ export class MarkdownView implements FileView {
     this.saveTimer = setTimeout(() => void this.flush(), SAVE_DELAY)
   }
 
+  unsaved(): boolean {
+    return this.text() !== this.saved
+  }
+
   async flush(unloading = false): Promise<void> {
     clearTimeout(this.saveTimer)
     const text = this.text()

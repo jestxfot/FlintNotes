@@ -1,5 +1,5 @@
 // Real Electron window + preload + task plugin, with only the external fullscreen query simulated.
-// node e2e/desktop-reminder-check.mjs (Linux with a display, as for desktop-check.mjs)
+// node e2e/desktop-reminder-check.mjs (as for desktop-check.mjs: a display, or headless where there is none)
 import assert from 'node:assert/strict'
 import { execFileSync } from 'node:child_process'
 import fs from 'node:fs'
@@ -8,6 +8,7 @@ import os from 'node:os'
 import path from 'node:path'
 import { _electron } from 'playwright'
 import { buildVault, day, ROOT } from './helpers.mjs'
+import { shellFlags, startShellServer } from './shell-server.mjs'
 
 const dir = fs.mkdtempSync(path.join(os.tmpdir(), 'flint-desktop-reminders-'))
 const out = path.join(dir, 'release')
@@ -31,6 +32,7 @@ buildVault(vault, {
 })
 
 let app
+let server
 let passed = 0
 const check = (name, condition) => {
   assert.ok(condition, name)
@@ -45,15 +47,16 @@ const until = async (predicate, timeout = 15_000) => {
 }
 try {
   execFileSync(process.execPath, ['scripts/release.mjs'], { cwd: ROOT, env: { ...process.env, FLINT_RELEASE_OUT: out }, stdio: 'pipe' })
+  // The app is only a window: the vault, with its tasks, is served by the real server.
+  server = await startShellServer({ release: out, vault, dir })
   const libs = process.env.FLINT_E2E_LIBS ?? path.join(os.homedir(), '.cache/flintnotes/gtk-libs')
   app = await _electron.launch({
     executablePath: createRequire(import.meta.url)('electron'),
-    args: [path.join(out, 'desktop.mjs'), '--hidden'],
+    args: [...shellFlags(), path.join(out, 'desktop.mjs'), '--hidden'],
     env: {
-      ...process.env, DISPLAY: process.env.DISPLAY || ':0', WAYLAND_DISPLAY: '',
+      ...process.env, WAYLAND_DISPLAY: '', FLINT_WINDOW_DELAY: '1500', FLINT_SERVER_URL: server.link(),
       PATH: `${bin}${path.delimiter}${process.env.PATH}`, FLINT_TEST_FULLSCREEN: fullscreen,
       ...(fs.existsSync(libs) ? { LD_LIBRARY_PATH: [libs, process.env.LD_LIBRARY_PATH].filter(Boolean).join(':') } : {}),
-      FLINT_VAULT: vault, FLINT_CONFIG: path.join(dir, 'config.json'),
       FLINT_USER_DATA: path.join(dir, 'profile'), FLINT_AUTOSTART_DIR: path.join(dir, 'autostart'),
       FLINT_UPDATE_DELAY: '3600000',
     },
@@ -102,5 +105,6 @@ try {
   console.log(`\nВсе ${passed} проверок прошли`)
 } finally {
   await app?.close()
+  server?.stop()
   fs.rmSync(dir, { recursive: true, force: true })
 }

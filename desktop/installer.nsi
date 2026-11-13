@@ -43,7 +43,7 @@ VIAddVersionKey /LANG=1049 "LegalCopyright" "${APP}"
 !insertmacro MUI_UNPAGE_INSTFILES
 !insertmacro MUI_LANGUAGE "Russian"
 
-; A running FlintNotes is asked to quit (it saves what is typed and stops its server), and only made to
+; A running FlintNotes is asked to quit (it saves what is typed), and only made to
 ; when it has not done so in 20 seconds.
 !macro CLOSE_APP ID
   IfFileExists "$INSTDIR\${EXE}" 0 +2

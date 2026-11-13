@@ -1,0 +1,22 @@
+FlintNotes on Debian
+====================
+
+Connect the Windows app (or a phone):   flintnotes pair
+Version and updates:                    flintnotes status | flintnotes update
+Logs:                                   journalctl -u flintnotes
+Settings:                               /etc/default/flintnotes
+
+Vaults live in /var/lib/flintnotes/vaults. To use the same folder from Windows (Obsidian on the same notes), share it
+with Samba, writing as the service's user, for example in /etc/samba/smb.conf:
+
+    [FlintNotes]
+        path = /var/lib/flintnotes/vaults
+        read only = no
+        force user = flintnotes
+        force group = flintnotes
+        create mask = 0664
+        directory mask = 0775
+
+Obsidian writes and removes files itself, so FlintNotes only sees what the share has finished writing.
+The key of `flintnotes pair` opens every note over a network without encryption: keep the service on the home network
+(FLINT_BIND in /etc/default/flintnotes names the card), and rotate the key with `flintnotes pair --rotate`.

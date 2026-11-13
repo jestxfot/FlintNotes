@@ -1,4 +1,5 @@
-// `npm run installer`: builds what is published (scripts/installer.mjs) from the last commit only, never from
+// `npm run installer`: builds what is published (scripts/installer.mjs, and the server's package, scripts/server-package.mjs)
+// from the last commit only, never from
 // the working folder: other work in progress there (not committed yet) must not go out to everyone.
 // The commit is checked out into a temporary folder beside the project's node_modules; the result lands in publish/.
 import { execFileSync } from 'node:child_process'
@@ -7,6 +8,8 @@ import os from 'node:os'
 import path from 'node:path'
 
 const ROOT = path.resolve(import.meta.dirname, '..')
+// `server` builds only the Debian package (npm run server-package), `installer` only the Windows app's; with none, both.
+const only = process.argv[2]
 const git = (...args) => execFileSync('git', args, { cwd: ROOT, encoding: 'utf8' }).trim()
 const commit = git('rev-parse', '--short', 'HEAD')
 const changed = git('status', '--porcelain', '--untracked-files=no')
@@ -19,10 +22,11 @@ try {
   fs.symlinkSync(path.join(ROOT, 'node_modules'), path.join(tree, 'node_modules'), 'dir')
   const env = { ...process.env, FLINT_PROJECT: ROOT, FLINT_RELEASE_OUT: path.join(tree, 'release'), FLINT_PUBLISH_OUT: process.env.FLINT_PUBLISH_OUT ?? path.join(ROOT, 'publish') }
   execFileSync(process.execPath, ['scripts/release.mjs'], { cwd: tree, env, stdio: 'inherit' })
-  execFileSync(process.execPath, ['scripts/installer.mjs'], { cwd: tree, env, stdio: 'inherit' })
+  if (only !== 'server') execFileSync(process.execPath, ['scripts/installer.mjs'], { cwd: tree, env, stdio: 'inherit' })
+  if (only !== 'installer') execFileSync(process.execPath, ['scripts/server-package.mjs'], { cwd: tree, env: { ...env, FLINT_SERVER_OUT: path.join(env.FLINT_PUBLISH_OUT, 'server') }, stdio: 'inherit' })
   // A Samba share runs a file only when it has the executable bit (no `acl allow execute always`): without it Windows
   // answers «Access is denied» to the installer opened from \\host\FlintNotes\publish.
-  for (const f of fs.readdirSync(env.FLINT_PUBLISH_OUT)) if (f.endsWith('.exe')) fs.chmodSync(path.join(env.FLINT_PUBLISH_OUT, f), 0o755)
+  for (const f of fs.existsSync(env.FLINT_PUBLISH_OUT) ? fs.readdirSync(env.FLINT_PUBLISH_OUT) : []) if (f.endsWith('.exe')) fs.chmodSync(path.join(env.FLINT_PUBLISH_OUT, f), 0o755)
 } finally {
   git('worktree', 'remove', '--force', tree)
   fs.rmSync(work, { recursive: true, force: true })

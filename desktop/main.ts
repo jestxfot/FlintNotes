@@ -1,41 +1,36 @@
 /**
- * FlintNotes as a desktop app (Electron): the main process. Built by `npm run release` into
- * `release/desktop.mjs`, next to the server and the page it runs.
+ * FlintNotes for Windows: only the window. The notes, their search and everything that works on them run on a server
+ * (the Debian service, `flintnotes.service`); this app shows the server's own page and keeps what belongs to the
+ * computer in front of the person: the window with the tab bar for a title bar, the tray, starting with Windows,
+ * reminders as notifications, and its own updates. Built by `npm run release` into `release/desktop.mjs`.
  *
- * - The page is the same as in a browser, served from `flint://app/`: its files straight from
- *   `public/`, its `/api/...` requests to the server, which runs as a separate process and listens
- *   on a named pipe, not on a port. Nothing outside the app can reach it.
- * - A new build (`release/build.json` changes) replaces the server, and the window reloads itself
- *   keeping what is typed, as with the launcher of the browser version. When this file itself is new,
- *   the app saves and restarts itself, the way it was (with its window, or in the tray).
+ * - The address and key of the server come from the link that `flintnotes pair` prints, asked for once (a page of
+ *   the app's own, release/shell/connect.html) and kept in the user's folder, the key sealed by the system.
+ * - The page is the server's, loaded from its address: it is always the version of the server it talks to.
+ *   When the server is not there, a page of the app says so and tries again, a little later each time.
  * - Closing the window hides it in the tray: reminders keep coming. «Выйти» in the tray quits.
- * - It starts with Windows by Windows' own list (hidden, in the tray), and takes over from the old
- *   background server of the browser version (release/launcher.mjs) where that one is still running.
  */
-import { app, BrowserWindow, clipboard, dialog, ipcMain, Menu, nativeImage, net, Notification, protocol, screen, session, shell, Tray, utilityProcess, type IpcMainEvent, type IpcMainInvokeEvent, type MenuItemConstructorOptions, type UtilityProcess } from 'electron'
+import { app, BrowserWindow, clipboard, dialog, ipcMain, Menu, nativeImage, net, Notification, safeStorage, screen, session, shell, Tray, type IpcMainEvent, type IpcMainInvokeEvent, type MenuItemConstructorOptions } from 'electron'
 import { spawn } from 'node:child_process'
 import { createHash } from 'node:crypto'
 import fs from 'node:fs'
-import http from 'node:http'
 import os from 'node:os'
 import path from 'node:path'
-import { Readable } from 'node:stream'
-import { fileURLToPath } from 'node:url'
+import { fileURLToPath, pathToFileURL } from 'node:url'
 import zlib from 'node:zlib'
+import { nextDelay, openKey, parseLink, probe, sealKey, SHELL_COOKIE, type Saved } from './connection'
 import { watchFullscreen } from './fullscreen'
 import { ReminderPresenter } from './reminders'
+import { PROTOCOL } from '../shared/protocol'
 import type { ReminderNotice } from '../shared/reminders'
+import { isNewer } from '../shared/version'
 
 const self = fileURLToPath(import.meta.url)
 const here = path.dirname(self)
-const SERVER = path.join(here, 'server.mjs')
-const PUBLIC = path.join(here, 'public')
-const BUILD = path.join(here, 'build.json')
 const PRELOAD = path.join(here, 'preload.cjs')
 const ICONS = path.join(here, 'icons')
-const CONFIG = process.env.FLINT_CONFIG ?? path.join(os.homedir(), '.flintnotes.json')
-/** The copy of the build inside the installed app (see scripts/installer.mjs): no new builds come to it. */
-const BUNDLED = process.env.FLINT_BUNDLED === '1'
+/** The app's own pages: connecting to a server, no connection. */
+const SHELL_PAGES = path.join(here, 'shell')
 const readText = (file: string) => {
   try {
     return fs.readFileSync(file, 'utf8')
@@ -43,8 +38,13 @@ const readText = (file: string) => {
     return ''
   }
 }
-const selfText = readText(self)
-const preloadText = readText(PRELOAD)
+const build = (() => {
+  try {
+    return JSON.parse(readText(path.join(here, 'build.json'))).id ?? ''
+  } catch {
+    return ''
+  }
+})()
 
 app.setName('FlintNotes')
 // Tests give each run a profile of its own.
@@ -53,11 +53,10 @@ if (process.env.FLINT_USER_DATA) app.setPath('userData', process.env.FLINT_USER_
 const APP_ID = 'md.flintnotes.app'
 app.setAppUserModelId(APP_ID)
 
-// ---- the log: what the app and its server say, there being no console to say it in
+// ---- the log: what the app says, there being no console to say it in
 const LOG = path.join(app.getPath('userData'), 'flintnotes.log')
 fs.mkdirSync(path.dirname(LOG), { recursive: true })
 if ((fs.statSync(LOG, { throwIfNoEntry: false })?.size ?? 0) > 1_000_000) fs.rmSync(LOG, { force: true })
-const logFile = fs.createWriteStream(LOG, { flags: 'a' })
 // Written at once: the last words before the app exits (an update being put in) must not stay in a buffer.
 const note = (text: string) => fs.appendFileSync(LOG, `${new Date().toLocaleString('ru')}  ${text}\n`)
 
@@ -68,143 +67,7 @@ const first = app.requestSingleInstanceLock() && !process.argv.includes('--quit'
 if (!first) app.exit(0)
 app.on('second-instance', (_event, argv) => (argv.includes('--quit') ? void quit() : showWindow()))
 
-protocol.registerSchemesAsPrivileged([{ scheme: 'flint', privileges: { standard: true, secure: true, supportFetchAPI: true, corsEnabled: true, stream: true, codeCache: true } }])
-
-// ---- the server: a process of its own, listening on a named pipe
-interface Server {
-  child: UtilityProcess
-  pipe: string
-}
-/** The server the window's requests go to; while it starts, they wait for it. */
-let current: Promise<Server>
-let serial = 0
 let quitting = false
-let quickFailures = 0
-
-const pipeName = () => {
-  const id = `flintnotes-${process.pid}-${++serial}`
-  return process.platform === 'win32' ? `\\\\.\\pipe\\${id}` : path.join(os.tmpdir(), `${id}.sock`)
-}
-
-function startServer(): Promise<Server> {
-  const pipe = pipeName()
-  const startedAt = Date.now()
-  const child = utilityProcess.fork(SERVER, [], {
-    // The default vault (`vault`) lies next to the build, as for the launcher.
-    cwd: BUNDLED ? os.homedir() : path.dirname(here),
-    // Until the user opens a vault of their own, the sandbox is the one opened.
-    env: { ...process.env, FLINT_PIPE: pipe, FLINT_UPDATES: BUNDLED ? '0' : '1', ...(fs.existsSync(SANDBOX) ? { FLINT_FIRST_VAULT: SANDBOX } : {}) },
-    stdio: 'pipe',
-    serviceName: 'FlintNotes server',
-  })
-  child.stdout?.on('data', (chunk) => logFile.write(chunk))
-  child.stderr?.on('data', (chunk) => logFile.write(chunk))
-  const ready = new Promise<Server>((resolve, reject) => {
-    child.on('message', (message: { type?: string }) => message?.type === 'ready' && resolve({ child, pipe }))
-    child.once('exit', (code) => reject(new Error(`Сервер остановился при запуске (код ${code})`)))
-  })
-  child.once('exit', (code) => {
-    note(`Сервер на ${pipe} остановился (код ${code})`)
-    void ready.then(async (server) => {
-      // Stopped on purpose (a new build took over, the app quits): nothing to do.
-      if (quitting || (await current.catch(() => null)) !== server) return
-      quickFailures = Date.now() - startedAt < 10_000 ? quickFailures + 1 : 0
-      current = quickFailures >= 3 ? Promise.reject(new Error('Сервер FlintNotes не запускается')) : startServer()
-      current.catch(failed)
-    }, () => {})
-  })
-  return ready
-}
-
-/** A server that cannot start leaves nothing to show: the user learns where to look. */
-function failed(err: Error): void {
-  note(err.message)
-  if (quitting) return
-  dialog.showErrorBox('FlintNotes', `${err.message}.\n\nПодробности — в журнале:\n${LOG}`)
-  void quit()
-}
-
-/** Puts a new build's server in place: new requests go to it, the old one finishes its saves and steps aside. */
-async function replaceServer(): Promise<void> {
-  const old = await current.catch(() => null)
-  const next = startServer()
-  try {
-    await next
-  } catch (err) {
-    note(`Новая сборка: сервер не запустился, остаётся прежний — ${(err as Error).message}`)
-    return
-  }
-  current = next
-  note('Новая сборка: сервер запущен заново')
-  old?.child.postMessage('stop')
-}
-
-async function stopServer(): Promise<void> {
-  // None yet: the app quits before starting one (an update of itself at start).
-  const server = await current?.catch(() => null)
-  if (!server) return
-  await new Promise<void>((resolve) => {
-    server.child.once('exit', () => resolve())
-    server.child.postMessage('stop')
-    // It finishes the saves it has begun within 5 seconds; this is only for a server that hangs.
-    setTimeout(() => (server.child.kill(), resolve()), 8000)
-  })
-}
-
-// ---- flint://app/: the page's files from disk, its requests to the server
-const MIME: Record<string, string> = {
-  html: 'text/html; charset=utf-8',
-  js: 'text/javascript',
-  mjs: 'text/javascript',
-  css: 'text/css',
-  json: 'application/json',
-  svg: 'image/svg+xml',
-  png: 'image/png',
-  ico: 'image/x-icon',
-  woff2: 'font/woff2',
-  wasm: 'application/wasm',
-  map: 'application/json',
-  txt: 'text/plain; charset=utf-8',
-}
-
-async function staticFile(pathname: string): Promise<Response> {
-  const wanted = path.join(PUBLIC, decodeURIComponent(pathname))
-  const isFile = wanted.startsWith(PUBLIC + path.sep) && !!fs.statSync(wanted, { throwIfNoEntry: false })?.isFile()
-  // Any other address is a place inside the app (a vault, a note), which the app itself resolves.
-  const file = isFile ? wanted : path.join(PUBLIC, 'index.html')
-  const body = await fs.promises.readFile(file)
-  return new Response(body, { headers: { 'content-type': MIME[path.extname(file).slice(1).toLowerCase()] ?? 'application/octet-stream' } })
-}
-
-async function forward(request: Request, url: URL): Promise<Response> {
-  let server: Server
-  try {
-    server = await current
-  } catch (err) {
-    return new Response((err as Error).message, { status: 503 })
-  }
-  const body = request.method === 'GET' || request.method === 'HEAD' ? undefined : Buffer.from(await request.arrayBuffer())
-  const headers: Record<string, string> = {}
-  request.headers.forEach((value, key) => (headers[key] = value))
-  // Only this app's window sends requests here: to the server they are what its own page sends.
-  headers.host = 'localhost'
-  headers.origin = 'http://localhost'
-  if (body) headers['content-length'] = String(body.length)
-  return new Promise((resolve) => {
-    const sent = http.request({ socketPath: server.pipe, path: url.pathname + url.search, method: request.method, headers }, (res) => {
-      const status = res.statusCode ?? 502
-      const answered = new Headers()
-      for (const [key, value] of Object.entries(res.headers)) if (value !== undefined) answered.set(key, Array.isArray(value) ? value.join(', ') : value)
-      const empty = request.method === 'HEAD' || [101, 204, 205, 304].includes(status)
-      if (empty) res.resume()
-      resolve(new Response(empty ? null : (Readable.toWeb(res) as ReadableStream<Uint8Array>), { status, headers: answered }))
-    })
-    // A page that goes away (a stream of changes closed, a tab reloaded) takes its request with it.
-    request.signal?.addEventListener('abort', () => sent.destroy())
-    sent.on('error', (err) => resolve(new Response(`Сервер FlintNotes не ответил: ${err.message}`, { status: 502 })))
-    sent.end(body)
-  })
-}
 
 // ---- the window
 interface WindowState {
@@ -290,6 +153,9 @@ function placed(bounds: Electron.Rectangle | undefined): Partial<Electron.Rectan
 
 const icon = (name: string) => nativeImage.createFromPath(path.join(ICONS, name))
 
+/** Chromium told to draw nowhere (--ozone-platform=headless: the tests, with no display) cannot make the window buttons' overlay, and crashes on it. */
+const headless = app.commandLine.getSwitchValue('ozone-platform') === 'headless'
+
 function createWindow(): BrowserWindow {
   const colors = state.colors ?? { color: '#262626', symbolColor: '#dadada' }
   const window = new BrowserWindow({
@@ -302,7 +168,7 @@ function createWindow(): BrowserWindow {
     backgroundColor: colors.color,
     // No frame of the system's: the bar of tabs is the title bar, and the system's buttons lie over its right end.
     titleBarStyle: 'hidden',
-    titleBarOverlay: { ...colors, height: 40 },
+    ...(headless ? {} : { titleBarOverlay: { ...colors, height: 40 } }),
     // A window in the tray, minimised or covered draws nothing: an animated picture in a note would
     // otherwise go on being decoded frame by frame (a GIF of 50 MB took half a processor core).
     // Reminders keep their time there all the same: their clock runs in this main process.
@@ -341,7 +207,17 @@ function createWindow(): BrowserWindow {
       event.preventDefault()
     }
   })
-  void window.loadURL('flint://app/')
+  window.webContents.on('did-fail-load', (_event, code, description, address, isMainFrame) => {
+    // -3 is a load that was cut short by another (a new address chosen); only the server's own page failing matters.
+    if (!isMainFrame || code === -3 || quitting || !server || !address.startsWith(server.origin)) return
+    note(`Страница сервера не загрузилась: ${description}`)
+    // Said in words, as everywhere else: what the server answers (or does not) to a look.
+    void probe(server.origin, server.key, PROTOCOL, 3000).then((result) => waitForServer(result.state === 'unreachable' || result.state === 'newer-server' || result.state === 'older-server' ? result.message.charAt(0).toUpperCase() + result.message.slice(1) : description))
+  })
+  // The server answers «no key» with a page of its own: the key was changed, so the app asks for the new link.
+  window.webContents.on('did-navigate', (_event, address, code) => {
+    if (code === 401 && server && address.startsWith(server.origin)) showShellPage('connect', 'Сервер не принял ключ: его могли сменить. На сервере выполните flintnotes pair и вставьте новую ссылку')
+  })
   return window
 }
 
@@ -352,35 +228,53 @@ function showWindow(): void {
   win.focus()
 }
 
-/** Asks every page to save what it has; a page that does not answer in time is not waited for. */
+/** Asks every page to save what it has; a page that does not answer in time is not waited for. True if all of it was saved. */
 let flushes = 0
-function flushPages(): Promise<void> {
+function flushPages(): Promise<boolean> {
   return Promise.all(
-    BrowserWindow.getAllWindows().map(
+    // Only the server's page has anything to save; the app's own pages (connecting, no connection) do not answer.
+    BrowserWindow.getAllWindows()
+      .filter((window) => isApp(window.webContents.getURL()))
+      .map(
       (window) =>
-        new Promise<void>((resolve) => {
+        new Promise<boolean>((resolve) => {
           const id = ++flushes
-          const done = (_event: IpcMainEvent, answered: number) => answered === id && finish()
-          const finish = () => {
+          const done = (_event: IpcMainEvent, answered: number, saved: unknown) => answered === id && finish(saved !== false)
+          const finish = (saved: boolean) => {
             ipcMain.off('flushed', done)
             clearTimeout(late)
-            resolve()
+            resolve(saved)
           }
-          const late = setTimeout(finish, 4000)
+          // A page that does not answer is hung: nothing more can be had from it, so it does not hold the app back.
+          const late = setTimeout(() => finish(true), 4000)
           ipcMain.on('flushed', done)
           window.webContents.send('flush', id)
         }),
     ),
-  ).then(() => {})
+  ).then((saved) => saved.every(Boolean))
 }
 
-async function quit(): Promise<void> {
+/** `ask`: the person chose to quit, so if something could not be saved (the server is away) they are asked before it is lost. */
+async function quit(ask = false): Promise<void> {
   if (quitting) return
-  await flushPages()
+  const saved = await flushPages()
+  if (!saved && ask && win && !win.isDestroyed()) {
+    showWindow()
+    const { response } = await dialog.showMessageBox(win, {
+      type: 'warning',
+      title: 'FlintNotes',
+      message: 'Не всё набранное сохранено',
+      detail: 'Нет связи с сервером, поэтому последние правки остались только в окне. Если выйти сейчас, они пропадут. Лучше остаться: как только связь вернётся, они сохранятся сами.',
+      buttons: ['Остаться', 'Выйти без сохранения'],
+      defaultId: 0,
+      cancelId: 0,
+      noLink: true,
+    })
+    if (response === 0) return
+  }
   quitting = true
   reminders?.clear()
   tray?.destroy()
-  await stopServer()
   app.exit(0)
 }
 
@@ -419,70 +313,74 @@ function setAutostart(enabled: boolean): boolean {
   return autostart()
 }
 
-// ---- the sandbox: a vault of examples to try anything in, as Obsidian has. It is made anew from its template
-// (release/sandbox, from desktop/sandbox) at every start, so nothing done in it lasts.
-const SANDBOX = path.join(app.getPath('userData'), 'Песочница')
-function freshSandbox(): void {
-  const template = path.join(here, 'sandbox')
-  if (!fs.existsSync(template)) return
-  // Only a folder the app made itself is emptied: it carries the template's mark.
-  if (fs.existsSync(SANDBOX) && !fs.existsSync(path.join(SANDBOX, '.flint', 'sandbox'))) return void note(`${SANDBOX} — не песочница приложения, не трогаю`)
-  fs.rmSync(SANDBOX, { recursive: true, force: true })
-  fs.cpSync(template, SANDBOX, { recursive: true })
-}
+// ---- the server this window is for
+/** Where the address and key are kept (the key sealed by the system where it can be). */
+const SERVER_FILE = path.join(app.getPath('userData'), 'server.json')
+/** Tests and trials: a link given here is used instead of the one kept, and is not kept. */
+const GIVEN_LINK = process.env.FLINT_SERVER_URL
 
-// ---- the browser version's background server (release/launcher.mjs): the app takes its place
-const readConfig = (): { port?: number; proxy?: string } => {
+function loadServer(): Saved | undefined {
+  if (GIVEN_LINK) {
+    const given = parseLink(GIVEN_LINK)
+    return 'origin' in given && given.key ? { origin: given.origin, key: given.key } : undefined
+  }
   try {
-    return JSON.parse(readText(CONFIG))
+    const stored = JSON.parse(readText(SERVER_FILE)) as { origin?: unknown; key?: unknown; sealed?: unknown }
+    const key = openKey(stored, safeStorage)
+    return typeof stored.origin === 'string' && key ? { origin: stored.origin, key } : undefined
   } catch {
-    return {}
+    return undefined
   }
 }
 
-async function takeOver(): Promise<void> {
-  if (process.platform !== 'win32') return
-  // A server running now is asked to stop the way the app's own page stops it; the launcher then stops too.
-  const port = readConfig().port ?? 4600
-  await new Promise<void>((resolve) => {
-    const asked = http.request({ host: '127.0.0.1', port, path: '/api/quit', method: 'POST', headers: { origin: `http://127.0.0.1:${port}` }, timeout: 2000 }, (res) => {
-      if (res.statusCode === 200) note(`Остановлен прежний сервер FlintNotes на порту ${port}`)
-      res.resume()
-      resolve()
-    })
-    asked.on('error', () => resolve())
-    asked.on('timeout', () => (asked.destroy(), resolve()))
-    asked.end()
-  })
+function keepServer(saved: Saved): void {
+  if (GIVEN_LINK) return
+  // Readable by this user only; the key is sealed on top of that where the system can.
+  fs.writeFileSync(SERVER_FILE, JSON.stringify({ origin: saved.origin, ...sealKey(saved.key, safeStorage) }), { mode: 0o600 })
 }
 
-// ---- the way to the web: the same proxy as the server's (Программа → Сеть), for pictures and embeds of the page
-let proxyApplied: string | undefined
-function applyProxy(): void {
-  const proxy = readConfig().proxy ?? 'system'
-  if (proxy === proxyApplied) return
-  proxyApplied = proxy
-  if (proxy === 'system') void session.defaultSession.setProxy({ mode: 'system' })
-  else if (proxy === 'off') void session.defaultSession.setProxy({ mode: 'direct' })
-  else {
-    try {
-      const url = new URL(proxy)
-      void session.defaultSession.setProxy({ proxyRules: `${url.protocol}//${url.host}`, proxyBypassRules: '<local>' })
-    } catch {
-      void session.defaultSession.setProxy({ mode: 'system' })
-    }
-  }
+/** Read once the app is ready: the system's key store (`safeStorage`) is not there before. */
+let server: Saved | undefined
+/** What the app's own pages show: why the server's page is not there, and when the next try is. */
+let shellState = { message: '', nextRetryAt: 0 }
+let retryTimer: NodeJS.Timeout | undefined
+let attempts = 0
+/** Tries since the last time the server answered; the pause between tries grows with it. */
+const shellPage = (name: string) => pathToFileURL(path.join(SHELL_PAGES, `${name}.html`)).href
+
+function showShellPage(name: 'connect' | 'offline', message = ''): void {
+  clearTimeout(retryTimer)
+  shellState = { message, nextRetryAt: 0 }
+  void win?.loadURL(shellPage(name))
 }
-// A proxy that asks for a name and password gets those of its address.
-app.on('login', (event, _webContents, _details, authInfo, callback) => {
-  if (!authInfo.isProxy) return
-  try {
-    const url = new URL(readConfig().proxy ?? '')
-    if (!url.username) return
-    event.preventDefault()
-    callback(decodeURIComponent(url.username), decodeURIComponent(url.password))
-  } catch {}
-})
+
+/** The server is not there: the page that says so, and another try a little later (later each time, up to half a minute). */
+function waitForServer(why: string): void {
+  clearTimeout(retryTimer)
+  const delay = nextDelay(attempts++)
+  const wasOffline = win?.webContents.getURL().startsWith(shellPage('offline'))
+  shellState = { message: why, nextRetryAt: Date.now() + delay }
+  if (wasOffline) win?.webContents.send('shell:status', shellState)
+  else void win?.loadURL(shellPage('offline'))
+  retryTimer = setTimeout(() => void connect(), delay)
+}
+
+/** Looks at the server and, if it is there and takes the key, moves the window to its page. */
+async function connect(): Promise<void> {
+  clearTimeout(retryTimer)
+  if (!server || quitting) return showShellPage('connect', shellState.message)
+  const result = await probe(server.origin, server.key, PROTOCOL)
+  if (quitting) return
+  if (result.state === 'locked') return showShellPage('connect', 'Сервер не принял ключ: его могли сменить. На сервере выполните flintnotes pair и вставьте новую ссылку')
+  if (result.state !== 'ok') {
+    note(`Сервер ${server.origin}: ${result.state === 'unreachable' ? result.message : result.state}`)
+    return waitForServer(result.message.charAt(0).toUpperCase() + result.message.slice(1))
+  }
+  attempts = 0
+  // The key goes to the server as the cookie it keeps it in, never in an address.
+  await session.defaultSession.cookies.set({ url: server.origin, name: SHELL_COOKIE, value: server.key, httpOnly: true, sameSite: 'strict', expirationDate: Date.now() / 1000 + 400 * 86_400 })
+  void win?.loadURL(`${server.origin}/`)
+}
 
 // ---- the tray
 function buildTrayMenu(): void {
@@ -500,9 +398,10 @@ function buildTrayMenu(): void {
     } },
     { type: 'separator' },
     { label: 'Запускать вместе с Windows', type: 'checkbox', checked: autostart(), click: (item) => setAutostart(item.checked) },
+    { label: 'Сервер…', click: () => (showWindow(), showShellPage('connect', server ? `Сейчас: ${server.origin}` : '')) },
     { label: 'Журнал работы', click: () => void shell.openPath(LOG) },
     { type: 'separator' },
-    { label: 'Выйти', click: () => void quit() },
+    { label: 'Выйти', click: () => void quit(true) },
   ]
   tray.setContextMenu(Menu.buildFromTemplate(items))
 }
@@ -516,9 +415,20 @@ function createTray(): void {
 }
 
 // ---- what pages may do
-const isApp = (url: string | undefined) => !!url && url.startsWith('flint://app/')
-/** Only the app's own page, not a frame inside it, talks to the app. */
+/** The server's own page (any address on the server this window is for). */
+const isApp = (url: string | undefined) => {
+  if (!url || !server) return false
+  try {
+    return new URL(url).origin === new URL(server.origin).origin
+  } catch {
+    return false
+  }
+}
+/** One of the app's own local pages (connecting, no connection). */
+const isShellPage = (url: string | undefined) => !!url && url.startsWith(pathToFileURL(SHELL_PAGES).href + '/')
+/** Only the server's page, not a frame inside it, talks to the app. */
 const trusted = (event: IpcMainEvent | IpcMainInvokeEvent) => !!event.senderFrame && event.senderFrame === event.sender.mainFrame && isApp(event.senderFrame.url)
+const trustedShell = (event: IpcMainEvent | IpcMainInvokeEvent) => !!event.senderFrame && event.senderFrame === event.sender.mainFrame && isShellPage(event.senderFrame.url)
 /** Links to the web open in the browser of the system, never in the app's window. */
 const openOutside = (address: string) => {
   try {
@@ -534,7 +444,7 @@ app.on('web-contents-created', (_event, contents) => {
     return { action: 'deny' }
   })
   contents.on('will-navigate', (event, url) => {
-    if (isApp(url)) return
+    if (isApp(url) || isShellPage(url)) return
     event.preventDefault()
     openOutside(url)
   })
@@ -557,14 +467,36 @@ ipcMain.on('title-bar-colors', (event, colors: { color?: unknown; symbolColor?: 
   if (!trusted(event) || typeof colors?.color !== 'string' || typeof colors.symbolColor !== 'string') return
   const window = BrowserWindow.fromWebContents(event.sender)
   if (!window) return
-  window.setTitleBarOverlay({ color: colors.color, symbolColor: colors.symbolColor, height: 40 })
+  if (!headless) window.setTitleBarOverlay({ color: colors.color, symbolColor: colors.symbolColor, height: 40 })
   window.setBackgroundColor(colors.color)
   state.colors = { color: colors.color, symbolColor: colors.symbolColor }
   saveState()
 })
+// The preload asks what kind of page it is in, to give it only the bridge that page may have.
+ipcMain.on('whoami', (event) => {
+  const main = !!event.senderFrame && event.senderFrame === event.sender.mainFrame
+  event.returnValue = main && isApp(event.senderFrame?.url) ? 'server' : main && isShellPage(event.senderFrame?.url) ? 'shell' : ''
+})
+ipcMain.handle('shell:state', (event) => (trustedShell(event) ? { origin: server?.origin ?? '', ...shellState } : null))
+ipcMain.handle('shell:connect', async (event, link: unknown) => {
+  if (!trustedShell(event) || typeof link !== 'string') return { ok: false, message: '' }
+  const given = parseLink(link)
+  if ('error' in given) return { ok: false, message: given.error }
+  if (!given.key) return { ok: false, message: 'В ссылке нет ключа: нужна вся ссылка, которую показывает flintnotes pair (с ?key=…)' }
+  const result = await probe(given.origin, given.key, PROTOCOL)
+  if (result.state === 'locked') return { ok: false, message: 'Сервер не принял этот ключ. Возьмите свежую ссылку: flintnotes pair' }
+  if (result.state !== 'ok') return { ok: false, message: result.message.charAt(0).toUpperCase() + result.message.slice(1) }
+  server = { origin: given.origin, key: given.key }
+  keepServer(server)
+  attempts = 0
+  void connect()
+  return { ok: true, message: '' }
+})
+ipcMain.on('shell:retry', (event) => trustedShell(event) && void connect())
+ipcMain.on('shell:change', (event) => trustedShell(event) && showShellPage('connect', server ? `Сейчас: ${server.origin}` : ''))
 ipcMain.handle('autostart', (event) => (trusted(event) ? { enabled: autostart() } : null))
 ipcMain.handle('set-autostart', (event, enabled: unknown) => (trusted(event) ? { enabled: setAutostart(!!enabled) } : null))
-ipcMain.on('quit', (event) => trusted(event) && void quit())
+ipcMain.on('quit', (event) => trusted(event) && void quit(true))
 ipcMain.on('show', (event) => trusted(event) && showWindow())
 ipcMain.on('reminders', (event, value: unknown) => {
   if (!trusted(event) || event.sender !== win?.webContents || !value || typeof value !== 'object') return
@@ -593,33 +525,6 @@ ipcMain.handle('install-update', (event) => {
   install(state.ready, false)
   return true
 })
-
-// ---- new builds: the server is replaced; a new app (this file, the preload) means starting again
-const buildId = () => {
-  try {
-    return JSON.parse(readText(BUILD)).id ?? ''
-  } catch {
-    return ''
-  }
-}
-let build = buildId()
-if (first && !BUNDLED)
-  // Polling, not file events: the build is written from WSL onto a Windows drive, and events do not always cross that border.
-  fs.watchFile(BUILD, { interval: 2000 }, () => {
-    const next = buildId()
-    if (!next || next === build || quitting) return
-    build = next
-    // The notes app and its server change at once; the app's own part (this file, the preload) by a restart of itself.
-    if (readText(self) === selfText && readText(PRELOAD) === preloadText) return void replaceServer()
-    note('Новая сборка приложения: перезапускаю его')
-    restart()
-  })
-
-/** Starts the app again the way it is now: with its window, or in the tray. */
-function restart(): void {
-  app.relaunch({ args: [...process.argv.slice(1).filter((arg) => arg !== '--hidden'), ...(win?.isVisible() ? [] : ['--hidden'])] })
-  void quit()
-}
 
 // ---- updates of the installed app: the newest release of the project on GitHub (scripts/installer.mjs makes
 // its files and latest.json). The app looks soon after start, every hour and when its window comes forward
@@ -657,11 +562,6 @@ const ownVersion = (() => {
     return undefined
   }
 })()
-const isNewer = (version: string, than: string) => {
-  const [a, b] = [version, than].map((one) => one.split('.').map((part) => parseInt(part, 10) || 0))
-  for (let i = 0; i < 3; i++) if ((a[i] ?? 0) !== (b[i] ?? 0)) return (a[i] ?? 0) > (b[i] ?? 0)
-  return false
-}
 
 /** Where downloaded installers wait to be put in: the app's own folder, which the system does not clean as it does temp. */
 const DOWNLOADS = path.join(app.getPath('userData'), 'updates')
@@ -918,32 +818,19 @@ process.on('uncaughtException', (err) => note(`Ошибка: ${err.stack ?? err.
 
 void app.whenReady().then(async () => {
   if (!first) return
-  note(`Запуск: ${process.execPath} ${process.argv.slice(1).join(' ')} (сборка ${build || 'для разработки'}${BUNDLED ? ', своя копия' : `, из ${here}`})`)
+  server = loadServer()
+  note(`Запуск: ${process.execPath} ${process.argv.slice(1).join(' ')} (сборка ${build || 'для разработки'}, из ${here}; сервер ${server?.origin ?? 'не задан'})`)
   Menu.setApplicationMenu(null)
   // A version downloaded before is put in before anything else starts; the app then comes back as the new one.
   if (installWaiting()) return
   markShortcut()
-  await takeOver().catch((err) => note(`Не удалось сменить прежний сервер: ${err.message}`))
   if (legacyLogin().length) note(`Запуск вместе с Windows записан заново: ${setAutostart(true) ? 'включён' : 'не включился'}`)
-  try {
-    freshSandbox()
-  } catch (err) {
-    note(`Песочница не обновилась: ${(err as Error).message}`)
-  }
-  current = startServer()
-  current.catch(failed)
-  applyProxy()
-  fs.watchFile(CONFIG, { interval: 2000 }, applyProxy)
   session.defaultSession.setPermissionRequestHandler((_contents, permission, allow, details) => allow(ALLOWED.has(permission) && (permission === 'fullscreen' || isApp(details.requestingUrl))))
-  session.defaultSession.setPermissionCheckHandler((_contents, permission, origin) => ALLOWED.has(permission) && (permission === 'fullscreen' || origin.startsWith('flint://app')))
+  session.defaultSession.setPermissionCheckHandler((_contents, permission, origin) => ALLOWED.has(permission) && (permission === 'fullscreen' || isApp(origin)))
   // Windows and macOS check spelling with the system's own languages; elsewhere they are named.
   if (process.platform === 'linux') session.defaultSession.setSpellCheckerLanguages(['ru', 'en-US'])
-  protocol.handle('flint', (request) => {
-    const url = new URL(request.url)
-    if (url.host !== 'app') return new Response('Not found', { status: 404 })
-    return url.pathname.startsWith('/api/') ? forward(request, url) : staticFile(url.pathname)
-  })
-  createTray()
+  // No tray where nothing is drawn (headless): its menu is made of the system's own widgets, which need a display.
+  if (!headless) createTray()
   // A few seconds after start, not to compete with opening the vault; then every few hours.
   setTimeout(() => void checkForUpdate(), Number(process.env.FLINT_UPDATE_DELAY ?? 3000))
   setInterval(() => void checkForUpdate(), 3_600_000)
@@ -954,7 +841,11 @@ void app.whenReady().then(async () => {
       note(`Старые сборки не убраны: ${(err as Error).message}`)
     }
   }, 60_000)
+  // Tests: a driver (Playwright) attached to an app that has only just started sees the windows made after it attached, and
+  // this app makes its window almost at once, so the driver is given this long to attach first.
+  if (Number(process.env.FLINT_WINDOW_DELAY)) await new Promise((resume) => setTimeout(resume, Number(process.env.FLINT_WINDOW_DELAY)))
   win = createWindow()
+  void connect()
   reminders = new ReminderPresenter(win, (changed) => watchFullscreen(changed, (error) => note(`Проверка полноэкранного режима: ${error}`)), notifyReminder, closeReminderNotifications)
   setInterval(() => {
     if (win && !win.isDestroyed()) win.webContents.send('reminder-tick')

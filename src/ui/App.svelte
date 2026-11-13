@@ -245,11 +245,11 @@
     else app.notice('Откройте файл')
   }
   // What the frame's own commands act on; plugins say the same about theirs with `scope`.
-  const NOTE_SCOPE = new Set(['core:rename-active', 'core:dock-active', 'core:copy-path', 'core:reveal-active', 'core:toggle-readable-width', 'core:delete-active'])
-  const VAULT_SCOPE = new Set(['core:reveal-vault', 'core:vaults', 'core:about'])
+  const NOTE_SCOPE = new Set(['core:rename-active', 'core:dock-active', 'core:copy-path', 'core:toggle-readable-width', 'core:delete-active'])
+  const VAULT_SCOPE = new Set(['core:vaults', 'core:about'])
   const SIDEBAR_SCOPE = new Set<string>()
   /** Where a core command goes in the note's menu; commands of plugins go to their own section. */
-  const NOTE_SECTIONS: Record<string, string> = { 'core:toggle-reading': 'open', 'core:toggle-editor-mode': 'open', 'core:find': 'copy', 'core:replace': 'copy', 'core:toggle-readable-width': 'open', 'core:dock-active': 'open', 'core:rename-active': 'action', 'core:copy-path': 'copy', 'core:reveal-active': 'system', 'core:delete-active': 'danger' }
+  const NOTE_SECTIONS: Record<string, string> = { 'core:toggle-reading': 'open', 'core:toggle-editor-mode': 'open', 'core:find': 'copy', 'core:replace': 'copy', 'core:toggle-readable-width': 'open', 'core:dock-active': 'open', 'core:rename-active': 'action', 'core:copy-path': 'copy', 'core:delete-active': 'danger' }
 
   /**
    * The menu of the open note ("⋮"). Nothing is listed here by hand: it is made of
@@ -540,8 +540,6 @@
           ['core:previous-tab', 'Предыдущая вкладка', 'chevron-left', () => stepTab(-1)],
           ['core:close-other-tabs', 'Закрыть остальные вкладки', 'copy-x', () => workspace.leaves.filter((leaf) => leaf !== workspace.active).forEach((leaf) => workspace.close(leaf))],
           ['core:close-all-tabs', 'Закрыть все вкладки', 'square-x', () => [...workspace.leaves].forEach((leaf) => workspace.close(leaf))],
-          ['core:reveal-active', 'Показать открытый файл в проводнике', 'arrow-up-right', () => withFile((path) => void app.vault.reveal(path).catch((err) => app.notice(errorMessage(err))))],
-          ['core:reveal-vault', 'Показать папку хранилища в проводнике', 'folder-open', () => void app.vault.reveal('').catch((err) => app.notice(errorMessage(err)))],
           ['core:copy-path', 'Копировать путь открытого файла', 'clipboard', () => withFile((path) => void navigator.clipboard.writeText(path).then(() => app.notice('Скопировано')))],
           ['core:rename-active', 'Переименовать открытую заметку', 'pencil', () => document.querySelector<HTMLInputElement>('.leaf:not([hidden]) > .leaf-view:not([hidden]) .inline-title')?.select()],
           ['core:delete-active', 'Удалить открытый файл', 'trash', () => withFile((path) => (!settings.get<boolean>('core', 'confirmDelete') || confirm(`Переместить «${basename(path)}» в корзину?`)) && void app.vault.trash(path).catch((err) => app.notice(errorMessage(err))))],
@@ -646,7 +644,11 @@
       scheme.addEventListener('change', paintTitleBar)
       offs.push(() => scheme.removeEventListener('change', paintTitleBar))
       // The app saves through the page before it quits or loads a new build; the tray menu runs commands.
-      desktop.onFlush(() => Promise.all([workspace.flushAll(), app.state.flush()]))
+      // The answer says whether everything was saved: with the server away it was not, and the app asks before it quits.
+      desktop.onFlush(async () => {
+        await Promise.all([workspace.flushAll(), app.state.flush()])
+        return !workspace.hasUnsaved()
+      })
       desktop.onCommand((id) => void app.commands.run(id))
     }
     offs.push(app.menus.on('show', (shown) => (menu = shown)))
