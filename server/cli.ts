@@ -105,7 +105,7 @@ async function notify(test: boolean): Promise<void> {
   }
   console.log('Напоминания на телефоне, даже когда страница закрыта.\n')
   console.log('1. Поставьте на телефон приложение ntfy (F-Droid или GitHub: binwiederhier/ntfy-android, версия «fdroid»; Google не нужен).')
-  console.log(`2. В нём: «+» → «Use another server» → ${info.url} → тема ${info.topic}. Или наведите камеру на код:\n`)
+  console.log(`2. В нём: «+» → «Use another server» → ${info.url} → тема ${info.topic}. Или наведите камеру на код (в ссылке «?secure=false»: сеть домашняя, без https):\n`)
   console.log(`${renderUnicodeCompact(info.link, { border: 2 })}\n`)
   console.log(`  ${info.link}\n`)
   console.log('3. Разрешите приложению уведомления и работу в фоне (без ограничения батареи). Проверка: flintnotes notify --test')

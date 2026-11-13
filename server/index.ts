@@ -701,7 +701,7 @@ let notifier: Ntfy | null = null
 const notifyInfo = () => {
   const where = phoneAddresses(NTFY_PORT)[0]
   const topic = config.notify?.topic
-  return { enabled: !!notifier && !!topic && !!where, url: where ?? null, topic: topic ?? null, link: where && topic ? `ntfy://${where.replace(/^http:\/\//, '')}/${topic}` : null }
+  return { enabled: !!notifier && !!topic && !!where, url: where ?? null, topic: topic ?? null, link: where && topic ? `ntfy://${where.replace(/^http:\/\//, '')}/${topic}?secure=false` : null }
 }
 api.get('/notify', (c) => c.json(notifyInfo()))
 api.post('/notify/test', async (c) => {
