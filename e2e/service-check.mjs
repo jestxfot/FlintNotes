@@ -1,17 +1,16 @@
-// Checks the Debian service as it runs on the server, without systemd: the package is built and unpacked the way
-// dpkg lays it out, and its launcher is run in service mode (FLINT_SERVICE=1) with a state folder of its own.
-//   - the first start makes the key and turns the network listener on; the key is told without a page (`flintnotes pair`)
-//     and a new key shuts out the old
-//   - a newer server in the feed is downloaded, checked, put in, and started by the launcher
-//   - a download with a wrong checksum is refused; a build that does not start is given up for the one before it,
-//     and is not fetched again
-//   - SIGTERM stops the launcher and the server in order
-// Builds into temporary folders; the project's release/ and publish/ are not touched. About two minutes:
+// Checks the service as it runs on the Debian computer, without systemd: the build is made as `npm run release`
+// makes it, the script service/flintnotes writes its service file, and the launcher is run in service mode
+// (FLINT_SERVICE=1) with a state folder of its own, as the service file runs it.
+//   - the script is valid sh, and the service file it writes is one systemd reads, runs as the folder's owner and
+//     lets Node ask for the system's addresses (AF_NETLINK)
+//   - the first start makes the key and turns the network listener on; the key is told without a page
+//     (`flintnotes pair`) and a new key shuts out the old
+//   - the shell's key, a phone's key and the computer's own each reach only what they may
+//   - files: ranges and large uploads; wrong keys are counted; SIGTERM stops the launcher and the server in order
+// Builds into a temporary folder; the project's release/ is not touched. About a minute:
 //   node e2e/service-check.mjs
 import { execFile, execFileSync, spawn } from 'node:child_process'
-import { createHash } from 'node:crypto'
 import fs from 'node:fs'
-import http from 'node:http'
 import os from 'node:os'
 import path from 'node:path'
 import { promisify } from 'node:util'
@@ -33,67 +32,54 @@ const until = async (check, seconds = 40) => {
   return false
 }
 
-// ---- build the package from the project, as `npm run installer` does
+// ---- the build, as `npm run release` makes it
 const release = path.join(dir, 'release')
-const published = path.join(dir, 'published')
-const env = { ...process.env, FLINT_RELEASE_OUT: release, FLINT_SERVER_OUT: published }
-execFileSync(process.execPath, ['scripts/release.mjs'], { cwd: ROOT, env, stdio: 'ignore' })
-execFileSync(process.execPath, ['scripts/server-package.mjs'], { cwd: ROOT, env, stdio: 'ignore' })
+execFileSync(process.execPath, ['scripts/release.mjs'], { cwd: ROOT, env: { ...process.env, FLINT_RELEASE_OUT: release }, stdio: 'ignore' })
 const version = JSON.parse(fs.readFileSync(path.join(release, 'build.json'), 'utf8')).version
-const deb = path.join(published, `flintnotes_${version}_all.deb`)
-ok('the package and the feed are made', fs.existsSync(deb) && fs.existsSync(path.join(published, 'server-latest.json')) && fs.existsSync(path.join(published, `flintnotes-server-${version}.tar.gz`)))
-const control = execFileSync('dpkg-deb', ['--field', deb], { encoding: 'utf8' })
-ok('it says what it needs', /Depends: nodejs \(>= 20\)/.test(control) && /Architecture: all/.test(control), control)
+const lib = release
+ok('the build holds the launcher, the command and the program', ['launcher.mjs', 'cli.mjs', 'server.mjs', 'build.json', 'public/index.html'].every((file) => fs.existsSync(path.join(lib, file))))
 
-const root = path.join(dir, 'root')
-execFileSync('dpkg-deb', ['-x', deb, root])
-const lib = path.join(root, 'usr', 'lib', 'flintnotes')
-ok('it lays the launcher, the command and the program out', ['launcher.mjs', 'cli.mjs', 'server.mjs', 'build.json', 'public/index.html'].every((file) => fs.existsSync(path.join(lib, file))) && fs.existsSync(path.join(root, 'usr/lib/systemd/system/flintnotes.service')))
+// ---- the script and the service file it writes
+const script = path.join(ROOT, 'service', 'flintnotes')
+const sh = (...args) => {
+  try {
+    return { code: 0, text: execFileSync('sh', [script, ...args], { encoding: 'utf8', stdio: ['ignore', 'pipe', 'pipe'] }) }
+  } catch (err) {
+    return { code: err.status, text: `${err.stdout ?? ''}${err.stderr ?? ''}` }
+  }
+}
+ok('the script is valid sh, and runnable by dash', execFileSync('sh', ['-n', script]) !== null && (!fs.existsSync('/usr/bin/dash') || execFileSync('/usr/bin/dash', ['-n', script]) !== null))
+ok('it is executable', (fs.statSync(script).mode & 0o111) !== 0)
+const notes = fs.mkdtempSync(path.join(dir, 'notes-'))
+const shown = sh('unit', notes)
+const owner = os.userInfo().username
+ok(
+  '`unit` writes the service file: the owner of the folder, the launcher of this project, the first vault, what Node needs',
+  shown.code === 0 && shown.text.includes(`User=${owner}`) && /ExecStart=\S+\/node \S+\/release\/launcher\.mjs/.test(shown.text) && shown.text.includes(`FLINT_FIRST_VAULT=${notes}`) && /RestrictAddressFamilies=.*AF_NETLINK/.test(shown.text),
+  shown.text,
+)
+const lintDir = fs.mkdtempSync(path.join(dir, 'lint-'))
+fs.writeFileSync(path.join(lintDir, 'flintnotes.service'), shown.text)
 let lint = ''
 try {
-  lint = execFileSync('systemd-analyze', ['verify', path.join(root, 'usr/lib/systemd/system/flintnotes.service')], { encoding: 'utf8', stdio: ['ignore', 'pipe', 'pipe'] })
+  lint = execFileSync('systemd-analyze', ['verify', path.join(lintDir, 'flintnotes.service')], { encoding: 'utf8', stdio: ['ignore', 'pipe', 'pipe'] })
 } catch (err) {
   lint = String(err.stderr ?? err)
 }
-// The user and the program do not exist on this computer: only a unit that cannot be read at all is a failure.
-ok('the unit file is one systemd reads', !/Failed to parse|Unknown (section|key)|Invalid|Unknown lvalue/i.test(lint), lint)
+ok('that file is one systemd reads', !/Failed to parse|Unknown (section|key)|Invalid|Unknown lvalue/i.test(lint), lint)
+const odd = [sh('unit', '/tmp/a folder with spaces'), sh('unit', '/tmp/100%'), sh('install', path.join(dir, 'no-such-folder'))]
+ok('a path a service file cannot hold, or a folder that is not there, is refused with words', odd.every((r) => r.code !== 0 && r.text.trim().length > 20), odd.map((r) => r.text.trim().slice(0, 60)).join(' | '))
+ok('with no word it says what it does', sh().text.includes('install') && sh().text.includes('pair'))
 
-// ---- a feed with servers of our own making, served locally
+// ---- the launcher, run as the service file runs it
 const state = path.join(dir, 'state')
 const vaults = path.join(state, 'vaults')
 fs.mkdirSync(vaults, { recursive: true })
 const config = path.join(state, 'config.json')
 const LAN = 4842
 const ADMIN = 4841
-const FEED = 4843
 fs.writeFileSync(config, JSON.stringify({ phone: { port: LAN, host: '127.0.0.1' } }))
-
-const unpacked = path.join(dir, 'unpacked')
-fs.mkdirSync(unpacked)
-execFileSync('tar', ['-xzf', path.join(published, `flintnotes-server-${version}.tar.gz`), '-C', unpacked])
-/** A tarball of the same program with another version (and what `change` does to the folder first). */
-const makeServer = (next, change = () => {}) => {
-  const folder = path.join(dir, `server-${next}`)
-  fs.cpSync(unpacked, folder, { recursive: true })
-  const build = JSON.parse(fs.readFileSync(path.join(folder, 'build.json'), 'utf8'))
-  fs.writeFileSync(path.join(folder, 'build.json'), JSON.stringify({ ...build, version: next, id: `${build.id}-${next}` }))
-  change(folder)
-  const file = `flintnotes-server-${next}.tar.gz`
-  execFileSync('tar', ['-czf', path.join(dir, file), '-C', folder, '.'])
-  return { version: next, file, sha256: createHash('sha256').update(fs.readFileSync(path.join(dir, file))).digest('hex') }
-}
-let feed = {}
-const feedServer = http.createServer((req, res) => {
-  const name = req.url.slice(1)
-  if (name === 'server-latest.json') return res.end(JSON.stringify(feed))
-  const file = path.join(dir, name)
-  if (/^flintnotes-server-[\d.]+\.tar\.gz$/.test(name) && fs.existsSync(file)) return res.end(fs.readFileSync(file))
-  res.statusCode = 404
-  res.end()
-}).listen(FEED, '127.0.0.1')
-
-// ---- the launcher, run as the unit file runs it
-const serviceEnv = { ...process.env, FLINT_SERVICE: '1', FLINT_STATE_DIR: state, FLINT_CONFIG: config, FLINT_CACHE: path.join(dir, 'cache'), FLINT_FIRST_VAULT: path.join(vaults, 'FlintNotes'), FLINT_PORT: String(ADMIN), FLINT_SERVER_FEED: `http://127.0.0.1:${FEED}/server-latest.json`, FLINT_SERVER_UPDATE_FIRST: '600000' }
+const serviceEnv = { ...process.env, FLINT_SERVICE: '1', FLINT_STATE_DIR: state, FLINT_CONFIG: config, FLINT_CACHE: path.join(dir, 'cache'), FLINT_FIRST_VAULT: path.join(vaults, 'FlintNotes'), FLINT_PORT: String(ADMIN) }
 const log = fs.openSync(path.join(dir, 'service.log'), 'a')
 const launcher = spawn(process.execPath, [path.join(lib, 'launcher.mjs')], { env: serviceEnv, stdio: ['ignore', log, log] })
 let launcherExit
@@ -110,7 +96,6 @@ const lan = async (p = '/api/build', init = {}) => {
   }
 }
 const built = async () => (await (await lan()).json())
-// Asked without blocking this process: the feed below is served from it, and the command waits for the feed.
 const flintnotes = async (...args) => {
   try {
     return { code: 0, text: (await promisify(execFile)(process.execPath, [path.join(lib, 'cli.mjs'), ...args], { env: serviceEnv, encoding: 'utf8' })).stdout }
@@ -135,38 +120,11 @@ try {
   const rotated = await flintnotes('pair', '--rotate')
   const key2 = JSON.parse(fs.readFileSync(config, 'utf8')).shell.key
   ok('`pair --rotate` makes a new key and shuts out the old', rotated.code === 0 && key2 !== saved.shell.key && rotated.text.includes(key2) && (await lan('/api/tree', { headers: { cookie } })).status === 401 && (await lan('/api/tree', { headers: { cookie: `flint-shell=${key2}` } })).status === 200, rotated.text)
-  // ---- `flintnotes vault`: a folder that belongs to a person, taken over by running the service as that person
-  const mine = fs.mkdtempSync(path.join(vaults, 'owned-'))
-  const shown = await flintnotes('vault', mine, '--print')
-  const me = os.userInfo().username
-  ok('`vault --print` shows the change: the folder\'s owner, one folder let through', shown.code === 0 && shown.text.includes(`User=${me}`) && shown.text.includes(`ReadWritePaths=${mine}`) && shown.text.includes(`FLINT_FIRST_VAULT=${mine}`) && !shown.text.includes('BindPaths'), shown.text)
-  // The drop-in is read by systemd together with the unit it changes.
-  const lintDir = fs.mkdtempSync(path.join(dir, 'lint-'))
-  fs.mkdirSync(path.join(lintDir, 'flintnotes.service.d'))
-  fs.copyFileSync(path.join(root, 'usr/lib/systemd/system/flintnotes.service'), path.join(lintDir, 'flintnotes.service'))
-  fs.writeFileSync(path.join(lintDir, 'flintnotes.service.d', 'vault.conf'), shown.text)
-  let dropLint = ''
-  try {
-    dropLint = execFileSync('systemd-analyze', ['verify', path.join(lintDir, 'flintnotes.service')], { encoding: 'utf8', stdio: ['ignore', 'pipe', 'pipe'] })
-  } catch (err) {
-    dropLint = String(err.stderr ?? err)
-  }
-  ok('the unit with that change is still one systemd reads', !/Failed to parse|Unknown (section|key)|Invalid|Unknown lvalue/i.test(dropLint), dropLint)
-  ok('the package carries the one command that installs it', fs.existsSync(path.join(published, 'install.sh')) && (fs.statSync(path.join(published, 'install.sh')).mode & 0o111) !== 0)
-  const inHome = await flintnotes('vault', '/home/nobody-such', '--print')
-  ok('a folder that is not there is said so', inHome.code !== 0 && /нет/.test(inHome.text), inHome.text)
-  const refusals = [await flintnotes('vault', '/home', '--print'), await flintnotes('vault', '/', '--print'), await flintnotes('vault', 'relative/dir', '--print'), await flintnotes('vault', '/srv/with space', '--print'), await flintnotes('vault', '/var/lib/flintnotes/vaults', '--print')]
-  ok('the system\'s folders, relative and odd paths are refused with words', refusals.every((r) => r.code !== 0 && r.text.trim().length > 20), refusals.map((r) => r.text.trim().slice(0, 60)).join(' | '))
-  if (process.getuid() !== 0) {
-    const plain = await flintnotes('vault', mine)
-    ok('without root nothing is written; it says what to run', plain.code !== 0 && plain.text.includes('sudo flintnotes vault') && !fs.existsSync('/etc/systemd/system/flintnotes.service.d/vault.conf'), plain.text)
-  }
-
   const origin = `http://127.0.0.1:${LAN}`
   const shell = { cookie: `flint-shell=${key2}`, origin, 'content-type': 'application/json' }
   const post = (p, body, headers = shell) => lan(p, { method: 'POST', headers, body: JSON.stringify(body) })
-  const refused = [await post('/api/server/update', {}), await post('/api/phone', { newKey: true }), await post('/api/shell', { newKey: true }), await post('/api/proxy', { proxy: 'off' })]
-  ok("the shell's key does not reach what is the server's own: updating, keys, the proxy", refused.every((res) => res.status === 403), refused.map((res) => res.status).join())
+  const refused = [await post('/api/phone', { newKey: true }), await post('/api/shell', { newKey: true }), await post('/api/proxy', { proxy: 'off' })]
+  ok("the shell's key does not reach what is the server's own: keys, the proxy", refused.every((res) => res.status === 403), refused.map((res) => res.status).join())
   const info = await (await lan('/api/vault', { headers: shell })).json()
   ok('the page is told it is the shell, so that it shows no settings of the server', info.tier === 'shell', JSON.stringify(info))
 
@@ -231,31 +189,8 @@ try {
   for (let i = 0; i < 14; i++) guesses.push((await lan('/?key=wrong-key-number-' + i)).status)
   ok('after ten different wrong keys the sender is told to wait, even with the right one', guesses[0] === 401 && guesses.at(-1) === 429 && (await lan(`/?key=${key2}`)).status === 429, guesses.join())
 
-  // ---- updating
   const status = await flintnotes('status')
-  ok('`flintnotes status` says the version and that updates are on', status.code === 0 && status.text.includes(version) && /включены/.test(status.text), status.text)
-
-  const newer = makeServer('9.9.9')
-  feed = { ...newer, sha256: '0'.repeat(64) }
-  const wrongSum = await flintnotes('update')
-  ok('a download whose checksum is wrong is refused', /контрольная сумма/.test(wrongSum.text) && (await built()).version === version && !fs.existsSync(path.join(state, 'current')), wrongSum.text)
-  ok('and leaves nothing half-unpacked behind', !fs.existsSync(path.join(state, 'releases')) || fs.readdirSync(path.join(state, 'releases')).every((name) => !name.endsWith('.part')))
-
-  feed = newer
-  const put = await flintnotes('update')
-  ok('a newer server is put in', put.code === 0 && /9\.9\.9/.test(put.text) && fs.readlinkSync(path.join(state, 'current')) === 'releases/9.9.9', put.text)
-  const second = await until(async () => (await built()).version === '9.9.9' && (await built()))
-  ok('the launcher starts it in place of the old one, on the same port', second && second.build.endsWith('-9.9.9'), JSON.stringify(second))
-
-  const broken = makeServer('9.9.10', (folder) => fs.writeFileSync(path.join(folder, 'server.mjs'), 'process.exit(1)\n'))
-  feed = broken
-  await until(async () => (await built()).version === '9.9.9')
-  const bad = await flintnotes('update')
-  ok('a build that does not start is put in too (nothing can tell before)', bad.code === 0 && /9\.9\.10/.test(bad.text), bad.text)
-  const back = await until(async () => fs.existsSync(path.join(state, 'failed.json')) && (await built()).version === '9.9.9' && (await built()), 60)
-  ok('and given up for the one before it', back && back.version === '9.9.9' && JSON.parse(fs.readFileSync(path.join(state, 'failed.json'), 'utf8')).includes('9.9.10'), JSON.stringify(back))
-  const again = await flintnotes('update')
-  ok('it is not fetched again', /не запустилась/.test(again.text) && (await built()).version === '9.9.9', again.text)
+  ok('`flintnotes status` says the version', status.code === 0 && status.text.includes(version), status.text)
 
   // ---- stopping
   launcher.kill('SIGTERM')
@@ -263,14 +198,10 @@ try {
   ok('SIGTERM stops the launcher and the server, in order', stopped && launcherExit === 0 && (await lan().then(() => false, () => true)), `exit ${launcherExit}`)
 } finally {
   launcher.kill('SIGKILL')
-  feedServer.close()
   const text = fs.readFileSync(path.join(dir, 'service.log'), 'utf8')
   if (results.includes(false)) console.log(`\n--- service.log\n${text.split('\n').slice(-40).join('\n')}`)
   try {
     execFileSync('pkill', ['-f', `${lib}/server.mjs`])
-  } catch {}
-  try {
-    execFileSync('pkill', ['-f', path.join(state, 'releases')])
   } catch {}
   fs.rmSync(dir, { recursive: true, force: true })
 }

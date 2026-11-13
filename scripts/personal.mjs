@@ -1,5 +1,5 @@
 // Nothing of this computer may go out with a build: its folders, the name and address its git signs with.
-// Shared by the installer (scripts/installer.mjs) and the server package (scripts/server-package.mjs).
+// Used by the installer (scripts/installer.mjs).
 import { execFileSync } from 'node:child_process'
 import fs from 'node:fs'
 import os from 'node:os'

@@ -11,7 +11,6 @@
     "start": "tsx server/index.ts",
     "release": "node scripts/release.mjs",
     "installer": "node scripts/publish-build.mjs",
-    "server-package": "node scripts/publish-build.mjs server",
     "check": "svelte-check --tsconfig ./tsconfig.json",
     "test": "vite build && node e2e/run.mjs"
   },

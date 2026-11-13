@@ -1,0 +1,175 @@
+#!/bin/sh
+# FlintNotes as a service on this computer, run from this folder: the program is release/ (built by `npm run release`),
+# the service's own files (settings, caches, its own vaults) are in .service/ here, and it runs as the owner of this folder.
+# `install` also makes the command `flintnotes` (a link in /usr/local/bin), the same script.
+#
+#   service/flintnotes install [folder of notes]   set it up and start it (asks for sudo), then print the link for the Windows app
+#   service/flintnotes remove                      stop it and take the service away (the notes and .service/ stay)
+#   service/flintnotes start | stop | restart | status | logs
+#   service/flintnotes pair [--phone] [--rotate]   the link (and a QR code) for the Windows app, or with --phone for phones
+#   service/flintnotes unit [folder of notes]      only show the service file `install` would write
+#
+# A new build (`npm run release`) is picked up by the running service by itself. Settings the service reads, one per
+# line in .service/env (then `restart`):  FLINT_BIND=192.168.1.50  (listen on that card only)  FLINT_POLL=1  (a vault on a
+# network disk mounted here)  HTTPS_PROXY=http://127.0.0.1:8080
+set -eu
+
+self=$(readlink -f "$0")
+here=$(cd "$(dirname "$self")/.." && pwd -P)
+state=$here/.service
+name=flintnotes
+unit_file=/etc/systemd/system/$name.service
+
+die() {
+  echo "flintnotes: $*" >&2
+  exit 1
+}
+
+as_root() {
+  if [ "$(id -u)" = 0 ]; then "$@"; else sudo "$@"; fi
+}
+
+# A service file splits a path at spaces and reads % and quotes itself: only plain paths go in.
+plain() {
+  case $1 in
+    '' | *[!A-Za-z0-9._/@+-]*) die "the path $1 has characters a service file cannot hold (spaces, quotes, %, ...): use a plainer folder name" ;;
+  esac
+}
+
+owner=$(stat -c %U "$here")
+group=$(stat -c %G "$here")
+[ "$owner" != root ] || die "$here belongs to root: the service runs as the owner of this folder"
+plain "$here"
+
+# What `install` writes. $1: the folder of notes to open first, if one is named.
+unit() {
+  vault=${1:-$state/vaults/Notes}
+  plain "$vault"
+  node=$(command -v node) || die "Node.js (version 20 or newer) is not installed"
+  cat <<EOF
+# Written by $here/service/flintnotes install; \`flintnotes remove\` takes it away.
+[Unit]
+Description=FlintNotes server (the notes for the Windows window and the phones of the network)
+After=network-online.target
+Wants=network-online.target
+StartLimitIntervalSec=60
+StartLimitBurst=5
+
+[Service]
+Type=simple
+User=$owner
+Group=$group
+WorkingDirectory=$here
+Environment=NODE_ENV=production
+Environment=FLINT_SERVICE=1
+Environment=FLINT_STATE_DIR=$state
+Environment=FLINT_CONFIG=$state/config.json
+Environment=FLINT_CACHE=$state/cache
+Environment=FLINT_FIRST_VAULT=$vault
+Environment=FLINT_VAULT_ROOTS=$state/vaults:$vault
+EnvironmentFile=-$state/env
+ExecStart=$node $here/release/launcher.mjs
+Restart=on-failure
+RestartSec=2
+# SIGTERM reaches the launcher and the server together; the server finishes the saves it has begun (up to 5 s).
+TimeoutStopSec=15
+
+# It serves a network: it gets no more of the system than it needs. (AF_NETLINK: Node asks the system for its own addresses.)
+NoNewPrivileges=yes
+PrivateTmp=yes
+ProtectSystem=full
+ProtectKernelTunables=yes
+ProtectKernelModules=yes
+ProtectControlGroups=yes
+RestrictAddressFamilies=AF_INET AF_INET6 AF_UNIX AF_NETLINK
+RestrictNamespaces=yes
+LockPersonality=yes
+RestrictSUIDSGID=yes
+
+[Install]
+WantedBy=multi-user.target
+EOF
+}
+
+# The earlier way of installing it, a .deb with a user of its own, is taken away: package, user, files, drop-in.
+clear_old() {
+  if dpkg -s flintnotes >/dev/null 2>&1; then
+    systemctl disable --now flintnotes >/dev/null 2>&1 || true
+    apt-get purge -y flintnotes
+  fi
+  rm -rf /etc/systemd/system/flintnotes.service.d /var/lib/flintnotes /var/cache/flintnotes
+  if [ -f /usr/bin/flintnotes ] && grep -q 'usr/lib/flintnotes' /usr/bin/flintnotes; then rm -f /usr/bin/flintnotes; fi
+  if getent passwd flintnotes >/dev/null; then userdel flintnotes || true; fi
+  if getent group flintnotes >/dev/null; then groupdel flintnotes || true; fi
+}
+
+cli() {
+  [ -f "$here/release/cli.mjs" ] || die "release/ is not built: run  npm run release  in $here"
+  FLINT_CONFIG=$state/config.json node "$here/release/cli.mjs" "$@"
+}
+
+install() {
+  vault=${1:-}
+  if [ -n "$vault" ]; then
+    [ -d "$vault" ] || die "$vault: no such folder"
+    vault=$(cd "$vault" && pwd -P)
+    plain "$vault"
+    [ "$(stat -c %U "$vault")" = "$owner" ] || echo "flintnotes: $vault belongs to $(stat -c %U "$vault"), not to $owner: the service may not be able to write there" >&2
+  fi
+  if [ "$(id -u)" != 0 ]; then
+    # The program is built as the person, not as root; then sudo does the rest.
+    if [ ! -f "$here/release/server.mjs" ]; then
+      echo "Building the program (npm run release) ..."
+      (cd "$here" && node scripts/release.mjs)
+    fi
+    exec sudo "$self" install ${vault:+"$vault"}
+  fi
+  [ -f "$here/release/server.mjs" ] || die "release/ is not built: run  npm run release  in $here (as yourself, not root)"
+  clear_old
+  install -d -o "$owner" -g "$group" "$state"
+  # The command the window's pages and messages name: `flintnotes pair`.
+  ln -sf "$self" /usr/local/bin/flintnotes
+  unit "$vault" >"$unit_file"
+  systemctl daemon-reload
+  systemctl enable --now "$name"
+  echo "Waiting for the service ..."
+  tries=0
+  until cli status >/dev/null 2>&1; do
+    tries=$((tries + 1))
+    if [ "$tries" -ge 40 ]; then
+      journalctl -u "$name" -n 30 --no-pager || true
+      die "the service did not come up in 40 seconds (the journal is above)"
+    fi
+    sleep 1
+  done
+  cli status
+  echo
+  cli pair
+}
+
+remove() {
+  as_root systemctl disable --now "$name" 2>/dev/null || true
+  as_root rm -f "$unit_file"
+  if [ "$(readlink /usr/local/bin/flintnotes 2>/dev/null)" = "$self" ]; then as_root rm -f /usr/local/bin/flintnotes; fi
+  as_root systemctl daemon-reload
+  echo "The service is gone. The notes and $state stay."
+}
+
+command=${1:-}
+[ $# -eq 0 ] || shift
+case $command in
+  install) install "$@" ;;
+  remove) remove ;;
+  start | stop | restart) as_root systemctl "$command" "$name" ;;
+  status)
+    systemctl status "$name" --no-pager -l || true
+    cli status
+    ;;
+  logs) journalctl -u "$name" -n 100 -f ;;
+  pair) cli pair "$@" ;;
+  unit) unit "$@" ;;
+  *)
+    sed -n '2,/^set -eu/p' "$self" | sed '$d' | sed 's/^# \{0,1\}//'
+    [ -z "$command" ] || exit 2
+    ;;
+esac

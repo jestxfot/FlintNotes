@@ -71,7 +71,7 @@ ok('a key it does not take is «locked»', locked.state === 'locked', JSON.strin
 const newer = await probe(await flint(PROTOCOL + 1), KEY, PROTOCOL)
 ok('a newer server says the app must be updated', newer.state === 'newer-server' && /обновите FlintNotes для Windows/.test(newer.message), JSON.stringify(newer))
 const older = await probe(await flint(PROTOCOL - 1), KEY, PROTOCOL)
-ok('an older server says the server must be updated, and how', older.state === 'older-server' && /flintnotes update/.test(older.message), JSON.stringify(older))
+ok('an older server says the server must be updated, and how', older.state === 'older-server' && /npm run release/.test(older.message), JSON.stringify(older))
 
 const web = await probe(await serve((_req, res) => res.end('<html>a web page</html>')), KEY, PROTOCOL)
 ok('a web page that is not FlintNotes is told apart', web.state === 'unreachable' && /не сервер FlintNotes/.test(web.message), JSON.stringify(web))

@@ -41,7 +41,7 @@ export type Probe =
   | { state: 'unreachable'; message: string }
   /** The server speaks a newer protocol than this app: the app needs an update. */
   | { state: 'newer-server'; info: BuildInfo; message: string }
-  /** The server speaks an older one: the server needs an update (`flintnotes update`). */
+  /** The server speaks an older one: the server needs a new build (`npm run release` there). */
   | { state: 'older-server'; info: BuildInfo; message: string }
 
 const FAILURES: Record<string, string> = {
@@ -102,7 +102,7 @@ export async function probe(origin: string, key: string, protocol: number, timeo
   } catch {}
   if (!info) return { state: 'unreachable', message: 'по этому адресу отвечает не сервер FlintNotes' }
   if (info.protocol > protocol) return { state: 'newer-server', info, message: `сервер (${info.version}) новее приложения: обновите FlintNotes для Windows — значок в трее → «Проверить обновления»` }
-  if (info.protocol < protocol) return { state: 'older-server', info, message: `сервер (${info.version}) старше приложения: на сервере выполните flintnotes update` }
+  if (info.protocol < protocol) return { state: 'older-server', info, message: `сервер (${info.version}) старше приложения: на сервере соберите программу заново (npm run release)` }
   try {
     const checked = await ask(new URL('/api/vaults', origin), { cookie: `${SHELL_COOKIE}=${key}` }, timeout)
     if (checked.status === 200) return { state: 'ok', info }

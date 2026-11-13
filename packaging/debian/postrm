@@ -1,9 +1,0 @@
-#!/bin/sh
-set -e
-if [ -d /run/systemd/system ]; then systemctl daemon-reload || true; fi
-# The notes (/var/lib/flintnotes) stay on a plain remove; `apt purge` takes the service's own files, never the vaults:
-# a vault is the user's, and is left for the user to delete.
-if [ "$1" = purge ]; then
-  rm -rf /var/cache/flintnotes /var/lib/flintnotes/releases /var/lib/flintnotes/current /var/lib/flintnotes/previous /var/lib/flintnotes/failed.json
-fi
-exit 0

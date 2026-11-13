@@ -23,7 +23,6 @@ import { checkWay, chooseProxy, computerProxy, describe, parseProxy, telegramNam
 import { decide } from './policy'
 import { keptTrees, limiter } from './kept'
 import { TreeCache } from './tree-cache'
-import { DEFAULT_FEED, checkServerUpdate, lastUpdateStatus, startServerUpdates } from './update'
 
 // The vaults the user has opened are remembered between runs, outside any vault.
 const CONFIG = process.env.FLINT_CONFIG ?? path.join(os.homedir(), '.flintnotes.json')
@@ -72,9 +71,9 @@ const validPort = (value: unknown): value is number => Number.isInteger(value) &
 
 const config = await readConfig()
 /**
- * Run as the Debian service (flintnotes.service, FLINT_SERVICE=1): the notes are for the Windows shell and the phones of
- * the network, so the listener for them is on whenever a key exists; the shell's is made at the first start (`flintnotes pair` shows it);
- * the program updates itself into STATE_DIR (server/update.ts).
+ * Run as a service on the Debian computer (service/flintnotes, FLINT_SERVICE=1): the notes are for the Windows shell and
+ * the phones of the network, so the listener for them is on whenever a key exists; the shell's is made at the first start
+ * (`service/flintnotes pair` shows it). Its config, caches and own vaults are under STATE_DIR.
  */
 const SERVICE = process.env.FLINT_SERVICE === '1'
 const STATE_DIR = process.env.FLINT_STATE_DIR
@@ -1131,20 +1130,6 @@ app.onError((err, c) => {
 // What this server is (the shell reads it before it shows the key; see `lanFetch`). Before `app.route`, which copies the routes it has.
 api.get('/build', (c) => c.json({ version: VERSION, protocol: PROTOCOL, build: BUILD } satisfies BuildInfo))
 
-// ---- the service's own updates (server/update.ts); asked for from the server's own computer (`flintnotes update`)
-/** Whether this server fetches newer versions of itself: only the service, from a build, unless told not to. */
-const updatesOn = () => SERVICE && !!STATE_DIR && VERSION !== 'dev' && process.env.FLINT_SERVER_UPDATES !== '0'
-const updateOptions = () => ({ state: STATE_DIR ?? '', version: VERSION, feed: process.env.FLINT_SERVER_FEED ?? DEFAULT_FEED })
-
-api.get('/server', (c) => c.json({ version: VERSION, protocol: PROTOCOL, build: BUILD, service: SERVICE, updates: updatesOn(), status: lastUpdateStatus() }))
-
-api.post('/server/update', async (c) => {
-  const origin = c.req.header('origin')
-  if (!origin || hostOf(origin) !== c.req.header('host')) throw new HTTPException(403, { message: 'Только со страницы самого приложения' })
-  if (!updatesOn()) throw new HTTPException(400, { message: 'Этот сервер сам не обновляется (не служба, не из сборки или FLINT_SERVER_UPDATES=0)' })
-  return c.json(await checkServerUpdate(updateOptions()))
-})
-
 app.route('/api', api)
 
 // The built app: next to this file in a release, in `dist` when run from the sources.
@@ -1181,7 +1166,6 @@ const started = (where: string) => () => {
   console.log(`FlintNotes: ${where}`)
   console.log(`Хранилище: ${defaultRoot}${needsPolling() ? ' (опрос изменений)' : ''}`)
   if (!staticDir) console.log('Приложение не собрано: выполните `npm run build` или запустите `npm run dev`.')
-  if (updatesOn()) startServerUpdates(updateOptions(), { first: Number(process.env.FLINT_SERVER_UPDATE_FIRST) || undefined })
 }
 
 // This one answers the server's own computer only (the browser there, `flintnotes`); the network's listener is below.

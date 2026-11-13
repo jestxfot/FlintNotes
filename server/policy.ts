@@ -25,10 +25,8 @@ const NOT_PHONE = 'Это делается только на компьютер�
 const WRITES = ['POST', 'PUT', 'PATCH', 'DELETE']
 
 export const RULES: readonly Rule[] = [
-  // What version the server is anyone may read, to tell it from a wrong address.
-  { path: /^\/api\/server$/, methods: ['GET', 'HEAD'], tiers: ['admin', 'shell', 'phone'], message: '' },
-  // What belongs to the server itself: its proxy, the keys, updating it.
-  { path: /^\/api\/(proxy|phone|shell|server)(\/|$)/, tiers: ['admin'], message: NOT_NETWORK },
+  // What belongs to the server itself: its proxy and the keys.
+  { path: /^\/api\/(proxy|phone|shell)(\/|$)/, tiers: ['admin'], message: NOT_NETWORK },
   // The programs the owner wrote into the server's config (Templater's system commands): the window's own, never a phone's.
   { path: /^\/api\/exec(\/|$)/, tiers: ['admin', 'shell'], message: NOT_PHONE },
   // Forgetting a vault, and looking through the server's folders to open one.
