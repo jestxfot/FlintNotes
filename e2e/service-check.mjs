@@ -192,6 +192,43 @@ try {
   const status = await flintnotes('status')
   ok('`flintnotes status` says the version', status.code === 0 && status.text.includes(version), status.text)
 
+  // ---- `install` and `remove` as root does them, with stand-ins for sudo, systemctl and the rest (nothing of the system is touched)
+  if (process.getuid() !== 0) {
+    const proj = path.join(dir, 'proj')
+    fs.mkdirSync(path.join(proj, 'service'), { recursive: true })
+    fs.copyFileSync(script, path.join(proj, 'service', 'flintnotes'))
+    fs.chmodSync(path.join(proj, 'service', 'flintnotes'), 0o755)
+    fs.cpSync(release, path.join(proj, 'release'), { recursive: true })
+    const fake = path.join(dir, 'fake-bin')
+    const unitDir = path.join(dir, 'units')
+    const binDir = path.join(dir, 'bin')
+    const calls = path.join(dir, 'calls.log')
+    for (const folder of [fake, unitDir, binDir]) fs.mkdirSync(folder)
+    const stub = (name, body) => fs.writeFileSync(path.join(fake, name), `#!/bin/sh\n${body}\n`, { mode: 0o755 })
+    stub('sudo', 'exec "$@"')
+    stub('id', 'if [ "$1" = -u ]; then echo 0; else exec /usr/bin/id "$@"; fi')
+    for (const name of ['systemctl', 'apt-get']) stub(name, `echo "${name} $*" >> ${calls}`)
+    stub('dpkg', `echo "dpkg $*" >> ${calls}; exit 1`)
+    stub('getent', 'exit 2')
+    stub('journalctl', 'true')
+    const asRoot = { ...process.env, PATH: `${fake}:${process.env.PATH}`, FLINT_UNIT_DIR: unitDir, FLINT_BIN_DIR: binDir, FLINT_PORT: String(ADMIN) }
+    const run = async (file, ...args) => {
+      try {
+        return { code: 0, text: (await promisify(execFile)(file, args, { env: asRoot, encoding: 'utf8' })).stdout }
+      } catch (err) {
+        return { code: err.code, text: `${err.stdout ?? ''}${err.stderr ?? ''}` }
+      }
+    }
+    const installed = await run(path.join(proj, 'service', 'flintnotes'), 'install', notes)
+    const written = fs.existsSync(path.join(unitDir, 'flintnotes.service')) ? fs.readFileSync(path.join(unitDir, 'flintnotes.service'), 'utf8') : ''
+    const log = fs.existsSync(calls) ? fs.readFileSync(calls, 'utf8') : ''
+    ok('`install` as root goes through: it writes the service file for this folder and the vault named', installed.code === 0 && written.includes(`WorkingDirectory=${proj}`) && written.includes(`FLINT_FIRST_VAULT=${notes}`) && fs.existsSync(path.join(proj, '.service')), installed.text)
+    ok('it reloads systemd, enables and starts the service, and prints the link with the key', /systemctl daemon-reload/.test(log) && /systemctl enable --now flintnotes/.test(log) && /\?key=/.test(installed.text), `${log}\n${installed.text}`)
+    ok('it makes the command `flintnotes`, which is the same script', fs.existsSync(path.join(binDir, 'flintnotes')) && fs.realpathSync(path.join(binDir, 'flintnotes')) === fs.realpathSync(path.join(proj, 'service', 'flintnotes')))
+    const gone = await run(path.join(binDir, 'flintnotes'), 'remove')
+    ok('`flintnotes remove` (through the link) takes the service file and the command away, and keeps the folder', gone.code === 0 && !fs.existsSync(path.join(unitDir, 'flintnotes.service')) && !fs.existsSync(path.join(binDir, 'flintnotes')) && fs.existsSync(path.join(proj, '.service')) && /systemctl disable --now flintnotes/.test(fs.readFileSync(calls, 'utf8')), gone.text)
+  }
+
   // ---- stopping
   launcher.kill('SIGTERM')
   const stopped = await until(() => launcherExit !== undefined, 20)

@@ -18,7 +18,10 @@ self=$(readlink -f "$0")
 here=$(cd "$(dirname "$self")/.." && pwd -P)
 state=$here/.service
 name=flintnotes
-unit_file=/etc/systemd/system/$name.service
+# Where the service file and the command go; the tests point them elsewhere.
+unit_dir=${FLINT_UNIT_DIR:-/etc/systemd/system}
+bin_dir=${FLINT_BIN_DIR:-/usr/local/bin}
+unit_file=$unit_dir/$name.service
 
 die() {
   echo "flintnotes: $*" >&2
@@ -97,7 +100,7 @@ clear_old() {
     systemctl disable --now flintnotes >/dev/null 2>&1 || true
     apt-get purge -y flintnotes
   fi
-  rm -rf /etc/systemd/system/flintnotes.service.d /var/lib/flintnotes /var/cache/flintnotes
+  rm -rf "$unit_dir/$name.service.d" /var/lib/flintnotes /var/cache/flintnotes
   if [ -f /usr/bin/flintnotes ] && grep -q 'usr/lib/flintnotes' /usr/bin/flintnotes; then rm -f /usr/bin/flintnotes; fi
   if getent passwd flintnotes >/dev/null; then userdel flintnotes || true; fi
   if getent group flintnotes >/dev/null; then groupdel flintnotes || true; fi
@@ -108,7 +111,7 @@ cli() {
   FLINT_CONFIG=$state/config.json node "$here/release/cli.mjs" "$@"
 }
 
-install() {
+cmd_install() {
   vault=${1:-}
   if [ -n "$vault" ]; then
     [ -d "$vault" ] || die "$vault: no such folder"
@@ -126,7 +129,7 @@ install() {
   clear_old
   install -d -o "$owner" -g "$group" "$state"
   # The command the window's pages and messages name: `flintnotes pair`.
-  ln -sf "$self" /usr/local/bin/flintnotes
+  ln -sf "$self" "$bin_dir/flintnotes"
   unit "$vault" >"$unit_file"
   systemctl daemon-reload
   systemctl enable --now "$name"
@@ -145,10 +148,10 @@ install() {
   cli pair
 }
 
-remove() {
+cmd_remove() {
   as_root systemctl disable --now "$name" 2>/dev/null || true
   as_root rm -f "$unit_file"
-  if [ "$(readlink /usr/local/bin/flintnotes 2>/dev/null)" = "$self" ]; then as_root rm -f /usr/local/bin/flintnotes; fi
+  if [ "$(readlink "$bin_dir/flintnotes" 2>/dev/null)" = "$self" ]; then as_root rm -f "$bin_dir/flintnotes"; fi
   as_root systemctl daemon-reload
   echo "The service is gone. The notes and $state stay."
 }
@@ -156,8 +159,8 @@ remove() {
 command=${1:-}
 [ $# -eq 0 ] || shift
 case $command in
-  install) install "$@" ;;
-  remove) remove ;;
+  install) cmd_install "$@" ;;
+  remove) cmd_remove ;;
   start | stop | restart) as_root systemctl "$command" "$name" ;;
   status)
     systemctl status "$name" --no-pager -l || true
