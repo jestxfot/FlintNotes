@@ -533,11 +533,17 @@ api.get('/thumb', async (c) => {
     } catch {
       throw new HTTPException(400, { message: 'Это не адрес' })
     }
-    if (heldOff(url.host)) throw new HTTPException(502, { message: heldOffMessage(url.host) })
-    await openWeb(url)
+    // A window that reaches the site where this server cannot may have brought the picture (PUT /api/thumb-source).
+    const brought = await thumbs.source(url.href)
+    if (!brought) {
+      if (heldOff(url.host)) throw new HTTPException(502, { message: heldOffMessage(url.host) })
+      await openWeb(url)
+    }
     id = `url:${url.href}`
     headers['cache-control'] = 'private, max-age=604800'
-    load = async () => {
+    // Brought: read from the disk as it is converted. Otherwise fetched, here, once.
+    local = brought
+    load = brought ? () => fs.readFile(brought) : async () => {
       if (heldOff(url.host)) throw new HTTPException(502, { message: heldOffMessage(url.host) })
       let res
       try {
@@ -580,6 +586,22 @@ api.get('/thumb', async (c) => {
     // A file that is not a picture (or one the resizer cannot open) is told apart from a server that failed.
     throw new HTTPException(/unsupported|corrupt|Input|pixel/i.test(message) ? 415 : 502, { message })
   }
+})
+
+// A picture of the web that this server cannot get to, brought by the desktop app (which can: it is on the user's own connection).
+// The server keeps it as the picture's original; from then on /api/thumb makes and keeps the light copies from it.
+api.put('/thumb-source', async (c) => {
+  let url: URL
+  try {
+    url = new URL(c.req.query('url') ?? '')
+  } catch {
+    throw new HTTPException(400, { message: 'Это не адрес' })
+  }
+  if (url.protocol !== 'http:' && url.protocol !== 'https:') throw new HTTPException(400, { message: 'Нужен адрес http или https' })
+  const bytes = Buffer.from(await c.req.arrayBuffer())
+  if (!bytes.length || bytes.length > 150_000_000) throw new HTTPException(413, { message: 'Размер картинки не подходит' })
+  if (!(await thumbs.keepSource(url.href, bytes))) throw new HTTPException(415, { message: 'Это не картинка, которую можно уменьшить' })
+  return c.body(null, 204)
 })
 
 // How large the pictures of the vault are, for the page to keep room for them before they arrive (src/core/sizes.ts): read

@@ -12,6 +12,7 @@
  */
 import { app, BrowserWindow, clipboard, dialog, ipcMain, Menu, nativeImage, net, Notification, safeStorage, screen, session, shell, Tray, type IpcMainEvent, type IpcMainInvokeEvent, type MenuItemConstructorOptions } from 'electron'
 import { spawn } from 'node:child_process'
+import dns from 'node:dns/promises'
 import { createHash } from 'node:crypto'
 import fs from 'node:fs'
 import os from 'node:os'
@@ -494,6 +495,37 @@ ipcMain.handle('shell:connect', async (event, link: unknown) => {
 })
 ipcMain.on('shell:retry', (event) => trustedShell(event) && void connect())
 ipcMain.on('shell:change', (event) => trustedShell(event) && showShellPage('connect', server ? `Сейчас: ${server.origin}` : ''))
+// A picture of the web for the server, which may not be able to reach the site (the home server is often behind a line that blocks what
+// this computer opens fine). The window fetches it over its own connection; the page hands it to the server, which makes the light
+// copies. The open web only: nothing on this computer or the home network, whatever address a note names.
+const LOCAL_ADDRESS = /^(127\.|10\.|192\.168\.|169\.254\.|172\.(1[6-9]|2\d|3[01])\.|0\.|::1$|f[cd]|fe80)/i
+const BYTES_LIMIT = 150_000_000
+ipcMain.handle('fetch-bytes', async (event, address: unknown): Promise<{ type: string; bytes: Uint8Array } | null> => {
+  if (!trusted(event) || typeof address !== 'string') return null
+  let url: URL
+  try {
+    url = new URL(address)
+  } catch {
+    return null
+  }
+  if (!/^https?:$/.test(url.protocol) || /^(localhost|.*\.(local|lan|internal|home|corp))$/i.test(url.hostname)) return null
+  try {
+    const found = await dns.lookup(url.hostname, { all: true })
+    if (found.some((one) => LOCAL_ADDRESS.test(one.address))) return null
+  } catch {
+    // A name this computer does not resolve itself (a proxy may) is let through if it is a public-looking name.
+    if (!url.hostname.includes('.')) return null
+  }
+  try {
+    const res = await net.fetch(url.href, { redirect: 'follow', signal: AbortSignal.timeout(120_000), headers: { accept: 'image/*,*/*;q=0.8' } })
+    const type = res.headers.get('content-type') ?? ''
+    if (!res.ok || !/^image\//i.test(type) || Number(res.headers.get('content-length') ?? 0) > BYTES_LIMIT) return null
+    const bytes = new Uint8Array(await res.arrayBuffer())
+    return bytes.length && bytes.length <= BYTES_LIMIT ? { type, bytes } : null
+  } catch {
+    return null
+  }
+})
 ipcMain.handle('autostart', (event) => (trusted(event) ? { enabled: autostart() } : null))
 ipcMain.handle('set-autostart', (event, enabled: unknown) => (trusted(event) ? { enabled: setAutostart(!!enabled) } : null))
 ipcMain.on('quit', (event) => trusted(event) && void quit(true))

@@ -1,4 +1,5 @@
 import { Plugin } from '../../api'
+import { desktop } from '../../core/desktop'
 import { imageSize } from '../../core/sizes'
 import type { FromWorker, ToWorker } from './worker'
 
@@ -235,7 +236,9 @@ export default class Animations extends Plugin {
     }
     copy = (async () => {
       // The server makes the copies, once, for every window and phone, and keeps them: this page downloads a few MB, not the GIF.
-      const fromServer = await this.fromServer(original, width)
+      let fromServer = await this.fromServer(original, width)
+      // A site the server cannot get to but this computer can: the desktop app fetches the GIF, the server keeps it and makes the copies.
+      if (fromServer === 'unavailable' && (await this.bring(original))) fromServer = await this.fromServer(original, width)
       if (fromServer !== 'unavailable') return fromServer
       // No server to do it (no resizer there, an address it cannot reach): made here, in a worker, from the GIF itself.
       const made = (await stored(key).catch(() => null)) ?? (await this.make(original, width))
@@ -248,6 +251,35 @@ export default class Animations extends Plugin {
     this.copies.set(key, copy)
     this.forget()
     return copy
+  }
+
+  /** Pictures already brought (or tried) this visit, by address: a GIF of 50 MB is carried once. */
+  private brought = new Map<string, Promise<boolean>>()
+
+  /**
+   * Has the desktop app fetch a GIF of the web and give it to the server (`PUT /api/thumb-source`), for a server that cannot reach the
+   * site itself. False where there is no desktop app, or it did not get the picture, or the server did not take it.
+   */
+  private bring(original: string): Promise<boolean> {
+    let done = this.brought.get(original)
+    if (!done) {
+      done = (async () => {
+        if (!desktop?.fetchBytes) return false
+        let url: URL
+        try {
+          url = new URL(original, location.href)
+        } catch {
+          return false
+        }
+        if (!/^https?:$/.test(url.protocol) || url.origin === location.origin) return false
+        const got = await desktop.fetchBytes(url.href).catch(() => null)
+        if (!got) return false
+        const res = await fetch(`/api/thumb-source?url=${encodeURIComponent(url.href)}`, { method: 'PUT', body: got.bytes as BodyInit }).catch(() => null)
+        return !!res?.ok
+      })()
+      this.brought.set(original, done)
+    }
+    return done
   }
 
   /**

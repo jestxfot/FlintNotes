@@ -8,6 +8,11 @@ import type { ReminderPresentation } from '../../shared/reminders'
 export interface DesktopBridge {
   /** The window's controls (minimise, maximise, close) take the colours of the bar they sit on. */
   setTitleBarColors(colors: { color: string; symbolColor: string }): void
+  /**
+   * A picture of the web fetched by the app itself, over this computer's own connection (an older app has no such call): for the
+   * server to make light copies of what it cannot get to. `null`: not a picture, not the open web, or it did not come.
+   */
+  fetchBytes?(address: string): Promise<{ type: string; bytes: Uint8Array } | null>
   /** Starting together with Windows, as the system keeps it for the app. */
   autostart(): Promise<{ enabled: boolean }>
   setAutostart(enabled: boolean): Promise<{ enabled: boolean }>

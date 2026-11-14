@@ -48,8 +48,43 @@ export class Thumbs {
   /** `dir`: where the copies are kept; `limit`: about how much of the disk they may take. */
   constructor(
     private dir = path.join(KEPT_DIR, 'thumbs'),
-    private limit = 400_000_000,
+    private limit = 600_000_000,
   ) {}
+
+  private sourceFile(address: string): string {
+    return path.join(this.dir, `${createHash('sha1').update(`source\n${address}`).digest('hex').slice(0, 24)}.src`)
+  }
+
+  /**
+   * A picture of the web that this server cannot fetch itself, brought by a window that can (the desktop app, over its own
+   * connection): kept as the picture's original, so that the copies are made from it and asked for as for any other.
+   * `false`: it is not a picture the resizer can read.
+   */
+  async keepSource(address: string, bytes: Buffer): Promise<boolean> {
+    const sharp = await resizer()
+    if (!sharp) return false
+    try {
+      const meta = await sharp(bytes, { animated: true, limitInputPixels: MAX_ANIMATED_PIXELS }).metadata()
+      if (!meta.width) return false
+    } catch {
+      return false
+    }
+    await fs.mkdir(this.dir, { recursive: true })
+    const file = this.sourceFile(address)
+    await fs.writeFile(`${file}.part`, bytes)
+    await fs.rename(`${file}.part`, file)
+    if (++this.written % 200 === 0) void this.trim()
+    return true
+  }
+
+  /** The path of the picture a window brought for this address, if it did and it is still kept. */
+  async source(address: string): Promise<string | null> {
+    const file = this.sourceFile(address)
+    const stat = await fs.stat(file).catch(() => null)
+    if (!stat?.isFile()) return null
+    void fs.utimes(file, new Date(), new Date()).catch(() => {})
+    return file
+  }
 
   /** Whether pictures can be made at all here. */
   async available(): Promise<boolean> {
@@ -188,7 +223,7 @@ export class Thumbs {
     const names = await fs.readdir(this.dir).catch(() => [])
     const files = (
       await Promise.all(
-        names.filter((name) => name.endsWith('.webp')).map(async (name) => {
+        names.filter((name) => name.endsWith('.webp') || name.endsWith('.src')).map(async (name) => {
           const stat = await fs.stat(path.join(this.dir, name)).catch(() => null)
           return stat ? { name, size: stat.size, time: stat.mtimeMs } : null
         }),
