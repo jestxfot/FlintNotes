@@ -15,6 +15,10 @@ export interface TreeStore {
 /** What a check of a kept list against the disk found: files that came or changed, and files that are gone. */
 export type TreeChange = { type: 'upsert'; entry: VaultEntry } | { type: 'delete'; path: string }
 
+/** The time one slice of work may take before the server is let to do something else, ms. */
+const SLICE = 8
+const yieldToServer = () => new Promise<void>((resume) => setImmediate(resume))
+
 const same = (a: VaultEntry, b: VaultEntry) => a.kind === b.kind && a.size === b.size && a.mtime === b.mtime
 
 /**
@@ -89,10 +93,10 @@ export class TreeCache {
     const touched = new Set<string>()
     this.touched.set(dir, touched)
     const walk = this.walk(dir)
-      .then((entries) => {
+      .then(async (entries) => {
         const tree = this.trees.get(dir)
         this.written.delete(dir)
-        if (tree) this.merge(dir, tree, entries, touched)
+        if (tree) await this.merge(dir, tree, entries, touched)
         // A change that came while walking may or may not be in the result: then the next request walks again.
         else if (!touched.size) this.trees.set(dir, { entries: new Map(entries.map((entry) => [entry.path, entry])), at })
         else return entries
@@ -109,7 +113,13 @@ export class TreeCache {
   }
 
   /** Puts what a walk found into the list, telling what differs; what the watcher reported meanwhile stays as it said. */
-  private merge(dir: string, tree: Tree, found: VaultEntry[], touched: Set<string>): void {
+  private async merge(dir: string, tree: Tree, found: VaultEntry[], touched: Set<string>): Promise<void> {
+    // Tens of thousands of entries: looked through a few milliseconds at a time (one go held the server for 150-350 ms every ten
+    // minutes, with the page's requests waiting). What the watcher reports meanwhile is in `touched` and wins, as it always did.
+    let slice = performance.now()
+    const breathe = async () => {
+      if (performance.now() - slice > SLICE) (await yieldToServer(), (slice = performance.now()))
+    }
     const isTouched = (path: string) => {
       for (let at = path.length; at > 0; at = path.lastIndexOf('/', at - 1)) if (touched.has(path.slice(0, at))) return true
       return false
@@ -119,14 +129,22 @@ export class TreeCache {
       seen.add(entry.path)
       if (isTouched(entry.path)) continue
       const known = tree.entries.get(entry.path)
-      if (known && same(known, entry)) continue
+      if (known && same(known, entry)) {
+        await breathe()
+        continue
+      }
       tree.entries.set(entry.path, entry)
       this.changed(dir, { type: 'upsert', entry })
+      await breathe()
     }
     for (const path of [...tree.entries.keys()]) {
-      if (seen.has(path) || isTouched(path)) continue
+      if (seen.has(path) || isTouched(path)) {
+        await breathe()
+        continue
+      }
       tree.entries.delete(path)
       this.changed(dir, { type: 'delete', path })
+      await breathe()
     }
   }
 
