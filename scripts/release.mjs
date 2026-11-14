@@ -44,7 +44,8 @@ const common = {
   banner: { js: "import { createRequire as __createRequire } from 'node:module'; const require = __createRequire(import.meta.url);" },
   logLevel: 'warning',
 }
-await bundle({ ...common, entryPoints: ['server/index.ts'], outfile: `${OUT}/server.mjs` })
+// `sharp` (small copies of pictures) is native code, read from node_modules at run time; without it covers are shown as they are.
+await bundle({ ...common, entryPoints: ['server/index.ts'], outfile: `${OUT}/server.mjs`, external: ['sharp'] })
 await bundle({ ...common, entryPoints: ['server/launcher.ts'], outfile: `${OUT}/launcher.mjs` })
 await bundle({ ...common, entryPoints: ['server/cli.ts'], outfile: `${OUT}/cli.mjs` })
 // The desktop app's own parts: Electron gives them `electron`. Its preload runs in a sandbox, which only knows CommonJS.

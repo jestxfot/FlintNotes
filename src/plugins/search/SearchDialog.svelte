@@ -1,7 +1,7 @@
 <script lang="ts">
   import { onMount, tick } from 'svelte'
   import { path, type App } from '../../api'
-  import { highlightPattern, search } from './search'
+  import { highlightPattern, searchRemote, type SearchResult } from './search'
 
   let { app, onclose }: { app: App; onclose: () => void } = $props()
 
@@ -29,7 +29,16 @@
     return () => clearTimeout(timer)
   })
 
-  const results = $derived(search(app, query))
+  // The server looks through the texts; a query typed over cancels the one before it.
+  let results = $state.raw<SearchResult[]>([])
+  $effect(() => {
+    const control = new AbortController()
+    searchRemote(app, query, control.signal).then(
+      (found) => (results = found),
+      () => {},
+    )
+    return () => control.abort()
+  })
   /** Everything that can be opened, in the order it is shown: a note, then the lines found in it. */
   const rows = $derived(results.flatMap((result) => [{ result, line: undefined as number | undefined, text: '' }, ...result.matches.map((match) => ({ result, line: match.line as number | undefined, text: match.text }))]))
   const highlight = $derived(highlightPattern(query))

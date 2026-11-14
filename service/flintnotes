@@ -6,6 +6,7 @@
 #   service/flintnotes install [folder of notes]   set it up and start it (asks for sudo), then print the link for the Windows app
 #   service/flintnotes remove                      stop it and take the service away (the notes and .service/ stay)
 #   service/flintnotes start | stop | restart | status | logs
+#   service/flintnotes slow [-f]                   only what was slow (lines `[perf]`: requests, the server standing still, the window stuttering and what it showed)
 #   service/flintnotes pair [--phone] [--rotate]   the link (and a QR code) for the Windows app, or with --phone for phones
 #   service/flintnotes vault <folder> [--create]   make a folder a vault of this server (the window and phones cannot add vaults)
 #   service/flintnotes unit [folder of notes]      only show the service file `install` would write
@@ -13,7 +14,8 @@
 # A new build (`npm run release`) is picked up by the running service by itself. Settings the service reads, one per
 # line in .service/env (then `restart`):  FLINT_BIND=192.168.1.50  (listen on that card only)  FLINT_POLL=1  (a vault on a
 # network disk mounted here)  HTTPS_PROXY=http://127.0.0.1:8080  TZ=Europe/Moscow  (the time zone the reminders in the notes are
-# written in, when this computer's own is another)
+# written in, when this computer's own is another)  FLINT_PERF_SLOW=400  (a request slower than this many ms is written down; 0 = no
+# slowness log at all)
 set -eu
 
 self=$(readlink -f "$0")
@@ -168,6 +170,10 @@ case $command in
     cli status
     ;;
   logs) journalctl -u "$name" -n 100 -f ;;
+  slow)
+    # `-g` picks the lines by their text; the last day, or follows new ones with -f.
+    if [ "${1:-}" = "-f" ]; then journalctl -u "$name" -n 20 -f -g '\[perf\]'; else journalctl -u "$name" --since '-1 day' --no-pager -g '\[perf\]' || echo 'Ничего медленного за сутки не записано.'; fi
+    ;;
   pair) cli pair "$@" ;;
   vault) cli vault "$@" ;;
   unit) unit "$@" ;;

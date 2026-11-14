@@ -76,7 +76,9 @@ async function request(input: string, init?: RequestInit): Promise<Response> {
     // Every request says which vault it is about; a header may only carry plain letters, so the name is encoded.
     const headers = vaultInAddress ? { ...(init?.headers as Record<string, string> | undefined), 'x-flint-vault': encodeURIComponent(vaultInAddress) } : init?.headers
     res = await fetch(input, { ...init, headers })
-  } catch {
+  } catch (err) {
+    // A request the page itself gave up on (a search typed over) says nothing of the server.
+    if (init?.signal?.aborted) throw err
     // The browser says only "Failed to fetch"; what happened is that nobody is listening.
     setOnline(false)
     throw new ServerDown()
@@ -262,22 +264,24 @@ export class Vault extends Events<VaultEvents> {
     // browser reaches it the way it opens the site, through whatever proxy or VPN it uses, where the server may
     // not get through. The browser's answer has the title, channel and frame; only the server can read the
     // description under the video from its page. Both are asked at once, and each gives what it has.
-    const [browser, fromServer] = await Promise.allSettled([
-      fetch(`https://www.youtube.com/oembed?format=json&url=${encodeURIComponent(address)}`, { signal: AbortSignal.timeout(6000) }).then(async (res) => {
-        if (!res.ok) throw new Error(String(res.status))
-        return (await res.json()) as { title?: string; author_name?: string; thumbnail_url?: string }
-      }),
-      server(),
-    ])
-    const page = fromServer.status === 'fulfilled' ? fromServer.value : null
-    const video = browser.status === 'fulfilled' && browser.value.title ? browser.value : null
+    const fromBrowser = fetch(`https://www.youtube.com/oembed?format=json&url=${encodeURIComponent(address)}`, { signal: AbortSignal.timeout(6000) }).then(async (res) => {
+      if (!res.ok) throw new Error(String(res.status))
+      return (await res.json()) as { title?: string; author_name?: string; thumbnail_url?: string }
+    })
+    // The server may be a long time failing (a site it cannot reach waits out its own timeouts): its answer is noted
+    // whenever it comes, but the card does not wait for it beyond a moment once the browser has the video.
+    let serverFailed: unknown
+    const fromServer = server().catch((err) => ((serverFailed = err), null))
+    const video = await fromBrowser.then((one) => (one.title ? one : null), () => null)
     if (!video) {
+      const page = await fromServer
       if (page) return page
-      throw fromServer.status === 'rejected' ? fromServer.reason : new Error('Страница не ответила')
+      throw serverFailed ?? new Error('Страница не ответила')
     }
+    const page = await Promise.race([fromServer, new Promise<null>((resume) => setTimeout(() => resume(null), 2500))])
     const author = video.author_name ?? page?.author ?? ''
     // Why the video's own description is missing: the server's word, or that the server did not answer.
-    const problem = page?.problem ?? (fromServer.status === 'rejected' ? errorText(fromServer.reason) : undefined)
+    const problem = page?.problem ?? (serverFailed ? errorText(serverFailed) : page ? undefined : 'сервер не успел прочитать описание')
     return {
       ...(problem && !(page?.description && page.description !== author) ? { problem } : {}),
       url: address,
@@ -294,6 +298,22 @@ export class Vault extends Events<VaultEvents> {
   /** Every way the server has to a page, tried one by one: for finding out why a page does not open for it. */
   async netCheck(address: string): Promise<{ build: string; platform: string; steps: { step: string; ok: boolean; ms: number; result: string }[] }> {
     return (await request(`/api/net-check?url=${encodeURIComponent(address)}`)).json()
+  }
+
+  /** What the server's search of the notes' text says of the typed words (server/search.ts); the page keeps the rest of the search. */
+  async searchText<T>(body: unknown, signal?: AbortSignal): Promise<T> {
+    return (await request('/api/search/text', { ...json(body), signal })).json()
+  }
+
+  /** The address of a small copy of a picture of this vault, made by the server (`/api/thumb`); `width` in pixels of the screen. */
+  thumbUrl(path: string, width: number): string {
+    const entry = this.get(path)
+    return `${url('thumb', path)}&w=${width}${entry ? `&v=${Math.round(entry.mtime)}-${entry.size}` : ''}`
+  }
+
+  /** The same for a picture of the web; the server fetches it the way it reaches the web (through the proxy of the settings). */
+  thumbWebUrl(address: string, width: number): string {
+    return `/api/thumb?url=${encodeURIComponent(address)}&w=${width}`
   }
 
   /** Names of the files in a folder, hidden folders included (`.obsidian/...`); empty if there is no such folder. */

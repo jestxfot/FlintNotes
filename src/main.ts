@@ -3,6 +3,7 @@ import './core/timezone'
 import { flushSync, mount } from 'svelte'
 import * as api from './api'
 import { moment } from './core/moment'
+import { watchPerformance } from './core/perf'
 import { errorMessage } from './core/notice'
 import { app } from './instance'
 import './ui/app.css'
@@ -57,6 +58,11 @@ try {
   // Reading every note for the index is the heaviest part of starting up. It
   // begins only now, so it cannot delay the notes the user is waiting to see.
   app.metadata.load()
+  // From here the page tells the server's log when it stutters, and what it was showing (src/core/perf.ts).
+  watchPerformance(() => {
+    const leaf = app.workspace.active
+    return `открыто: ${leaf?.path ?? 'ничего'} (${leaf?.viewType ?? '—'}), страница ${innerWidth}×${innerHeight} ×${devicePixelRatio}`
+  })
 } catch (err) {
   document.getElementById('splash')?.remove()
   target.innerHTML = '<div class="fatal"></div>'

@@ -4,18 +4,52 @@ import type { Row } from '../engine'
 import { renderValue } from '../format'
 import { groupTitle, isGrouped, type ViewContext, type ViewRenderer } from './shared'
 
+/**
+ * A YouTube thumbnail is made in several sizes at fixed addresses; the largest (`maxresdefault`, 1280x720, 100-200 KB) is
+ * drawn to fill a card 150-300 px wide. The small one (`mqdefault`, 320x180, the same picture) is a tenth of the bytes and a
+ * sixteenth of the pixels to decode, and the browser fetches it as before, so no server need reach YouTube.
+ */
+const YOUTUBE = /^(https?:\/\/(?:i\d?\.ytimg\.com|img\.youtube\.com)\/vi(?:_webp)?\/[\w-]+\/)(?:maxresdefault|sddefault|hqdefault|hq720|0|default)(\.(?:jpg|webp))(\?.*)?$/i
+
+/** The server's small copies are left alone for a minute after they failed several times in a row (no resizer there, the web out of its reach). */
+let trouble = 0
+let pausedUntil = 0
+
+/** A cover as small as it is shown; the picture itself if anything fails. */
+function coverImage(ctx: ViewContext, original: string, local: string | null, style: string | undefined): HTMLImageElement {
+  const shown = (Number(ctx.view.cardSize) || 240) * 1.5 * (window.devicePixelRatio || 1)
+  const youtube = YOUTUBE.exec(original)
+  let src = original
+  let small = false
+  if (youtube && shown <= 320) (src = `${youtube[1]}mqdefault${youtube[2]}${youtube[3] ?? ''}`), (small = true)
+  else if (Date.now() >= pausedUntil && !youtube) (src = local ? ctx.app.vault.thumbUrl(local, Math.ceil(shown)) : ctx.app.vault.thumbWebUrl(original, Math.ceil(shown))), (small = true)
+  const img = h('img', { class: 'base-cover', src, alt: '', loading: 'lazy', decoding: 'async', style }) as HTMLImageElement
+  if (small && src !== original) {
+    img.addEventListener('load', () => (trouble = 0), { once: true })
+    img.addEventListener(
+      'error',
+      () => {
+        if (++trouble >= 5) pausedUntil = Date.now() + 60_000
+        img.src = original
+      },
+      { once: true },
+    )
+  }
+  return img
+}
+
 /** The picture of a card: the `image` property may hold a link, a path or a web address. */
 function cover(ctx: ViewContext, row: Row): HTMLElement | null {
   if (!ctx.view.image) return null
   const value = ctx.engine.value(row, ctx.view.image)
   const target = value instanceof expr.Link ? value.target : typeof value === 'string' ? value : ''
   const local = target ? ctx.app.metadata.resolve(target, row.path) : null
-  const src = /^https?:/i.test(target) ? target : local ? ctx.app.vault.url(local) : ''
+  const original = /^https?:/i.test(target) ? target : local ? ctx.app.vault.url(local) : ''
   const ratio = Number(ctx.view.imageAspectRatio)
   const fit = ctx.view.imageFit === 'contain' ? 'object-fit:contain;' : ''
   const style = ratio > 0 ? `${fit}height:auto;aspect-ratio:${1 / ratio}` : fit || undefined
   // A view with pictures keeps their place on every card, so the cards line up; a note without one gets a blank.
-  return src ? h('img', { class: 'base-cover', src, alt: '', loading: 'lazy', decoding: 'async', style }) : h('div', { class: 'base-cover base-cover-empty', style })
+  return original ? coverImage(ctx, original, /^https?:/i.test(target) ? null : local, style) : h('div', { class: 'base-cover base-cover-empty', style })
 }
 
 /** A value on a card: tags as pills, nothing as a dash, the rest as everywhere. */

@@ -103,7 +103,8 @@ export async function run(t) {
     return { url, kept: kept.headers.get('cache-control'), other: other.headers.get('cache-control') }
   })
   ok('a picture\'s address names its version, and the browser keeps it', /&v=\d+-\d+$/.test(picture.url) && /immutable/.test(picture.kept ?? ''), JSON.stringify(picture))
-  ok('an address of another version is not kept', picture.other === 'no-store', JSON.stringify(picture))
+  // Not kept for good: the browser must ask each time, and is told "unchanged" by the file's stamp (etag) instead of being sent it again.
+  ok('an address of another version is not kept: the browser asks, with a stamp', picture.other === 'private, no-cache', JSON.stringify(picture))
 
   // ---- a note left a moment ago comes back as it was: the same editor, with its undo history
   await t.cursorToEnd()

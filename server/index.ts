@@ -23,7 +23,10 @@ import { checkWay, chooseProxy, computerProxy, describe, parseProxy, telegramNam
 import { decide } from './policy'
 import { keptTrees, limiter } from './kept'
 import { Outbox } from './outbox'
+import { NoteStore } from './search'
+import { Perf } from './perf'
 import { PhoneReminders } from './reminders'
+import { Thumbs, snapWidth } from './thumbs'
 import { TreeCache } from './tree-cache'
 
 // The vaults the user has opened are remembered between runs, outside any vault.
@@ -175,6 +178,17 @@ const trees = new TreeCache(
   // What the walk after a start finds different from the kept list reaches the pages as the watcher's news would.
   (dir, change) => broadcast(dir, change.type === 'upsert' ? change : { type: 'delete', path: change.path }),
 )
+/** The text of each vault's notes, in memory, for the search and for the page reading the vault at start (server/search.ts). */
+const stores = new Map<string, NoteStore>()
+const storeOf = (dir: string): NoteStore => {
+  let store = stores.get(dir)
+  if (!store) {
+    store = new NoteStore(dir, async () => (await trees.list(dir)).filter((entry) => entry.kind === 'file' && entry.path.toLowerCase().endsWith('.md')).map((entry) => entry.path))
+    stores.set(dir, store)
+  }
+  return store
+}
+
 /** The disk is asked about a few files at a time: requests of the page get their turn while a large vault is walked. */
 const disk = limiter(24)
 
@@ -380,21 +394,25 @@ api.get('/tree', async (c) => {
 // Every note's text in one response, one JSON object per line. The app reads
 // this once at start to build its index; a request per note would be far slower.
 api.get('/notes', async (c) => {
-  const notes = (await trees.list(root())).filter((entry) => entry.kind === 'file' && entry.path.toLowerCase().endsWith('.md'))
+  // From the texts the server keeps in memory (server/search.ts); read from the disk, and sent as they are read, only the first time.
+  const store = storeOf(root())
   c.header('content-type', 'application/x-ndjson; charset=utf-8')
   c.header('cache-control', 'no-store')
   return stream(c, async (out) => {
-    for (let i = 0; i < notes.length; i += 32) {
-      const lines = await Promise.all(
-        notes.slice(i, i + 32).map(async ({ path: file }) => {
-          // A note deleted since the listing is simply left out.
-          const text = await fs.readFile(path.join(root(), file), 'utf8').catch(() => null)
-          return text === null ? '' : `${JSON.stringify({ path: file, text })}\n`
-        }),
-      )
-      await out.write(lines.join(''))
-    }
+    await store.all(async (batch) => void (await out.write(batch.map(([file, text]) => `${JSON.stringify({ path: file, text })}\n`).join(''))))
   })
+})
+
+// What the notes' text says of the typed words (the page keeps the titles, tags and the rest to itself). Two steps: for each
+// note that has a word, a few numbers; then, for the few notes the page will show, their best lines. See shared/search-text.ts.
+api.post('/search/text', async (c) => {
+  const body = (await c.req.json().catch(() => null)) as { words?: unknown; lines?: unknown } | null
+  const words = body?.words
+  if (!Array.isArray(words) || words.length > 8 || words.some((word) => typeof word !== 'string' || !word || word.length > 100)) throw new HTTPException(400, { message: 'Нужны слова' })
+  const store = storeOf(root())
+  if (Array.isArray(body?.lines)) return c.json(await store.lines(words as string[], body.lines.filter((one): one is string => typeof one === 'string')))
+  const found = await store.find(words as string[])
+  return c.json(found.map(({ path: file, hit }) => [file, hit.mask, hit.phrase ? 1 : 0, hit.total]))
 })
 
 api.get('/file', async (c) => {
@@ -410,9 +428,16 @@ api.get('/file', async (c) => {
   // An address that names the file's version (`v`, its time and size) always means the same bytes:
   // the browser keeps them and asks no more. A changed file gets another address.
   const version = c.req.query('v')
+  const stamp = `${Math.round(stat.mtimeMs)}-${stat.size}`
+  const versioned = !!version && version === stamp
+  // Without a version in the address the file may have changed, so the browser must ask; but it asks with the file's
+  // stamp (`etag`) and is told "unchanged" in a few bytes rather than sent the file again (`no-store` sent it every time).
+  const etag = `"${stamp}"`
+  if (!versioned && c.req.header('if-none-match') === etag) return c.body(null, 304, { etag, 'cache-control': 'private, no-cache' })
   const headers: Record<string, string> = {
     'content-type': MIME[ext] ?? 'application/octet-stream',
-    'cache-control': version && version === `${Math.round(stat.mtimeMs)}-${stat.size}` ? 'private, max-age=31536000, immutable' : 'no-store',
+    'cache-control': versioned ? 'private, max-age=31536000, immutable' : 'private, no-cache',
+    etag,
     // A video or a long recording is played from where it is asked for, over a network that may be slow.
     'accept-ranges': 'bytes',
   }
@@ -446,6 +471,80 @@ function parseRange(header: string | undefined, size: number): [number, number] 
 /** What one file may weigh, and from what size it is received as a stream rather than taken whole. */
 const MAX_UPLOAD = Number(process.env.FLINT_MAX_UPLOAD) || 4 * 1024 ** 3
 const STREAM_FROM = 8 * 1024 ** 2
+// Hosts of the web this server cannot get to (its network is not the computer's the window runs on: YouTube or a shop's site may
+// open there and time out here). One timeout is enough: for a few minutes the server answers at once that it cannot, instead of
+// every link card and every cover waiting out its own 10 s, then 20 s.
+const unreachable = new Map<string, number>()
+const CONNECTION_FAILED = /CONNECT_TIMEOUT|ETIMEDOUT|ENETUNREACH|EHOSTUNREACH|ECONNREFUSED|ENOTFOUND|EAI_AGAIN|timeout/i
+const HOLD_OFF = 5 * 60_000
+const hostKey = (host: string) => host.toLowerCase().replace(/^(www|m|music)\./, '')
+/** How long the server still leaves this host alone, ms; 0 if it may try. */
+const heldOff = (host: string) => Math.max(0, (unreachable.get(hostKey(host)) ?? 0) - Date.now())
+const connectionFailed = (err: unknown) => CONNECTION_FAILED.test(describe(err))
+/** A failure to connect is remembered; a site that answered badly (a 404) is not a sign of the network. */
+function noteFailure(host: string, err: unknown): void {
+  if (connectionFailed(err)) unreachable.set(hostKey(host), Date.now() + HOLD_OFF)
+}
+const heldOffMessage = (host: string) => `Сервер не достучался до ${host} (повтор через ${Math.ceil(heldOff(host) / 1000)} с). Если сайт открывается на вашем компьютере, задайте прокси в настройках FlintNotes или HTTPS_PROXY в .service/env`
+
+// A small copy of a picture for a place that shows it small (a card's cover): made once, kept on disk, a few KB instead of
+// a picture of megabytes that the browser would decode in full each time the card scrolls into view (server/thumbs.ts).
+// The page falls back to the picture itself on any answer but 200, so a server without the resizer, or one that cannot
+// reach a picture of the web, costs nothing but the first try.
+const thumbs = new Thumbs()
+api.get('/thumb', async (c) => {
+  if (!(await thumbs.available())) throw new HTTPException(501, { message: 'Уменьшать картинки нечем' })
+  const width = snapWidth(Number(c.req.query('w')) || 320)
+  const address = c.req.query('url')
+  const headers: Record<string, string> = { 'content-type': 'image/webp' }
+  let id: string
+  let load: () => Promise<Buffer>
+  if (address) {
+    let url: URL
+    try {
+      url = new URL(address)
+    } catch {
+      throw new HTTPException(400, { message: 'Это не адрес' })
+    }
+    await openWeb(url)
+    id = `url:${url.href}`
+    headers['cache-control'] = 'private, max-age=604800'
+    load = async () => {
+      if (heldOff(url.host)) throw new HTTPException(502, { message: heldOffMessage(url.host) })
+      let res
+      try {
+        res = await webFetch(url.href, { timeout: 8_000, limit: 30_000_000, headers: { accept: 'image/avif,image/webp,image/*,*/*;q=0.8' } })
+      } catch (err) {
+        noteFailure(url.host, err)
+        throw err
+      }
+      if (res.status !== 200) throw new HTTPException(502, { message: `Ответ ${res.status}` })
+      return res.bytes
+    }
+  } else {
+    const abs = target(c)
+    const stat = await fs.stat(abs).catch(() => null)
+    if (!stat?.isFile()) throw new HTTPException(404, { message: 'File not found' })
+    if (stat.size > 300_000_000) throw new HTTPException(413, { message: 'Слишком большая картина' })
+    const version = `${Math.round(stat.mtimeMs)}-${stat.size}`
+    id = `file:${abs}:${version}`
+    headers['cache-control'] = c.req.query('v') === version ? 'private, max-age=31536000, immutable' : 'no-store'
+    load = () => fs.readFile(abs)
+  }
+  let made: Buffer | null
+  try {
+    made = await thumbs.make(id, width, load)
+  } catch (err) {
+    if (err instanceof HTTPException) throw err
+    const message = describe(err)
+    // A file that is not a picture (or one the resizer cannot open) is told apart from a server that failed.
+    throw new HTTPException(/unsupported|corrupt|Input|pixel/i.test(message) ? 415 : 502, { message })
+  }
+  if (!made) throw new HTTPException(501, { message: 'Уменьшать картинки нечем' })
+  headers['content-length'] = String(made.length)
+  return c.body(new Uint8Array(made), 200, headers)
+})
+
 api.put('/file', async (c) => {
   const abs = target(c)
   if (c.req.query('create') && existsSync(abs)) {
@@ -856,11 +955,14 @@ api.get('/unfurl', async (c) => {
   const addresses = await lookup(url.hostname, { all: true }).catch(() => [])
   if (addresses.some((a) => PRIVATE.test(a.address)) || /^(localhost|.*\.local)$/i.test(url.hostname)) throw new HTTPException(400, { message: 'Страница недоступна' })
   if (!addresses.length && !(await viaProxy())) throw new HTTPException(400, { message: 'Страница недоступна' })
+  if (heldOff(url.hostname)) throw new HTTPException(502, { message: heldOffMessage(url.hostname) })
   let html = ''
   let final = url.href
   // A video: its title, channel and frame, and the description under it, which its page keeps.
   if (/(^|\.)(youtube\.com|youtu\.be)$/i.test(url.hostname)) {
-    const video = await youtubeVideo(url.href).catch((err) => (console.error(`Карточка ссылки: видео ${url.href}: ${describe(err)}`), null))
+    const video = await youtubeVideo(url.href).catch((err) => (noteFailure(url.hostname, err), console.error(`Карточка ссылки: видео ${url.href}: ${describe(err)}`), null))
+    // The video's own page is as far as its description: a host that did not answer once is not asked again for the rest.
+    if (!video && heldOff(url.hostname)) throw new HTTPException(502, { message: heldOffMessage(url.hostname) })
     if (video?.problem) console.error(`Карточка ссылки: описание видео ${url.href} не получено: ${video.problem}`)
     if (video) return c.json({ url: url.href, title: video.title, description: video.description, author: video.author, image: video.image, favicon: 'https://www.youtube.com/favicon.ico', ...(video.problem ? { problem: video.problem } : {}) })
   }
@@ -881,12 +983,14 @@ api.get('/unfurl', async (c) => {
       }
       throw failed
     }
-    const page = await ask().catch(() => webGet(url.href, { timeout: 20_000 }))
+    // A slow site gets its second, longer try; one that could not be connected to at all does not (another 20 s would change nothing).
+    const page = await ask().catch((err) => (connectionFailed(err) ? Promise.reject(err) : webGet(url.href, { timeout: 20_000 })))
     final = page.url || url.href
     html = page.text
   } catch (err) {
     // Why exactly, in the answer and in the log: a page that opens in the browser and not here is a matter of the network.
-    console.error(`Карточка ссылки: ${url.href} не ответила: ${describe(err)}`)
+    noteFailure(url.hostname, err)
+    console.error(`Карточка ссылки: ${url.href} не ответила: ${describe(err)}${connectionFailed(err) ? ` — до ${url.hostname} ${HOLD_OFF / 60_000} мин не пробуем снова` : ''}`)
     throw new HTTPException(502, { message: `Страница не ответила серверу FlintNotes (${describe(err)})` })
   }
   const decode = (text: string) =>
@@ -1013,7 +1117,14 @@ api.get('/events', (c) => {
   })
 })
 
-const broadcast = (dir: string, event: RemoteEvent) => clients.get(dir)?.forEach((send) => send(event))
+const broadcast = (dir: string, event: RemoteEvent) => {
+  // The notes' text in memory follows what the watcher sees, whether or not a page is listening.
+  const store = stores.get(dir)
+  if (event.type === 'upsert') store?.touch(event.entry.path)
+  else if (event.type === 'delete') store?.touch(event.path)
+  else if (event.type === 'resync') store?.touchAll()
+  clients.get(dir)?.forEach((send) => send(event))
+}
 
 // A vault on a network disk (SMB, NFS) delivers no file events: FLINT_POLL=1 looks for changes by polling.
 const needsPolling = () => !!process.env.FLINT_POLL && process.env.FLINT_POLL !== '0'
@@ -1098,6 +1209,11 @@ watch(defaultRoot)
 
 const app = new Hono()
 
+/** What is slow, in the log: requests, the server's own thread, and what the pages report (server/perf.ts). */
+const perf = new Perf()
+perf.watchLoop()
+app.use('/api/*', perf.middleware)
+
 /** Requests that change something, still being answered: a server stepping aside lets them finish. */
 let writes = 0
 app.use(async (c, next) => {
@@ -1118,6 +1234,13 @@ app.onError((err, c) => {
   if (c.req.raw.signal.aborted || (err as NodeJS.ErrnoException).code === 'ECONNRESET') return c.body(null, 499 as 400)
   console.error(err)
   return c.text(err.message, 500)
+})
+
+// The page's own report of what was slow for it (src/core/perf.ts): written to the log with the tier it came from.
+api.post('/perf', async (c) => {
+  if (Number(c.req.header('content-length') ?? 0) > 64_000) throw new HTTPException(413, { message: 'Слишком большой отчёт' })
+  perf.report(tierOf(c), await c.req.json().catch(() => null))
+  return c.body(null, 204)
 })
 
 // What this server is (the shell reads it before it shows the key; see `lanFetch`). Before `app.route`, which copies the routes it has.

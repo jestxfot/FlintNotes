@@ -1,7 +1,7 @@
 <script lang="ts">
   import { onMount } from 'svelte'
   import { path, watch, type App } from '../../api'
-  import { highlightPattern, search } from './search'
+  import { highlightPattern, searchRemote, type SearchResult } from './search'
 
   let { app, panelId }: { app: App; panelId: string } = $props()
 
@@ -27,9 +27,16 @@
   // searched again once it comes into sight.
   // svelte-ignore state_referenced_locally (props of a panel are set once, when it is mounted)
   const indexed = watch(app.metadata, ['changed', 'resolved'], () => ({}), { quiet: true, shown: () => input })
-  const results = $derived.by(() => {
+  // The server looks through the texts; a query typed over, or notes changing meanwhile, cancel the one before it.
+  let results = $state.raw<SearchResult[]>([])
+  $effect(() => {
     void indexed.current
-    return search(app, query)
+    const control = new AbortController()
+    searchRemote(app, query, control.signal).then(
+      (found) => (results = found),
+      () => {},
+    )
+    return () => control.abort()
   })
   const highlight = $derived(highlightPattern(query))
 
