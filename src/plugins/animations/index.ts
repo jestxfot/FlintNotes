@@ -1,4 +1,5 @@
 import { Plugin } from '../../api'
+import { imageSize } from '../../core/sizes'
 import type { FromWorker, ToWorker } from './worker'
 
 /** A picture is taken for a GIF by its address: the file's name, or the `path` of a vault file, ends in `.gif`. */
@@ -89,7 +90,7 @@ export default class Animations extends Plugin {
 
   onload() {
     this.addSettings([
-      { key: 'lighten', name: 'Облегчать большие GIF', desc: 'GIF, показанный меньше своего размера, один раз пересобирается в фоне под размер на экране и дальше играет из этой копии: выглядит так же, а процессора уходит в несколько раз меньше. Копии хранятся между запусками', type: 'toggle', default: true },
+      { key: 'lighten', name: 'Облегчать большие GIF', desc: 'GIF, показанный меньше своего размера, один раз пересобирается сервером под размер на экране и дальше играет из этой копии: выглядит так же, а скачивать вместо 50 МБ нужно около 2 МБ. Копии хранятся на сервере между запусками (нет сервера или он не справился — страница делает копию сама)', type: 'toggle', default: true },
       { key: 'pauseUnfocused', name: 'Останавливать, когда окно не в фокусе', desc: 'Пока вы работаете в другой программе, GIF стоят на первом кадре. Свёрнутое окно и окно в трее не рисуют ничего и без этого', type: 'toggle', default: true },
     ])
     this.addCommand({
@@ -202,6 +203,8 @@ export default class Animations extends Plugin {
     // Without either setting there is nothing to make copies for.
     if (this.getSetting<boolean>('lighten') === false && this.getSetting<boolean>('pauseUnfocused') === false && !this.held) return this.apply(img)
     // The GIF's own size is learnt from the GIF itself, before any copy takes its place.
+    // (Remembered from an earlier sight when it is known: a GIF of 50 MB is not downloaded to find out how wide it is.)
+    if (state.natural === undefined && img.src === state.original) state.natural = imageSize(img.src)?.[0]
     if (state.natural === undefined) {
       if (img.src !== state.original || !img.complete || !img.naturalWidth) return void img.addEventListener('load', () => this.fitSoon(img), { once: true })
       state.natural = img.naturalWidth
@@ -231,6 +234,10 @@ export default class Animations extends Plugin {
       return copy
     }
     copy = (async () => {
+      // The server makes the copies, once, for every window and phone, and keeps them: this page downloads a few MB, not the GIF.
+      const fromServer = await this.fromServer(original, width)
+      if (fromServer !== 'unavailable') return fromServer
+      // No server to do it (no resizer there, an address it cannot reach): made here, in a worker, from the GIF itself.
       const made = (await stored(key).catch(() => null)) ?? (await this.make(original, width))
       if (!made) return null
       if (!made.kept) void store(key, made).catch(() => {})
@@ -241,6 +248,42 @@ export default class Animations extends Plugin {
     this.copies.set(key, copy)
     this.forget()
     return copy
+  }
+
+  /**
+   * The light copy and the still frame, made by the server (`/api/thumb`, animated and still). `null`: the picture does not move
+   * after all; `'unavailable'`: the server could not, and the page makes them itself.
+   */
+  private async fromServer(original: string, width: number): Promise<Copy | null | 'unavailable'> {
+    let query: URLSearchParams
+    try {
+      const url = new URL(original, location.href)
+      if (url.origin === location.origin && url.pathname === '/api/file') {
+        query = new URLSearchParams({ path: url.searchParams.get('path') ?? '' })
+        for (const name of ['vault', 'v']) if (url.searchParams.get(name)) query.set(name, url.searchParams.get(name)!)
+      } else if (/^https?:$/.test(url.protocol) && url.origin !== location.origin) query = new URLSearchParams({ url: url.href })
+      else return 'unavailable'
+    } catch {
+      return 'unavailable'
+    }
+    // A GIF shown at its own size is made at the largest size the server keeps.
+    query.set('w', String(width === 0 ? 1280 : Math.min(width, 1280)))
+    // Written in full: the picture's own `src` reads back as a full address, and is compared with these.
+    const light = new URL(`/api/thumb?${query}&animated=1`, location.href).href
+    const still = new URL(`/api/thumb?${query}&still=1`, location.href).href
+    // A GIF shown as large as it is plays as it is (a copy would only be a worse GIF); only its still frame is needed, to pause it.
+    const own = width === 0
+    try {
+      // The first request has the server make the copy (and says how many frames it has); the pictures then come from the browser's own cache.
+      const res = await fetch(own ? still : light)
+      if (!res.ok) return 'unavailable'
+      const frames = Number(res.headers.get('x-frames') ?? 0)
+      await res.arrayBuffer()
+      if (!frames) return 'unavailable'
+      return frames > 1 ? { light: own ? null : light, still, width: width || Infinity } : null
+    } catch {
+      return 'unavailable'
+    }
   }
 
   /** Lets go of the oldest copies beyond those kept at hand, unless a picture on the page still shows one. */

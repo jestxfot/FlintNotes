@@ -1,5 +1,5 @@
-// Animated pictures: a GIF shown smaller than it is plays from a copy at its shown size, and GIFs stop
-// on their first frame while the window is not focused or when the command asks.
+// Animated pictures made by the page itself (the fallback of the server's copies): a GIF shown smaller than it is plays from a
+// copy at its shown size, and GIFs stop on their first frame while the window is not focused or when the command asks.
 import { fixture } from '../helpers.mjs'
 
 const NOTE = '<div><img style="width: 160px" src="anim.gif"></div>\n\nText between.\n\n<img src="anim.gif">\n'
@@ -10,8 +10,14 @@ export const vault = {
   files: { 'anim.gif': fixture('anim.gif'), 'Gif.md': NOTE },
 }
 
+// The 501 is the test's own doing: it plays a server that cannot make the copies.
+export const expectsNetworkErrors = /501/
+
 export async function run(t) {
   const { page, ok, wait } = t
+  // This suite is for the page's own way of making the copies (a worker), which it falls back to when the server cannot:
+  // the server's way is in 58-animations-server.
+  await page.route('**/api/thumb?*', (route) => (/[?&](animated|still)=1/.test(route.request().url()) ? route.fulfill({ status: 501, body: 'no resizer' }) : route.continue()))
   await t.open('Gif')
   const small = page.locator(`${t.leaf} img[style*="160px"]`)
   const large = page.locator(`${t.leaf} img:not([style*="160px"])`)

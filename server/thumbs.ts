@@ -35,9 +35,12 @@ export const snapWidth = (wanted: number): number => WIDTHS.find((width) => widt
 
 /** A picture larger than this (in pixels) is not opened: a decompression bomb would take the server's memory. */
 const MAX_PIXELS = 400_000_000
+/** An animated picture's frames all together, in pixels: 377 frames of 718x404 is 109 million (it converts in 5 s, in 135 MB). */
+const MAX_ANIMATED_PIXELS = 600_000_000
 
 export class Thumbs {
   private inflight = new Map<string, Promise<Buffer | null>>()
+  private inflightMoving = new Map<string, Promise<{ bytes: Buffer; frames: number }>>()
   private running = 0
   private queue: (() => void)[] = []
   private written = 0
@@ -51,6 +54,59 @@ export class Thumbs {
   /** Whether pictures can be made at all here. */
   async available(): Promise<boolean> {
     return (await resizer()) !== null
+  }
+
+
+  /**
+   * An animated picture (a GIF) for a place that shows it small: the same animation as a WebP at `width`, or its first frame
+   * (`still`, what is shown while animations are paused). The animation of a 50 MB GIF comes to 2 MB, once, and is kept on disk.
+   * `load` gives the picture as a path (read from the disk as it is converted) or as bytes. `frames` is how many it has
+   * (1: it does not move, and `bytes` is the picture as one frame). `null`: there is no resizer.
+   */
+  async animated(id: string, width: number, still: boolean, load: () => Promise<Buffer | Uint8Array | string>): Promise<{ bytes: Buffer; frames: number } | null> {
+    if (!(await resizer())) return null
+    const key = createHash('sha1').update(`${id}\n${width}\n${still ? 'still' : 'moving'}`).digest('hex').slice(0, 24)
+    const pending = this.inflightMoving.get(key)
+    if (pending) return pending
+    const work = this.buildMoving(key, width, still, load).finally(() => this.inflightMoving.delete(key))
+    this.inflightMoving.set(key, work)
+    return work
+  }
+
+  private async buildMoving(key: string, width: number, still: boolean, load: () => Promise<Buffer | Uint8Array | string>): Promise<{ bytes: Buffer; frames: number }> {
+    const sharp = (await resizer())!
+    const file = path.join(this.dir, `${key}.webp`)
+    const kept = await fs.readFile(file).catch(() => null)
+    if (kept) {
+      void fs.utimes(file, new Date(), new Date()).catch(() => {})
+      // How many frames it has is in its header: nothing is decoded to say.
+      const frames = (await sharp(kept, { animated: true }).metadata().catch(() => null))?.pages ?? 1
+      return { bytes: kept, frames }
+    }
+    const input = await load()
+    await this.turn()
+    try {
+      const options = { failOn: 'none' as const, limitInputPixels: MAX_PIXELS }
+      const meta = await sharp(input, { ...options, animated: true }).metadata()
+      const frames = meta.pages ?? 1
+      const total = (meta.width ?? 0) * (meta.pageHeight ?? meta.height ?? 0) * frames
+      if (!still && frames > 1 && total > MAX_ANIMATED_PIXELS) throw new Error('Input: animation too large to convert')
+      // The first frame, or the whole animation at the size asked for; a picture of one frame is simply a small picture.
+      const moving = !still && frames > 1
+      const made = await sharp(input, { ...options, animated: moving })
+        .rotate()
+        .resize({ width, withoutEnlargement: true })
+        .webp(moving ? { quality: 75, effort: 2, loop: meta.loop ?? 0 } : { quality: 80, effort: 3 })
+        .toBuffer()
+      await fs.mkdir(this.dir, { recursive: true })
+      const temp = `${file}.${process.pid}.tmp`
+      await fs.writeFile(temp, made)
+      await fs.rename(temp, file)
+      if (++this.written % 200 === 0) void this.trim()
+      return { bytes: made, frames }
+    } finally {
+      this.done()
+    }
   }
 
   /** The size (width, height) a picture file is shown at, from its header: nothing is decoded. `null`: not a picture, or no resizer. */

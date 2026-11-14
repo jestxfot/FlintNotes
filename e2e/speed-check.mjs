@@ -40,6 +40,7 @@ await sharp({ create: { width: 2400, height: 1600, channels: 3, background: { r:
   .png()
   .toFile(path.join(vault, 'img', 'big.png'))
 fs.writeFileSync(path.join(vault, 'img', 'fake.png'), 'this is not a picture')
+fs.copyFileSync(path.join(ROOT, 'e2e', 'fixtures', 'anim.gif'), path.join(vault, 'img', 'anim.gif'))
 fs.writeFileSync(path.join(vault, 'img', 'large.bin'), Buffer.alloc(4_000_000, 1))
 
 // ---- the server
@@ -128,6 +129,19 @@ try {
   const small = await sharp(Buffer.from(await (await fetch(`${base}/thumb?path=${encodeURIComponent('img/big.png')}&w=100`)).arrayBuffer())).metadata()
   ok('another width is another copy', small.width === 160)
   ok('what is not a picture is refused (415), what is not there is not found (404)', (await fetch(`${base}/thumb?path=img/fake.png&w=300`)).status === 415 && (await fetch(`${base}/thumb?path=img/none.png&w=300`)).status === 404)
+  // An animated GIF: the same animation at the size shown, as WebP; its first frame for pausing; kept on disk.
+  const moving = await fetch(`${base}/thumb?path=${encodeURIComponent('img/anim.gif')}&w=100&animated=1`)
+  const movingBytes = Buffer.from(await moving.arrayBuffer())
+  const movingMeta = await sharp(movingBytes, { animated: true }).metadata()
+  ok('a GIF is made an animated WebP with all its frames, and the count is in the answer', moving.status === 200 && moving.headers.get('content-type') === 'image/webp' && moving.headers.get('x-frames') === '12' && movingMeta.pages === 12 && movingMeta.width === 160, `${moving.status} ${moving.headers.get('x-frames')} ${movingMeta.pages} ${movingMeta.width}`)
+  const stillCopy = await fetch(`${base}/thumb?path=${encodeURIComponent('img/anim.gif')}&w=100&still=1`)
+  const stillMeta = await sharp(Buffer.from(await stillCopy.arrayBuffer()), { animated: true }).metadata()
+  ok('its still copy is one frame, and still says how many the GIF has', stillCopy.status === 200 && (stillMeta.pages ?? 1) === 1 && stillCopy.headers.get('x-frames') === '12', `${stillCopy.status} ${stillMeta.pages} ${stillCopy.headers.get('x-frames')}`)
+  const movingAgain = await fetch(`${base}/thumb?path=${encodeURIComponent('img/anim.gif')}&w=100&animated=1`)
+  ok('asked again, the same animation from the disk, with the same frame count', Buffer.compare(Buffer.from(await movingAgain.arrayBuffer()), movingBytes) === 0 && movingAgain.headers.get('x-frames') === '12')
+  const notMoving = await fetch(`${base}/thumb?path=${encodeURIComponent('img/big.png')}&w=100&animated=1`)
+  ok('a picture that does not move says one frame', notMoving.status === 200 && notMoving.headers.get('x-frames') === '1', `${notMoving.status} ${notMoving.headers.get('x-frames')}`)
+  ok('what is not a picture is refused as an animation too', (await fetch(`${base}/thumb?path=img/fake.png&w=100&animated=1`)).status === 415)
   ok('a web address of this computer is refused, not fetched', (await fetch(`${base}/thumb?url=${encodeURIComponent('http://127.0.0.1:1/x.png')}&w=300`)).status === 400)
 
   // ---- files and the browser's cache

@@ -111,7 +111,7 @@ export default class LinkEmbed extends Plugin {
     const unanswered = new Set<string>()
     /** Video cards asked about in this visit already. */
     const checked = new Set<string>()
-    /** Videos whose missing description was already told of. */
+    /** The reasons a video's description could not be read that were already told of: one notice per reason, not one per video. */
     const told = new Set<string>()
     /** Sites that did not answer, told of once a visit. */
     const toldSites = new Set<string>()
@@ -148,9 +148,10 @@ export default class LinkEmbed extends Plugin {
         // Anything else the block says is kept, after the fields of the card.
         for (const [key, value] of Object.entries(data)) if (!(key in next) && value !== null && value !== undefined) next[key] = text(value)
         const changed = Object.entries(next).some(([key, value]) => value !== text(data[key]))
-        // A video whose description the server could not read: said once, with the reason, instead of a silent channel name.
-        if (page.problem && video && !told.has(url)) {
-          told.add(url)
+        // A video whose description the server could not read: said once, with the reason, instead of a silent channel name
+        // (and once for all the videos that fail for the same reason: a page of them gave a notice each).
+        if (page.problem && video && !told.has(page.problem)) {
+          told.add(page.problem)
           app.notice(`Карточка YouTube: описание видео не получено — ${page.problem}. Что именно мешает, покажет команда «Проверить, видит ли сервер страницу карточки»`)
         }
         if (changed) setSource(Object.entries(next).map(([key, value]) => `${key}: ${quote(value)}`).join('\n'))

@@ -505,11 +505,15 @@ const heldOffMessage = (host: string) => `Сервер не достучался
 const thumbs = new Thumbs()
 api.get('/thumb', async (c) => {
   if (!(await thumbs.available())) throw new HTTPException(501, { message: 'Уменьшать картинки нечем' })
+  // `animated`: a GIF as a light animated copy; `still`: its first frame (shown while animations are paused). Both at the width asked for.
+  const moving = c.req.query('animated') === '1' || c.req.query('still') === '1'
+  const still = c.req.query('still') === '1'
   const width = snapWidth(Number(c.req.query('w')) || 320)
   const address = c.req.query('url')
   const headers: Record<string, string> = { 'content-type': 'image/webp' }
   let id: string
   let load: () => Promise<Buffer>
+  let local: string | null = null
   if (address) {
     let url: URL
     try {
@@ -517,6 +521,7 @@ api.get('/thumb', async (c) => {
     } catch {
       throw new HTTPException(400, { message: 'Это не адрес' })
     }
+    if (heldOff(url.host)) throw new HTTPException(502, { message: heldOffMessage(url.host) })
     await openWeb(url)
     id = `url:${url.href}`
     headers['cache-control'] = 'private, max-age=604800'
@@ -524,7 +529,8 @@ api.get('/thumb', async (c) => {
       if (heldOff(url.host)) throw new HTTPException(502, { message: heldOffMessage(url.host) })
       let res
       try {
-        res = await webFetch(url.href, { timeout: 8_000, limit: 30_000_000, headers: { accept: 'image/avif,image/webp,image/*,*/*;q=0.8' } })
+        // A GIF of the web may be large: it is fetched once, here, and the page is sent the light copy.
+        res = await webFetch(url.href, { timeout: moving ? 60_000 : 8_000, limit: moving ? 100_000_000 : 30_000_000, headers: { accept: 'image/avif,image/webp,image/*,*/*;q=0.8' } })
       } catch (err) {
         noteFailure(url.host, err)
         throw err
@@ -541,19 +547,27 @@ api.get('/thumb', async (c) => {
     id = `file:${abs}:${version}`
     headers['cache-control'] = c.req.query('v') === version ? 'private, max-age=31536000, immutable' : 'no-store'
     load = () => fs.readFile(abs)
+    local = abs
   }
-  let made: Buffer | null
   try {
-    made = await thumbs.make(id, width, load)
+    if (moving) {
+      // A file of the vault is read from the disk as it is converted, not into memory first.
+      const made = await thumbs.animated(id, width, still, local ? async () => local : load)
+      if (!made) throw new HTTPException(501, { message: 'Уменьшать картинки нечем' })
+      headers['content-length'] = String(made.bytes.length)
+      headers['x-frames'] = String(made.frames)
+      return c.body(new Uint8Array(made.bytes), 200, headers)
+    }
+    const made = await thumbs.make(id, width, load)
+    if (!made) throw new HTTPException(501, { message: 'Уменьшать картинки нечем' })
+    headers['content-length'] = String(made.length)
+    return c.body(new Uint8Array(made), 200, headers)
   } catch (err) {
     if (err instanceof HTTPException) throw err
     const message = describe(err)
     // A file that is not a picture (or one the resizer cannot open) is told apart from a server that failed.
     throw new HTTPException(/unsupported|corrupt|Input|pixel/i.test(message) ? 415 : 502, { message })
   }
-  if (!made) throw new HTTPException(501, { message: 'Уменьшать картинки нечем' })
-  headers['content-length'] = String(made.length)
-  return c.body(new Uint8Array(made), 200, headers)
 })
 
 // How large the pictures of the vault are, for the page to keep room for them before they arrive (src/core/sizes.ts): read
@@ -990,12 +1004,16 @@ api.get('/unfurl', async (c) => {
     throw new HTTPException(400, { message: 'Это не адрес страницы' })
   }
   if (url.protocol !== 'http:' && url.protocol !== 'https:') throw new HTTPException(400, { message: 'Нужен адрес http или https' })
+  // A host the server could not get to a moment ago is not looked up or tried again (a lookup that fails is slow too).
+  if (heldOff(url.hostname)) throw new HTTPException(502, { message: heldOffMessage(url.hostname) })
   // The server fetches pages of the open web only, never of this machine or the local network.
   // Through a proxy the proxy finds the site, and a name this machine cannot resolve is no sign of a local one.
   const addresses = await lookup(url.hostname, { all: true }).catch(() => [])
   if (addresses.some((a) => PRIVATE.test(a.address)) || /^(localhost|.*\.local)$/i.test(url.hostname)) throw new HTTPException(400, { message: 'Страница недоступна' })
-  if (!addresses.length && !(await viaProxy())) throw new HTTPException(400, { message: 'Страница недоступна' })
-  if (heldOff(url.hostname)) throw new HTTPException(502, { message: heldOffMessage(url.hostname) })
+  if (!addresses.length && !(await viaProxy())) {
+    noteFailure(url.hostname, new Error('ENOTFOUND'))
+    throw new HTTPException(400, { message: `Сервер не нашёл адрес ${url.hostname} (DNS). Если сайт открывается на вашем компьютере, задайте прокси в настройках FlintNotes или HTTPS_PROXY в .service/env` })
+  }
   let html = ''
   let final = url.href
   // A video: its title, channel and frame, and the description under it, which its page keeps.
