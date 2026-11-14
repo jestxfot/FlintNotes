@@ -24,6 +24,9 @@ fs.mkdirSync(path.join(vault, 'img'), { recursive: true })
 // ---- the reference: the shared module, run directly on the texts
 await build({ entryPoints: [path.join(ROOT, 'shared', 'search-text.ts')], outfile: path.join(dir, 'search-text.mjs'), bundle: true, platform: 'node', format: 'esm', logLevel: 'error' })
 const { WordSet } = await import(path.join(dir, 'search-text.mjs'))
+fs.writeFileSync(path.join(dir, 'derive.ts'), `export { outline } from ${JSON.stringify(path.join(ROOT, 'shared/outline'))}\nexport { parseMarkdown } from ${JSON.stringify(path.join(ROOT, 'src/core/parse-markdown'))}\n`)
+await build({ entryPoints: [path.join(dir, 'derive.ts')], outfile: path.join(dir, 'derive.mjs'), bundle: true, platform: 'node', format: 'esm', logLevel: 'error', banner: { js: "import { createRequire as __cr } from 'node:module'; const require = __cr(import.meta.url);" } })
+const { outline, parseMarkdown } = await import(path.join(dir, 'derive.mjs'))
 
 const notes = {
   'Alpha.md': 'The theory of everything.\nA theme, then the other thing.\nthere is nothing here',
@@ -113,6 +116,12 @@ try {
   ok('/api/notes is compressed for a client that accepts gzip, with the same notes', zipped.headers.get('content-encoding') === 'gzip' && JSON.stringify(zippedNotes) === JSON.stringify(ndjson), `${zipped.headers.get('content-encoding')} ${zippedNotes.length}`)
   const plain = await fetch(`${base}/notes`, { headers: { 'accept-encoding': 'identity' } })
   ok('and plain for one that does not', !plain.headers.get('content-encoding') && (await plain.text()).trim().split('\n').length === ndjson.length)
+
+  // ---- what the page keeps of each note instead of its text
+  const indexNotes = (await (await fetch(`${base}/index`)).text()).trim().split('\n').map((line) => JSON.parse(line))
+  ok('/api/index gives every note its index entry and outline, as the shared modules make them from the text on disk', indexNotes.length === Object.keys(current).length && indexNotes.every((n) => JSON.stringify(n.meta) === JSON.stringify(parseMarkdown(current[n.path])) && n.outline === outline(current[n.path]) && n.text === undefined), `${indexNotes.length} notes`)
+  const indexZipped = await fetch(`${base}/index`, { headers: { 'accept-encoding': 'gzip' } })
+  ok('and it is compressed for a client that accepts gzip, with the same entries', indexZipped.headers.get('content-encoding') === 'gzip' && JSON.stringify((await indexZipped.text()).trim().split('\n').map((line) => JSON.parse(line))) === JSON.stringify(indexNotes))
 
   // ---- pictures
   const original = fs.statSync(path.join(vault, 'img', 'big.png')).size

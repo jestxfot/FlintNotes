@@ -393,11 +393,8 @@ api.get('/tree', async (c) => {
 
 // Every note's text in one response, one JSON object per line. The app reads
 // this once at start to build its index; a request per note would be far slower.
-api.get('/notes', async (c) => {
-  // From the texts the server keeps in memory (server/search.ts); read from the disk, and sent as they are read, only the first time.
-  const store = storeOf(root())
-  // Notes are text and shrink to about a quarter: over wifi that is the difference between 65 MB and 15 MB at every start.
-  // Compressed as it goes, flushed after each batch, so the page still gets the first notes at once.
+/** Answers with lines of JSON, as they are made, compressed if the page takes that, flushed after each batch so the page starts on the first at once. */
+function ndjson(c: Context, produce: (send: (lines: string) => Promise<void>) => Promise<void>) {
   const zipped = /\bgzip\b/.test(c.req.header('accept-encoding') ?? '')
   c.header('content-type', 'application/x-ndjson; charset=utf-8')
   c.header('cache-control', 'no-store')
@@ -406,13 +403,21 @@ api.get('/notes', async (c) => {
     const gz = zipped ? createGzip({ level: 4 }) : null
     const finished = gz ? new Promise<void>((resolve, reject) => (gz.on('data', (chunk: Buffer) => void out.write(chunk)), gz.on('end', resolve), gz.on('error', reject))) : null
     const send = (text: string) => (gz ? new Promise<void>((resolve) => gz.write(text, () => gz.flush(() => resolve()))) : out.write(text).then(() => {}))
-    await store.all(async (batch) => void (await send(batch.map(([file, text]) => `${JSON.stringify({ path: file, text })}\n`).join(''))))
+    await produce(send)
     if (gz) {
       gz.end()
       await finished
     }
   })
-})
+}
+
+// From the texts the server keeps in memory (server/search.ts); read from the disk, and sent as they are read, only the first time.
+// Notes are text and shrink to about a quarter when compressed: over wifi that is the difference between 65 MB and 15 MB.
+api.get('/notes', (c) => ndjson(c, (send) => storeOf(root()).all(async (batch) => void (await send(batch.map(([file, text]) => `${JSON.stringify({ path: file, text })}\n`).join(''))))))
+
+// What the page keeps of each note in place of its text: the index entry (links, tags, headings, properties), read by the server
+// once, and the outline (the list items and fields of the note, with its line numbers). See shared/outline.ts.
+api.get('/index', (c) => ndjson(c, (send) => storeOf(root()).derivedAll(async (batch) => void (await send(batch.map(([file, one]) => `${JSON.stringify({ path: file, meta: one.meta, outline: one.outline })}\n`).join(''))))))
 
 // What the notes' text says of the typed words (the page keeps the titles, tags and the rest to itself). Two steps: for each
 // note that has a word, a few numbers; then, for the few notes the page will show, their best lines. See shared/search-text.ts.

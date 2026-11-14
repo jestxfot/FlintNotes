@@ -9,6 +9,8 @@
 import fs from 'node:fs/promises'
 import path from 'node:path'
 import { WordSet, type TextHit, type Line } from '../shared/search-text'
+import { outline } from '../shared/outline'
+import { parseMarkdown, type CachedMetadata } from '../src/core/parse-markdown'
 
 /** A word as the index has it: lower case, the final sigma written as the other (the page's patterns ignore case, `ς` and `σ` alike). */
 const fold = (word: string) => word.toLowerCase().replace(/ς/g, 'σ')
@@ -26,8 +28,16 @@ export interface NoteHit {
   hit: Omit<TextHit, 'matches'>
 }
 
+/** What the page keeps of a note instead of its text: what the index knows of it, and the lines the readers of a vault look at. */
+export interface Derived {
+  meta: CachedMetadata
+  outline: string
+}
+
 export class NoteStore {
   private texts = new Map<string, string>()
+  /** `parseMarkdown` and the outline of each note, worked out when first asked for and again after the note changes. */
+  private derived = new Map<string, Derived>()
   /** Every word of the texts, with the notes it is in; `sorted` is the same words in order, for looking up a beginning. */
   private words = new Map<string, Set<string>>()
   private sorted: string[] | null = null
@@ -100,6 +110,7 @@ export class NoteStore {
 
   private put(file: string, text: string): void {
     this.drop(file)
+    this.derived.delete(file)
     this.texts.set(file, text)
     // Once the index is being built, a note that changes is indexed at once: one note is a few ms.
     if (this.indexing) this.index(file, text)
@@ -117,6 +128,7 @@ export class NoteStore {
   }
 
   private drop(file: string): void {
+    this.derived.delete(file)
     if (!this.texts.delete(file)) return
     for (const word of this.tokens.get(file) ?? []) {
       const notes = this.words.get(word)
@@ -132,6 +144,24 @@ export class NoteStore {
     await this.load()
     const notes = [...this.texts]
     for (let i = 0; i < notes.length; i += 32) await each(notes.slice(i, i + 32))
+  }
+
+  /** The index entry and the outline of every note, for the page reading the vault at start (it keeps these, not the texts); handed over in batches. */
+  async derivedAll(each: (batch: [string, Derived][]) => Promise<void>): Promise<void> {
+    await this.load()
+    const files = [...this.texts.keys()]
+    let slice = performance.now()
+    for (let i = 0; i < files.length; i += 32) {
+      const batch: [string, Derived][] = []
+      for (const file of files.slice(i, i + 32)) {
+        let made = this.derived.get(file)
+        const text = this.texts.get(file)
+        if (!made && text !== undefined) this.derived.set(file, (made = { meta: parseMarkdown(text), outline: outline(text) }))
+        if (made) batch.push([file, made])
+        if (performance.now() - slice > SLICE) (await yieldToServer(), (slice = performance.now()))
+      }
+      await each(batch)
+    }
   }
 
   /** The notes that may have `word` at the beginning of a word (for one or two letters, as a whole word). */

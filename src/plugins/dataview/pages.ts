@@ -42,7 +42,7 @@ function setField(target: Record<string, unknown>, key: string, value: unknown):
 }
 
 /** Reads `key:: value` fields and list items from a note's text. */
-function parseBody(path: string, text: string) {
+export function parseBody(path: string, text: string) {
   const fields: Record<string, unknown> = {}
   const items: ListItem[] = []
   const stack: { indent: number; item: ListItem }[] = []
