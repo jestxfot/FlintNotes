@@ -25,6 +25,7 @@ if (kind === 'server') {
   contextBridge.exposeInMainWorld('flintDesktop', {
     setTitleBarColors: (colors: { color: string; symbolColor: string }) => ipcRenderer.send('title-bar-colors', { color: String(colors.color), symbolColor: String(colors.symbolColor) }),
     fetchBytes: (address: string) => ipcRenderer.invoke('fetch-bytes', String(address)),
+    fetchPage: (address: string) => ipcRenderer.invoke('fetch-page', String(address)),
     autostart: () => ipcRenderer.invoke('autostart'),
     setAutostart: (enabled: boolean) => ipcRenderer.invoke('set-autostart', !!enabled),
     quit: () => ipcRenderer.send('quit'),

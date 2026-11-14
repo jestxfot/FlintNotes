@@ -9,6 +9,7 @@
  * A proxy can also be given in the settings (an HTTP or a SOCKS one), or none
  * used at all.
  */
+import { cleanDescription, telegramName, youtubeCard } from '../shared/cards'
 import http from 'node:http'
 import https from 'node:https'
 import net from 'node:net'
@@ -303,52 +304,7 @@ async function nodeGet(address: string, { timeout = 8000, limit = 600_000 }: { t
  */
 export async function youtubeVideo(address: string): Promise<{ title: string; author: string; image: string; description: string; problem?: string } | null> {
   const [embed, page] = await Promise.allSettled([webGet(`https://www.youtube.com/oembed?format=json&url=${encodeURIComponent(address)}`, { timeout: 8000, limit: 50_000 }), webGet(address, { timeout: 10_000, limit: 3_000_000 })])
-  let title = ''
-  let author = ''
-  let image = ''
-  if (embed.status === 'fulfilled' && embed.value.status === 200) {
-    try {
-      const video = JSON.parse(embed.value.text) as { title?: string; author_name?: string; thumbnail_url?: string }
-      title = video.title ?? ''
-      author = video.author_name ?? ''
-      image = video.thumbnail_url ?? ''
-    } catch {
-      // The page below may still say it.
-    }
-  }
-  let description = ''
-  // Why the description could not be had, to be told rather than guessed.
-  let problem = page.status === 'rejected' ? describe(page.reason) : page.value.status !== 200 ? `страница видео ответила ${page.value.status}` : ''
-  if (page.status === 'fulfilled' && page.value.status === 200) {
-    const raw = /"shortDescription":"((?:\\.|[^"\\])*)"/.exec(page.value.text)?.[1]
-    if (raw) {
-      try {
-        description = cleanDescription(JSON.parse(`"${raw}"`) as string)
-      } catch {
-        description = ''
-      }
-    }
-    if (!title) title = /<meta\s+property="og:title"\s+content="([^"]*)"/.exec(page.value.text)?.[1] ?? ''
-    if (!author) author = /"ownerChannelName":"((?:\\.|[^"\\])*)"/.exec(page.value.text)?.[1] ?? ''
-    if (!description && !/"shortDescription"/.test(page.value.text)) problem = 'на странице видео нет описания (возможно, YouTube показал страницу согласия)'
-  }
-  if (!title) return null
-  return { title, author, image, description: description || author, ...(problem ? { problem } : {}) }
-}
-
-/** The description as a few readable lines: no rows of hashtags, no runs of spaces, at most about 300 letters. */
-export function cleanDescription(text: string): string {
-  const lines = text
-    .split(/\r?\n/)
-    .map((line) => line.trim())
-    // A line of nothing but hashtags says nothing.
-    .filter((line) => line && !/^(#[\p{L}\p{N}_]+[\s,]*)+$/u.test(line))
-  let joined = lines.join(' ').replace(/\s+/g, ' ').trim()
-  if (joined.length > 300) {
-    const cut = joined.slice(0, 300)
-    joined = `${cut.slice(0, Math.max(cut.lastIndexOf(' '), 200)).replace(/[,.;:!?\s]+$/, '')}…`
-  }
-  return joined
+  return youtubeCard(embed.status === 'fulfilled' && embed.value.status === 200 ? embed.value.text : null, page.status === 'rejected' ? { error: describe(page.reason) } : page.value)
 }
 
 /** One step of a check of the way to a page: what was tried, how long it took, what came of it. */
@@ -400,12 +356,4 @@ export async function checkWay(address: string): Promise<NetStep[]> {
   return steps
 }
 
-/** Paths of t.me that are not a name: invitations, stickers, sharing and the like. */
-const TELEGRAM_PATHS = new Set(['joinchat', 'addstickers', 'addemoji', 'addlist', 'addtheme', 'share', 'proxy', 'socks', 'setlanguage', 'login', 'boost', 'contact', 'iv', 'invoice', 'giftcode', 'confirmphone'])
-
-/** The channel, group or person a Telegram address is of (`/name`, `/s/name`), and the post if it is one (`/name/123`). */
-export function telegramName(pathname: string): { name: string; post?: string } | null {
-  const [, name, post] = /^\/(?:s\/)?([A-Za-z]\w{3,31})(?:\/(\d+))?\/?$/.exec(pathname) ?? []
-  if (!name || TELEGRAM_PATHS.has(name.toLowerCase())) return null
-  return post ? { name, post } : { name }
-}
+export { cleanDescription, telegramName }

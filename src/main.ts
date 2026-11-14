@@ -39,6 +39,20 @@ const target = document.getElementById('app')!
 
 // The stages of starting up, for the timing that `core:startup-timing` shows.
 const stage = (name: string) => performance.mark(`flint:${name}`)
+/** The animated pictures that are on the screen as the log is written: a frame that is slow while GIFs play says so, and whether they are the heavy originals or the server's light copies. */
+function movingPictures(): string {
+  const shown = [...document.images].filter((img) => {
+    if (!/\.gif(?:$|[?#&])|animated=1/i.test(decodeURIComponent(img.src)) || img.closest('[hidden]')) return false
+    const box = img.getBoundingClientRect()
+    return box.width > 0 && box.bottom > 0 && box.top < innerHeight && box.right > 0 && box.left < innerWidth
+  })
+  if (!shown.length) return ''
+  const copies = shown.filter((img) => img.src.includes('/api/thumb'))
+  const originals = shown.filter((img) => !img.src.includes('/api/thumb'))
+  const size = (list: HTMLImageElement[]) => list.map((img) => `${Math.round(img.getBoundingClientRect().width)}px`).join(', ')
+  return `, анимации на экране: ${originals.length} оригинал(ов)${originals.length ? ` (${size(originals)})` : ''}, ${copies.length} лёгких копий`
+}
+
 try {
   stage('code')
   // Pictures of the web go through the server's way to it, a proxy if one is set (see public/web-sw.js).
@@ -65,7 +79,7 @@ try {
   // From here the page tells the server's log when it stutters, and what it was showing (src/core/perf.ts).
   watchPerformance(() => {
     const leaf = app.workspace.active
-    return `открыто: ${leaf?.path ?? 'ничего'} (${leaf?.viewType ?? '—'}), страница ${innerWidth}×${innerHeight} ×${devicePixelRatio}`
+    return `открыто: ${leaf?.path ?? 'ничего'} (${leaf?.viewType ?? '—'}), страница ${innerWidth}×${innerHeight} ×${devicePixelRatio}${movingPictures()}`
   })
 } catch (err) {
   document.getElementById('splash')?.remove()

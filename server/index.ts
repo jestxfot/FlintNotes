@@ -19,7 +19,8 @@ import { fileURLToPath } from 'node:url'
 import { promisify } from 'node:util'
 import { createGzip, gzip } from 'node:zlib'
 import { PROTOCOL, type BuildInfo, type DirListing, type ExternalPluginInfo, type RemoteEvent, type Tier, type VaultEntry, type VaultInfo } from '../shared/protocol'
-import { checkWay, chooseProxy, computerProxy, describe, parseProxy, telegramName, viaProxy, webFetch, webGet, youtubeVideo } from './web'
+import { cardOfHtml } from '../shared/cards'
+import { checkWay, chooseProxy, computerProxy, describe, parseProxy, viaProxy, webFetch, webGet, youtubeVideo } from './web'
 import { decide } from './policy'
 import { keptTrees, limiter } from './kept'
 import { Outbox } from './outbox'
@@ -1085,41 +1086,7 @@ api.get('/unfurl', async (c) => {
     console.error(`Карточка ссылки: ${url.href} не ответила: ${describe(err)}${connectionFailed(err) ? ` — до ${url.hostname} ${HOLD_OFF / 60_000} мин не пробуем снова` : ''}`)
     throw new HTTPException(502, { message: `Страница не ответила серверу FlintNotes (${describe(err)})` })
   }
-  const decode = (text: string) =>
-    text.replace(/&(#x?[0-9a-f]+|amp|lt|gt|quot|apos|nbsp);/gi, (all, code: string) => {
-      const named: Record<string, string> = { amp: '&', lt: '<', gt: '>', quot: '"', apos: "'", nbsp: ' ' }
-      const lower = code.toLowerCase()
-      if (Object.hasOwn(named, lower)) return named[lower]
-      const point = lower.startsWith('#x') ? parseInt(lower.slice(2), 16) : parseInt(lower.slice(1), 10)
-      return Number.isFinite(point) ? String.fromCodePoint(point) : all
-    })
-  const attr = (tag: string, name: string) => new RegExp(`\\b${name}\\s*=\\s*(?:"([^"]*)"|'([^']*)'|([^\\s>]+))`, 'i').exec(tag)?.slice(1).find((v) => v !== undefined)
-  const meta = new Map<string, string>()
-  for (const [tag] of html.matchAll(/<meta\b[^>]*>/gi)) {
-    const key = (attr(tag, 'property') ?? attr(tag, 'name'))?.toLowerCase()
-    const content = attr(tag, 'content')
-    if (key && content && !meta.has(key)) meta.set(key, decode(content).trim())
-  }
-  const absolute = (href: string | undefined) => {
-    try {
-      return href ? new URL(decode(href), final).href : ''
-    } catch {
-      return ''
-    }
-  }
-  const icons = [...html.matchAll(/<link\b[^>]*>/gi)].map(([tag]) => tag).filter((tag) => /\bicon\b/i.test(attr(tag, 'rel') ?? ''))
-  let image = absolute(meta.get('og:image') ?? meta.get('twitter:image'))
-  // The picture of a channel, a group or a person on Telegram, by an address that stays: the one its page
-  // names is signed for a while and goes stale. A post keeps its own picture.
-  const channel = telegram ? telegramName(url.pathname) : null
-  if (channel && !channel.post && /(^|\.)telesco\.pe$/i.test(new URL(image || 'x:').hostname)) image = `https://t.me/i/userpic/320/${channel.name}.jpg`
-  return c.json({
-    url: url.href,
-    title: meta.get('og:title') ?? meta.get('twitter:title') ?? decode(/<title[^>]*>([\s\S]*?)<\/title>/i.exec(html)?.[1] ?? '').replace(/\s+/g, ' ').trim(),
-    description: (meta.get('og:description') ?? meta.get('description') ?? meta.get('twitter:description') ?? '').replace(/\s+/g, ' ').trim(),
-    image,
-    favicon: absolute(icons.length ? attr(icons[0], 'href') : '/favicon.ico'),
-  })
+  return c.json(cardOfHtml(url.href, html, final))
 })
 
 // Why a page does not open for the server: every way to it tried, each with what came of it.

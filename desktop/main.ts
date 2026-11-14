@@ -495,13 +495,16 @@ ipcMain.handle('shell:connect', async (event, link: unknown) => {
 })
 ipcMain.on('shell:retry', (event) => trustedShell(event) && void connect())
 ipcMain.on('shell:change', (event) => trustedShell(event) && showShellPage('connect', server ? `Сейчас: ${server.origin}` : ''))
-// A picture of the web for the server, which may not be able to reach the site (the home server is often behind a line that blocks what
-// this computer opens fine). The window fetches it over its own connection; the page hands it to the server, which makes the light
-// copies. The open web only: nothing on this computer or the home network, whatever address a note names.
+// What the server cannot fetch (the home server is often behind a line that blocks what this computer opens fine), the window fetches over
+// its own connection and hands to the page: pictures for the server to make small copies of, and the text of pages for the cards of
+// links. The open web only: nothing on this computer or the home network, whatever address a note names.
 const LOCAL_ADDRESS = /^(127\.|10\.|192\.168\.|169\.254\.|172\.(1[6-9]|2\d|3[01])\.|0\.|::1$|f[cd]|fe80)/i
 const BYTES_LIMIT = 150_000_000
-ipcMain.handle('fetch-bytes', async (event, address: unknown): Promise<{ type: string; bytes: Uint8Array } | null> => {
-  if (!trusted(event) || typeof address !== 'string') return null
+const PAGE_LIMIT = 4_000_000
+
+/** The address as a URL if it is a page of the open web (http or https, a public name), otherwise null. */
+async function openWebUrl(address: unknown): Promise<URL | null> {
+  if (typeof address !== 'string') return null
   let url: URL
   try {
     url = new URL(address)
@@ -516,12 +519,42 @@ ipcMain.handle('fetch-bytes', async (event, address: unknown): Promise<{ type: s
     // A name this computer does not resolve itself (a proxy may) is let through if it is a public-looking name.
     if (!url.hostname.includes('.')) return null
   }
+  return url
+}
+
+ipcMain.handle('fetch-bytes', async (event, address: unknown): Promise<{ type: string; bytes: Uint8Array } | null> => {
+  const url = trusted(event) ? await openWebUrl(address) : null
+  if (!url) return null
   try {
     const res = await net.fetch(url.href, { redirect: 'follow', signal: AbortSignal.timeout(120_000), headers: { accept: 'image/*,*/*;q=0.8' } })
     const type = res.headers.get('content-type') ?? ''
     if (!res.ok || !/^image\//i.test(type) || Number(res.headers.get('content-length') ?? 0) > BYTES_LIMIT) return null
     const bytes = new Uint8Array(await res.arrayBuffer())
     return bytes.length && bytes.length <= BYTES_LIMIT ? { type, bytes } : null
+  } catch {
+    return null
+  }
+})
+
+ipcMain.handle('fetch-page', async (event, address: unknown): Promise<{ url: string; status: number; text: string } | null> => {
+  const url = trusted(event) ? await openWebUrl(address) : null
+  if (!url) return null
+  try {
+    // Asked as the browser asks (the window is one): the sites that give a card to a browser give it to this.
+    const res = await net.fetch(url.href, { redirect: 'follow', signal: AbortSignal.timeout(20_000), headers: { accept: 'text/html,application/xhtml+xml,application/json;q=0.9,*/*;q=0.5', 'accept-language': 'ru,en;q=0.8' } })
+    if (!/^(text\/|application\/(xhtml|json))/i.test(res.headers.get('content-type') ?? '')) return { url: res.url || url.href, status: res.status, text: '' }
+    // Only the start of a long page is read: the tags a card is made of are at its head (a video's description is further, in its first megabytes).
+    const reader = res.body?.getReader()
+    const chunks: Uint8Array[] = []
+    let size = 0
+    while (reader && size < PAGE_LIMIT) {
+      const { done, value } = await reader.read()
+      if (done) break
+      chunks.push(value)
+      size += value.length
+    }
+    void reader?.cancel().catch(() => {})
+    return { url: res.url || url.href, status: res.status, text: Buffer.concat(chunks).toString('utf8') }
   } catch {
     return null
   }

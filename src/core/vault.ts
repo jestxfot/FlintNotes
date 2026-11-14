@@ -1,4 +1,5 @@
 import type { DirListing, ExternalPluginInfo, RemoteEvent, Tier, VaultEntry, VaultInfo } from '../../shared/protocol'
+import { cardOfHtml, youtubeCard, type Card } from '../../shared/cards'
 import { desktop } from './desktop'
 import { Events } from './events'
 import { join } from './path'
@@ -262,10 +263,31 @@ export class Vault extends Events<VaultEvents> {
     return (await request('/api/request', { method: 'POST', headers: { 'content-type': 'application/json' }, body: JSON.stringify(options) })).json()
   }
 
+  /** A video's card read from its pages as the desktop app fetched them (the oEmbed answer and the watch page); `null` where it could not. */
+  private async videoByWindow(address: string): Promise<Card | null> {
+    const [embed, page] = await Promise.all([desktop!.fetchPage!(`https://www.youtube.com/oembed?format=json&url=${encodeURIComponent(address)}`).catch(() => null), desktop!.fetchPage!(address).catch(() => null)])
+    const card = youtubeCard(embed?.status === 200 ? embed.text : null, page ? { status: page.status, text: page.text } : { error: 'приложение не получило страницу видео' })
+    return card ? { url: address, title: card.title, description: card.description, author: card.author, image: card.image, favicon: 'https://www.youtube.com/favicon.ico', ...(card.problem ? { problem: card.problem } : {}) } : null
+  }
+
   /** What a web page says about itself: title, description, picture. */
-  async unfurl(address: string): Promise<{ url: string; title: string; description: string; image: string; favicon: string; author?: string; problem?: string }> {
+  async unfurl(address: string): Promise<Card> {
     const server = () => request(`/api/unfurl?url=${encodeURIComponent(address)}`).then((res) => res.json())
-    if (!/^https?:\/\/((www|m|music)\.)?(youtube\.com|youtu\.be)\//i.test(address)) return server()
+    const isVideo = /^https?:\/\/((www|m|music)\.)?(youtube\.com|youtu\.be)\//i.test(address)
+    // The desktop app reaches sites that the home server may not (its line to the web is often not the computer's): it fetches the page
+    // and the card is read from it here, the way the server reads a page it fetched. Where it cannot, the server is asked as before.
+    if (desktop?.fetchPage && !isVideo) {
+      const got = await desktop.fetchPage(address).catch(() => null)
+      if (got?.status === 200 && got.text) {
+        try {
+          const card = cardOfHtml(address, got.text, got.url)
+          if (card.title || card.description) return card
+        } catch {
+          // Not a page that makes a card: the server may read it differently.
+        }
+      }
+    }
+    if (!isVideo) return server()
     // A video site is asked by the browser itself as well: it lets pages ask it (its answer says so), and the
     // browser reaches it the way it opens the site, through whatever proxy or VPN it uses, where the server may
     // not get through. The browser's answer has the title, channel and frame; only the server can read the
@@ -277,14 +299,14 @@ export class Vault extends Events<VaultEvents> {
     // The server may be a long time failing (a site it cannot reach waits out its own timeouts): its answer is noted
     // whenever it comes, but the card does not wait for it beyond a moment once the browser has the video.
     let serverFailed: unknown
-    const fromServer = server().catch((err) => ((serverFailed = err), null))
+    const fromServer = (desktop?.fetchPage ? this.videoByWindow(address) : Promise.resolve(null)).then((card) => card ?? server()).catch((err) => ((serverFailed = err), null))
     const video = await fromBrowser.then((one) => (one.title ? one : null), () => null)
     if (!video) {
       const page = await fromServer
       if (page) return page
       throw serverFailed ?? new Error('Страница не ответила')
     }
-    const page = await Promise.race([fromServer, new Promise<null>((resume) => setTimeout(() => resume(null), 2500))])
+    const page = await Promise.race([fromServer, new Promise<null>((resume) => setTimeout(() => resume(null), desktop?.fetchPage ? 8000 : 2500))])
     const author = video.author_name ?? page?.author ?? ''
     // Why the video's own description is missing: the server's word, or that the server did not answer.
     const problem = page?.problem ?? (serverFailed ? errorText(serverFailed) : page ? undefined : 'сервер не успел прочитать описание')
