@@ -49,16 +49,16 @@
       for (let d = 0; d < 7; d++) {
         const date = start.clone().add(w * 7 + d, 'day')
         const note = notes.find('daily', date)
-        const text = note ? (app.metadata.text(note) ?? '') : ''
-        // Properties and markup are not "writing"; words are what is left.
-        const words = text.replace(/^---[\s\S]*?\n---/, '').match(/[\p{L}\p{N}]+/gu)?.length ?? 0
+        // Properties and markup are not "writing"; words are what is left. The list items are in the note's outline.
+        const outline = note ? (app.metadata.outline(note) ?? '') : ''
+        const words = note ? app.metadata.words(note) : 0
         days.push({
           date,
           key: date.format('YYYY-MM-DD'),
           outside: date.month() !== month.month(),
           note,
           dots: note ? Math.min(5, Math.max(1, Math.ceil(words / wordsPerDot))) : 0,
-          openTasks: /^\s*(?:[-*+]|\d+[.)])\s+\[ \]/m.test(text),
+          openTasks: /^\s*(?:[-*+]|\d+[.)])\s+\[ \]/m.test(outline),
         })
       }
       // A week belongs to the year and number of its Thursday.

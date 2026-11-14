@@ -109,7 +109,7 @@
     const note = notes.find('daily', date)
     const items: Item[] = []
     const seen = new Set<string>()
-    const text = note && (showNote || plan) ? (app.metadata.text(note) ?? '') : ''
+    const text = note && (showNote || plan) ? (app.metadata.outline(note) ?? '') : ''
     if (note && text) {
       const known = new Map((service()?.all() ?? []).filter((task) => task.path === note).map((task) => [task.line, task]))
       let fence = false

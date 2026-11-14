@@ -544,7 +544,6 @@ export class App {
     // requested as soon as the settings say which plugins are on.
     await this.vault.identify()
     performance.mark('flint:identify')
-    this.metadata.prefetch()
     const done = (name: string) => () => performance.mark(`flint:${name}`)
     await Promise.all([this.vault.load().then(done('tree')), this.state.load().then(done('state')), this.settings.load().then(done('settings')).then(() => this.plugins.preload())])
     this.panels.init()

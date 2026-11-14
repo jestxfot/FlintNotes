@@ -3,6 +3,7 @@ import { desktop } from './desktop'
 import { Events } from './events'
 import { join } from './path'
 import { pause } from './pause'
+import type { CachedMetadata } from './parse-markdown'
 
 export type { DirListing, Tier, VaultEntry, VaultInfo }
 
@@ -199,6 +200,11 @@ export class Vault extends Events<VaultEvents> {
     return (await request(url('file', path))).text()
   }
 
+  /** The texts of several notes at once (at most 500), as the server holds them. */
+  async texts(paths: string[]): Promise<Record<string, string>> {
+    return (await request('/api/texts', { method: 'POST', headers: { 'content-type': 'application/json' }, body: JSON.stringify({ paths }) })).json()
+  }
+
   async readBinary(path: string): Promise<ArrayBuffer> {
     return (await request(url('file', path))).arrayBuffer()
   }
@@ -343,6 +349,31 @@ export class Vault extends Events<VaultEvents> {
         each(note.path, note.text)
         // Megabytes of notes can arrive at once. Pausing every few milliseconds
         // lets the page answer clicks and typing while they are processed.
+        if (performance.now() - sliceStart > 8) {
+          await pause()
+          sliceStart = performance.now()
+        }
+      }
+      if (done) break
+    }
+  }
+
+  /**
+   * What the server read of every note, calling `each` as the entries arrive: the index entry (links, tags, headings, properties),
+   * the outline (list items and fields at their own lines) and the word count. The texts themselves are not sent.
+   */
+  async readIndex(each: (note: { path: string; meta: CachedMetadata; outline: string; words: number }) => void): Promise<void> {
+    const reader = (await request('/api/index')).body!.getReader()
+    const decoder = new TextDecoder()
+    let rest = ''
+    let sliceStart = performance.now()
+    for (;;) {
+      const { done, value } = await reader.read()
+      const lines = (rest + decoder.decode(value, { stream: !done })).split('\n')
+      rest = lines.pop() ?? ''
+      for (const line of lines) {
+        if (!line) continue
+        each(JSON.parse(line))
         if (performance.now() - sliceStart > 8) {
           await pause()
           sliceStart = performance.now()

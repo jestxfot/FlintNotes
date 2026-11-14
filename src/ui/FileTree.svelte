@@ -296,6 +296,7 @@
         class:active={entry.path === activePath.current}
         class:drop-target={isFolder && dropTarget === entry.path}
         style:padding-left="{8 + depth * 14}px"
+        onpointerdown={() => app.metadata.prefetch(entry.path)}
         draggable={layout.mobile ? 'false' : 'true'}
         ondragstart={(event) => {
           dragged = entry.path

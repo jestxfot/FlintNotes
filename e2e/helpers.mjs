@@ -85,6 +85,8 @@ export function tools(page, vault, results) {
     async open(name) {
       await t.row(name).click()
       await page.waitForSelector(`${leaf} .cm-content`)
+      // The note's text comes from the server when the page does not have it: the editor is there a moment after the click.
+      await page.waitForFunction(() => !!app.workspace.activeEditor, null, { timeout: 15000 })
       await t.cursorToEnd()
       await t.wait(800)
     },

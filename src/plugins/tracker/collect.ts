@@ -57,8 +57,20 @@ function notesByDay(app: App, spec: TrackerSpec): { path: string; day: string }[
   return out
 }
 
-/** Reads the values a block asks for. One dataset per target (targets are separated by commas). */
-export function collect(app: App, spec: TrackerSpec): Dataset[] {
+/** The kinds of search that read the note's whole text; the others look at its outline (list items and fields), its index entry or its file. */
+const WHOLE_TEXT = new Set(['tag', 'text', 'fileMeta'])
+
+/** The notes whose whole text `collect` will read: the notes of the block's days, when it searches by tag, by pattern or by size. */
+export function needed(app: App, spec: TrackerSpec): string[] {
+  const type = String(spec.searchType ?? '').trim()
+  if (!WHOLE_TEXT.has(type)) return []
+  const from = spec.startDate ? moment(String(spec.startDate)).format('YYYY-MM-DD') : ''
+  const to = spec.endDate ? moment(String(spec.endDate)).format('YYYY-MM-DD') : '9999'
+  return notesByDay(app, spec).filter(({ day }) => day >= from && day <= to).map(({ path }) => path)
+}
+
+/** Reads the values a block asks for. One dataset per target (targets are separated by commas). `texts`: the texts `needed` named. */
+export function collect(app: App, spec: TrackerSpec, texts?: Map<string, string>): Dataset[] {
   const type = String(spec.searchType ?? '').trim()
   // A task's text may contain commas, so a task search has one target.
   const targets = type.startsWith('task') ? [String(spec.searchTarget ?? '')] : String(spec.searchTarget ?? '').split(',').map((t) => t.trim()).filter(Boolean)
@@ -73,7 +85,7 @@ export function collect(app: App, spec: TrackerSpec): Dataset[] {
     const add = (day: string, value: number | null) => value !== null && values.set(day, (values.get(day) ?? 0) + value)
     for (const { path, day } of notes) {
       if (day < from || day > to) continue
-      const text = app.metadata.text(path) ?? ''
+      const text = texts?.get(path) ?? app.metadata.text(path) ?? app.metadata.outline(path) ?? ''
       const meta = app.metadata.get(path)
       if (type === 'frontmatter') {
         // `a.b` reaches into nested properties.

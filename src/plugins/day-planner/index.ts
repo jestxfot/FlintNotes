@@ -74,7 +74,7 @@ export default class DayPlanner extends Plugin {
     const read = (file: string | null): { blocks: Block[]; loose: Block[] } => {
       const blocks: Block[] = []
       const loose: Block[] = []
-      const text = file ? app.metadata.text(file) : null
+      const text = file ? app.metadata.outline(file) : null
       if (!text) return { blocks, loose }
       const fallback = Math.max(5, get<number>('defaultDurationMinutes') ?? 30)
       let fence = false

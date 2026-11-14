@@ -1,7 +1,7 @@
 import { Chart, registerables } from 'chart.js'
 import { parse } from 'yaml'
 import { errorMessage, moment, Plugin, renderInline, whenQuiet, type CodeBlockProcessor } from '../../api'
-import { collect, days, stats, type Dataset, type TrackerSpec } from './collect'
+import { collect, days, needed, stats, type Dataset, type TrackerSpec } from './collect'
 import './style.css'
 
 Chart.register(...registerables)
@@ -151,10 +151,17 @@ export default class Tracker extends Plugin {
       let charts: Chart[] = []
       let drawn = ''
       const state: { month?: string } = {}
-      const draw = () => {
+      // A draw waits for the texts it needs (a few notes of a folder); one that is overtaken by a newer draw gives way.
+      let turn = 0
+      let gone = false
+      const draw = async () => {
+        const mine = ++turn
         try {
           const spec = (parse(current) ?? {}) as TrackerSpec
-          const datasets = collect(app, spec)
+          const wanted = needed(app, spec)
+          const texts = wanted.length ? await app.metadata.readMany(wanted) : undefined
+          if (gone || mine !== turn) return
+          const datasets = collect(app, spec, texts)
           const range = days(datasets, spec)
           // Most changes in the vault leave a tracker's numbers as they were; then nothing is redrawn.
           const signature = JSON.stringify([current, datasets.map((dataset) => [...dataset.values]), moment().format('YYYY-MM-DD')])
@@ -178,6 +185,7 @@ export default class Tracker extends Plugin {
             else charts.push(chart(el, spec, kind as 'line' | 'bar', datasets, range))
           }
         } catch (err) {
+          if (gone || mine !== turn) return
           drawn = ''
           el.replaceChildren()
           const error = el.appendChild(document.createElement('div'))
@@ -186,16 +194,17 @@ export default class Tracker extends Plugin {
         }
       }
       // Not while a note is being typed in: each pause in the typing saves it, and the tracker follows once the typing stops.
-      const later = whenQuiet(draw, 400)
+      const later = whenQuiet(() => void draw(), 400)
       const offs = [app.metadata.on('changed', later), app.metadata.on('resolved', later)]
-      requestAnimationFrame(draw)
+      requestAnimationFrame(() => void draw())
       return {
         update(next) {
           current = next
           state.month = undefined
-          draw()
+          void draw()
         },
         destroy() {
+          gone = true
           later.cancel()
           offs.forEach((off) => off())
           charts.forEach((made) => made.destroy())

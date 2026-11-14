@@ -45,12 +45,16 @@ export class TaskStore extends Events<{ change: [] }> {
 
   private parse(path: string) {
     const { metadata } = this.app
-    const text = metadata.text(path) ?? ''
+    // The note's outline, not its text: a paragraph typed elsewhere in the note does not make its tasks be read again.
+    const outline = metadata.outline(path) ?? ''
+    const headings = metadata.get(path)?.headings ?? []
+    // A task says which heading it is under, so a heading that changed is a change of the tasks too.
+    const text = `${headings.map((h) => `${h.line}:${h.text}`).join('\n')}\0${outline}`
     let entry = this.cache.get(path)
-    // Only notes whose text changed are parsed again.
+    // Only notes whose outline (or headings) changed are parsed again.
     if (entry?.text !== text) {
       const plain: Task[] = []
-      const tasks = parseTasks(path, text, metadata.get(path)?.headings ?? [], plain)
+      const tasks = parseTasks(path, outline, headings, plain)
       entry = { text, tasks, plain, lines: [...tasks, ...plain].map((task) => `${task.line}\t${task.raw}`).join('\n') }
       this.cache.set(path, entry)
     }

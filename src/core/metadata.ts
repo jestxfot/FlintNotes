@@ -1,5 +1,3 @@
-import { ParsePool } from './parse-pool'
-import { IndexCache } from './index-cache'
 import { moment } from './moment'
 import { expandVariables } from './variables'
 import { Events } from './events'
@@ -9,6 +7,7 @@ import type { Vault, VaultEntry } from './vault'
 
 export { parseMarkdown, type CachedMetadata, type HeadingRef, type LinkRef } from './parse-markdown'
 import { parseMarkdown, type CachedMetadata } from './parse-markdown'
+import { outline, wordCount } from '../../shared/outline'
 
 /** Notes whose links pointed at a renamed file, with the link texts they used. */
 export interface AffectedLinks {
@@ -39,6 +38,14 @@ type MetadataEvents = {
 /** Everything about a note that other notes' links, the tag list or queries can depend on. */
 const signature = (meta: CachedMetadata) =>
   JSON.stringify([meta.links.map((l) => [l.target, l.subpath, l.embed]), meta.tags, meta.aliases, meta.headings.map((h) => [h.level, h.text]), meta.frontmatter])
+
+/** Earlier versions kept every note's text and index in the browser (tens of MB); the server holds them now, and what was kept is let go. */
+function forgetKeptIndex(): void {
+  void indexedDB
+    .databases?.()
+    .then((list) => list.forEach((db) => db.name?.startsWith('flint-index:') && indexedDB.deleteDatabase(db.name)))
+    .catch(() => {})
+}
 
 const isNote = (entry: VaultEntry) => entry.kind === 'file' && extname(entry.path) === 'md'
 
@@ -71,7 +78,12 @@ export class MetadataCache extends Events<MetadataEvents> {
   private markReady!: () => void
 
   private cache = new Map<string, CachedMetadata>()
-  private texts = new Map<string, string>()
+  /** Each note's list items, fields and reminders, with the note's line numbers (shared/outline.ts): what the readers of a whole vault look at. */
+  private outlines = new Map<string, string>()
+  /** Texts read on demand (see `read`): what the page does not hold for every note. */
+  private loose = new Map<string, string>()
+  private reading = new Map<string, Promise<string | undefined>>()
+  private wordCounts = new Map<string, number>()
   private versions = new Map<string, number>()
   // Snapshots of the vault's files, rebuilt with the link maps.
   private paths = new Map<string, string>()
@@ -83,18 +95,10 @@ export class MetadataCache extends Events<MetadataEvents> {
   private indexed = new Map<string, number>()
   /** Answers of `resolve` since the last rebuild; the same links are asked about again and again. */
   private resolved = new Map<string, string | null>()
-  /** The index as it was at the end of the last visit, kept by the browser. */
-  private stored: IndexCache | null = null
 
   constructor(private vault: Vault) {
     super()
     this.ready = new Promise((resolve) => (this.markReady = resolve))
-  }
-
-  /** Starts reading the index the browser kept, as early as the vault is known: it arrives, a part at a time, while the rest starts. */
-  prefetch(): void {
-    this.stored ??= new IndexCache(this.vault.urlName || 'vault')
-    this.stored.prefetch()
   }
 
   /** Starts following the vault. Links by name resolve from here on; contents come with `load`. */
@@ -115,11 +119,18 @@ export class MetadataCache extends Events<MetadataEvents> {
       this.indexed.set(entry.path, entry.mtime)
       this.store(entry.path, text)
     })
-    vault.on('modify', (entry) => isNote(entry) && this.indexed.get(entry.path) !== entry.mtime && void this.index(entry.path))
+    vault.on('modify', (entry) => {
+      if (!isNote(entry)) return
+      if (this.indexed.get(entry.path) !== entry.mtime) {
+        this.loose.delete(entry.path)
+        void this.index(entry.path)
+      }
+    })
     vault.on('delete', (entry) => {
       this.cache.delete(entry.path)
-      this.texts.delete(entry.path)
-      this.stored?.remove(entry.path)
+      this.outlines.delete(entry.path)
+      this.loose.delete(entry.path)
+      this.wordCounts.delete(entry.path)
       if (entry.kind !== 'file') return
       this.namesStale = true
       this.rebuildSoon()
@@ -130,6 +141,7 @@ export class MetadataCache extends Events<MetadataEvents> {
 
   /** Reads every note. Called once the first screen is up, so it does not hold that up. */
   load(): void {
+    forgetKeptIndex()
     void this.indexAll().then(this.markReady)
   }
 
@@ -137,9 +149,80 @@ export class MetadataCache extends Events<MetadataEvents> {
     return this.cache.get(path)
   }
 
-  /** Text of a note as last read from disk. */
+  /** Text of a note as last read from disk, if the page has it: the notes opened or saved here, and those read for something. */
   text(path: string): string | undefined {
-    return this.texts.get(path)
+    return this.loose.get(path)
+  }
+
+  /** The text of a note: as the page has it, or read from the server (and kept for a while). Asked twice at once, it is read once. */
+  read(path: string): Promise<string | undefined> {
+    const held = this.text(path)
+    if (held !== undefined) return Promise.resolve(held)
+    let pending = this.reading.get(path)
+    if (!pending) {
+      pending = this.vault
+        .read(path)
+        .then((text): string | undefined => (this.keep(path, text), text))
+        .catch(() => undefined)
+        .finally(() => this.reading.delete(path))
+      this.reading.set(path, pending)
+    }
+    return pending
+  }
+
+  /** A note is about to be opened (the pointer is down on it): its text is on its way, so that it opens without waiting for the server. */
+  prefetch(path: string): void {
+    const entry = this.vault.get(path)
+    if (entry && isNote(entry)) void this.read(path)
+  }
+
+  /** The texts of several notes, a request for each two hundred. A note that is not there is left out. */
+  async readMany(paths: string[]): Promise<Map<string, string>> {
+    const out = new Map<string, string>()
+    const missing: string[] = []
+    for (const path of paths) {
+      const held = this.text(path)
+      if (held !== undefined) out.set(path, held)
+      else missing.push(path)
+    }
+    for (let i = 0; i < missing.length; i += 200) {
+      const got = await this.vault.texts(missing.slice(i, i + 200)).catch(() => ({}) as Record<string, string>)
+      for (const [path, text] of Object.entries(got)) {
+        out.set(path, text)
+        this.keep(path, text)
+      }
+    }
+    return out
+  }
+
+  /** Texts read on demand are kept for a while (the newest 200), so that asking again does not ask the server again. */
+  private keep(path: string, text: string): void {
+    this.loose.delete(path)
+    this.loose.set(path, text)
+    for (const old of this.loose.keys()) {
+      if (this.loose.size <= 200) break
+      this.loose.delete(old)
+    }
+  }
+
+  /**
+   * What the readers of a whole vault (the tasks list, queries) look at in a note: its list items, fields and reminders at their
+   * own line numbers, the prose left out. A note's prose changing leaves it as it was, so what is built from it is not built again.
+   */
+  outline(path: string): string | undefined {
+    return this.outlines.get(path)
+  }
+
+  /** How many words the note has (see `wordCount`): the server counted them for every note, the page for the notes it has read. */
+  words(path: string): number {
+    return this.wordCounts.get(path) ?? 0
+  }
+
+  /** A note's text is in hand (it was saved here, or read after another program changed it): what is kept of every note is made from it. */
+  private setText(path: string, text: string): void {
+    this.keep(path, text)
+    this.wordCounts.set(path, wordCount(text))
+    this.outlines.set(path, outline(text))
   }
 
   /** Paths of all indexed notes. */
@@ -220,104 +303,41 @@ export class MetadataCache extends Events<MetadataEvents> {
     return note ? path.slice(0, -3) : path
   }
 
-  /** Puts a note as it is now into the index kept by the browser. */
-  private remember(path: string): void {
-    const entry = this.vault.get(path)
-    const text = this.texts.get(path)
-    const meta = this.cache.get(path)
-    if (entry && text !== undefined && meta) this.stored?.put({ path, mtime: entry.mtime, size: entry.size, text, meta })
-  }
-
   /**
-   * Reads every note. Notes whose file has not changed since the last visit come
-   * from the index the browser kept, already parsed; only the others are read
-   * from the server: one by one when they are few, in one stream when they are many.
+   * Takes in what the server read of every note: the index entry and the outline of each, in one stream. The texts stay on the
+   * server; a note's text is asked for when something needs it whole (`read`).
    */
   private async indexAll(): Promise<void> {
-    this.stored ??= new IndexCache(this.vault.urlName || 'vault')
     performance.mark('flint:index-start')
-    const kept = await this.stored.readAll()
-    performance.mark('flint:index-kept')
-    const notes = this.vault.files().filter(isNote)
-    const stale: string[] = []
-    let sliceStart = performance.now()
-    for (const entry of notes) {
-      const known = kept.get(entry.path)
-      kept.delete(entry.path)
-      if (!known || known.mtime !== entry.mtime || known.size !== entry.size) {
-        stale.push(entry.path)
-        continue
-      }
-      // A note read on its own meanwhile (it was just edited) is newer than what was kept.
-      if (this.versions.has(entry.path)) continue
-      this.texts.set(entry.path, known.text)
-      this.cache.set(entry.path, known.meta)
-      this.indexed.set(entry.path, entry.mtime)
-      this.trigger('changed', entry.path)
-      if (performance.now() - sliceStart > 12) {
-        await pause()
-        sliceStart = performance.now()
-      }
+    const known = new Set(this.vault.files().filter(isNote).map((entry) => entry.path))
+    try {
+      await this.vault.readIndex((note) => {
+        // A note read on its own meanwhile (it was just edited) is newer than what the server sent; one made since is not in the list yet.
+        if (this.versions.has(note.path) || !known.has(note.path)) return
+        known.delete(note.path)
+        this.cache.set(note.path, note.meta)
+        this.outlines.set(note.path, note.outline)
+        this.wordCounts.set(note.path, note.words)
+        this.indexed.set(note.path, this.vault.get(note.path)!.mtime)
+        this.trigger('changed', note.path)
+      })
+    } catch (err) {
+      console.error('Reading the index of the notes failed; reading them one by one', err)
     }
-    // What was kept for notes that are gone is forgotten.
-    for (const path of kept.keys()) this.stored.remove(path)
-
-    const take = (path: string, text: string, meta = parseMarkdown(text)) => {
-      if (this.versions.has(path) || !this.vault.get(path)) return
-      this.texts.set(path, text)
-      this.cache.set(path, meta)
-      this.indexed.set(path, this.vault.get(path)!.mtime)
-      this.remember(path)
-      this.trigger('changed', path)
-    }
-    const oneByOne = async (paths: string[]) => {
-      const queue = [...paths]
-      const worker = async () => {
-        for (let path = queue.pop(); path; path = queue.pop()) {
-          const text = await this.vault.read(path).catch(() => null)
-          if (text !== null) take(path, text)
-        }
-      }
-      await Promise.all(Array.from({ length: 8 }, worker))
-    }
-    if (stale.length > 150) {
-      const wanted = new Set(stale)
-      // Many notes (a first start): they are parsed on other threads while the rest still arrives.
-      const pool = new ParsePool()
-      const parsing: Promise<void>[] = []
-      let batch: [string, string][] = []
-      let size = 0
-      const send = () => {
-        if (!batch.length) return
-        const notes = batch
-        batch = []
-        size = 0
-        parsing.push(pool.parse(notes).then((parsed) => parsed.forEach(([path, meta], i) => take(path, notes[i][1], meta))))
-      }
-      try {
-        await this.vault.readNotes((path, text) => {
-          if (!wanted.has(path)) return
-          batch.push([path, text])
-          size += text.length
-          if (batch.length >= 64 || size > 400_000) send()
-        })
-        send()
-        await Promise.all(parsing)
-      } catch (err) {
-        console.error('Reading all notes at once failed; reading them one by one', err)
-        await Promise.all(parsing).catch(() => {})
-        await oneByOne(stale.filter((path) => !this.cache.has(path)))
-      } finally {
-        pool.close()
-      }
-    } else await oneByOne(stale)
-    // Notes came from the kept index and from the server in no set order; queries list them
-    // in the order of the files, whatever way they arrived.
+    // Notes the stream did not carry (the server had not seen them yet): read one by one.
+    const missing = [...known].filter((path) => !this.cache.has(path) && !this.versions.has(path))
+    const queue = [...missing]
+    await Promise.all(
+      Array.from({ length: 8 }, async () => {
+        for (let path = queue.pop(); path; path = queue.pop()) await this.index(path)
+      }),
+    )
+    // Queries list notes in the order of the files, whatever order they arrived in.
     const order = this.vault.files().filter(isNote).map((entry) => entry.path)
     const inOrder = new Set(order)
     const sorted = <T>(map: Map<string, T>) => new Map([...order.filter((path) => map.has(path)).map((path): [string, T] => [path, map.get(path)!]), ...[...map].filter(([path]) => !inOrder.has(path))])
     this.cache = sorted(this.cache)
-    this.texts = sorted(this.texts)
+    this.outlines = sorted(this.outlines)
     this.loading = false
     this.rebuild()
     performance.mark('flint:index')
@@ -341,9 +361,8 @@ export class MetadataCache extends Events<MetadataEvents> {
   private store(path: string, text: string): void {
     const before = this.cache.get(path)
     const meta = parseMarkdown(text)
-    this.texts.set(path, text)
+    this.setText(path, text)
     this.cache.set(path, meta)
-    this.remember(path)
     this.trigger('changed', path)
     if (!this.loading && (!before || signature(before) !== signature(meta))) this.relink(path, before, meta)
   }
@@ -413,10 +432,14 @@ export class MetadataCache extends Events<MetadataEvents> {
     if (meta) {
       this.cache.delete(oldPath)
       this.cache.set(entry.path, meta)
-      this.texts.set(entry.path, this.texts.get(oldPath) ?? '')
-      this.texts.delete(oldPath)
-      this.stored?.remove(oldPath)
-      this.remember(entry.path)
+      // What is kept of the note goes with it to its new name.
+      const text = this.loose.get(oldPath)
+      if (text !== undefined) this.keep(entry.path, text)
+      this.loose.delete(oldPath)
+      this.outlines.set(entry.path, this.outlines.get(oldPath) ?? '')
+      this.outlines.delete(oldPath)
+      this.wordCounts.set(entry.path, this.wordCounts.get(oldPath) ?? 0)
+      this.wordCounts.delete(oldPath)
     } else if (isNote(entry)) {
       void this.index(entry.path)
     }

@@ -9,7 +9,7 @@
 import fs from 'node:fs/promises'
 import path from 'node:path'
 import { WordSet, type TextHit, type Line } from '../shared/search-text'
-import { outline } from '../shared/outline'
+import { outline, wordCount } from '../shared/outline'
 import { parseMarkdown, type CachedMetadata } from '../src/core/parse-markdown'
 
 /** A word as the index has it: lower case, the final sigma written as the other (the page's patterns ignore case, `ς` and `σ` alike). */
@@ -32,6 +32,7 @@ export interface NoteHit {
 export interface Derived {
   meta: CachedMetadata
   outline: string
+  words: number
 }
 
 export class NoteStore {
@@ -92,7 +93,8 @@ export class NoteStore {
     }
     // A note gone from the list without the watcher saying so.
     for (const file of this.texts.keys()) if (!files.has(file)) this.drop(file)
-    if (first && !this.indexing) setTimeout(() => void this.buildIndex(), 1500).unref()
+    // The word index, then each note's index entry and outline (a page starting later finds them made): both in the background.
+    if (first && !this.indexing) setTimeout(() => void this.buildIndex().then(() => this.derivedAll(async () => {})), 1500).unref()
   }
 
   /** Every word of every note, a few notes at a time. Searches before it is done look through the texts instead. */
@@ -146,6 +148,17 @@ export class NoteStore {
     for (let i = 0; i < notes.length; i += 32) await each(notes.slice(i, i + 32))
   }
 
+  /** The texts of the given notes (those that are notes the store has): asked for the few the page needs whole, not for every note. */
+  async pick(files: string[]): Promise<Record<string, string>> {
+    await this.load()
+    const out: Record<string, string> = {}
+    for (const file of files.slice(0, 500)) {
+      const text = this.texts.get(file)
+      if (text !== undefined) out[file] = text
+    }
+    return out
+  }
+
   /** The index entry and the outline of every note, for the page reading the vault at start (it keeps these, not the texts); handed over in batches. */
   async derivedAll(each: (batch: [string, Derived][]) => Promise<void>): Promise<void> {
     await this.load()
@@ -156,7 +169,7 @@ export class NoteStore {
       for (const file of files.slice(i, i + 32)) {
         let made = this.derived.get(file)
         const text = this.texts.get(file)
-        if (!made && text !== undefined) this.derived.set(file, (made = { meta: parseMarkdown(text), outline: outline(text) }))
+        if (!made && text !== undefined) this.derived.set(file, (made = { meta: parseMarkdown(text), outline: outline(text), words: wordCount(text) }))
         if (made) batch.push([file, made])
         if (performance.now() - slice > SLICE) (await yieldToServer(), (slice = performance.now()))
       }

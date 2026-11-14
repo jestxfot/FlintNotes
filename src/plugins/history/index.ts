@@ -78,11 +78,12 @@ export default class NoteHistory extends Plugin {
     // at the time the file says it was changed.
     const begin = (path: string) => {
       if (!watched(path)) return
-      const text = app.metadata.text(path)
-      const entry = app.vault.get(path)
-      if (text === undefined || text === null) return
-      if (mine.get(path) === text) return
-      void store.record(path, text, entry?.mtime || Date.now(), 'outside', options(entry))
+      void app.metadata.read(path).then((text) => {
+        const entry = app.vault.get(path)
+        if (text === undefined || text === null) return
+        if (mine.get(path) === text) return
+        void store.record(path, text, entry?.mtime || Date.now(), 'outside', options(entry))
+      })
     }
     this.register(app.workspace.on('active-change', (leaf) => leaf && !leaf.path.startsWith('view:') && begin(leaf.path)))
     this.register(

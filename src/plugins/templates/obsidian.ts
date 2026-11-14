@@ -142,7 +142,7 @@ export function obsidianApp(app: App) {
       },
       getCache: (path: string) => {
         const target = file(path)
-        return target ? parseMarkdown(metadata.text(target.path) ?? '') : null
+        return target ? (metadata.get(target.path) ?? null) : null
       },
       getFirstLinkpathDest: (link: string, source: string) => {
         const dest = metadata.resolve(link.split('#')[0], clean(source))

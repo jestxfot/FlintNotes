@@ -53,17 +53,27 @@ export const noteEmbed: EmbedRenderer = (el, ctx) => {
     void app.vault.write(ctx.path, full)
   }
 
-  const render = () => {
-    full = app.metadata.text(ctx.path) ?? ''
+  let gone = false
+  const draw = (text: string) => {
+    if (gone) return
+    full = text
     range = sectionRange(full, app.metadata.get(ctx.path), ctx.subpath)
     const section = full.slice(range.from, range.to).replace(/\r\n/g, '\n')
     if (preview) preview.update(section)
     else preview = createPreview(app, body, section, ctx.path, { depth: ctx.depth + 1, onEdit: save })
   }
 
+  // The note's text is the page's if it has it, and is asked of the server if not (the page keeps only an outline of most notes).
+  const render = () => {
+    const held = app.metadata.text(ctx.path)
+    if (held !== undefined) draw(held)
+    else void app.metadata.read(ctx.path).then((text) => draw(text ?? ''))
+  }
+
   render()
   const off = app.metadata.on('changed', (changed) => changed === ctx.path && render())
   return () => {
+    gone = true
     off()
     preview?.destroy()
   }

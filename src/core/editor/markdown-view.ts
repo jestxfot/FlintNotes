@@ -36,11 +36,12 @@ export class MarkdownView implements FileView {
   ) {}
 
   async load(): Promise<this> {
-    // The index already holds the text of every note, so a note opens without
-    // waiting for the server; the file is then compared with the disk.
+    // A note whose text the page has opens without waiting for the server; the file is then compared with the disk.
     const indexed = this.app.metadata.text(this.path)
     this.reading = this.app.settings.get<boolean>('core', 'defaultReading') === true
-    this.saved = indexed ?? (await this.app.vault.read(this.path))
+    // Not in hand (the page keeps the text of the notes it has opened, not of every note): asked of the server, and that is the
+    // same request the pointer going down on the note started.
+    this.saved = indexed ?? (await this.app.metadata.read(this.path)) ?? (await this.app.vault.read(this.path))
     this.eol = this.saved.includes('\r\n') ? '\r\n' : '\n'
     this.editor = new EditorView({
       parent: this.containerEl,

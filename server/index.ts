@@ -417,7 +417,14 @@ api.get('/notes', (c) => ndjson(c, (send) => storeOf(root()).all(async (batch) =
 
 // What the page keeps of each note in place of its text: the index entry (links, tags, headings, properties), read by the server
 // once, and the outline (the list items and fields of the note, with its line numbers). See shared/outline.ts.
-api.get('/index', (c) => ndjson(c, (send) => storeOf(root()).derivedAll(async (batch) => void (await send(batch.map(([file, one]) => `${JSON.stringify({ path: file, meta: one.meta, outline: one.outline })}\n`).join(''))))))
+api.get('/index', (c) => ndjson(c, (send) => storeOf(root()).derivedAll(async (batch) => void (await send(batch.map(([file, one]) => `${JSON.stringify({ path: file, meta: one.meta, outline: one.outline, words: one.words })}\n`).join(''))))))
+
+// The texts of a few notes, for what needs a note whole (the page keeps only its outline): from the server's memory, in one answer.
+api.post('/texts', async (c) => {
+  const body = (await c.req.json().catch(() => null)) as { paths?: unknown } | null
+  if (!Array.isArray(body?.paths) || body.paths.length > 500 || body.paths.some((one) => typeof one !== 'string')) throw new HTTPException(400, { message: 'Нужны пути заметок' })
+  return c.json(await storeOf(root()).pick(body.paths as string[]))
+})
 
 // What the notes' text says of the typed words (the page keeps the titles, tags and the rest to itself). Two steps: for each
 // note that has a word, a few numbers; then, for the few notes the page will show, their best lines. See shared/search-text.ts.

@@ -20,8 +20,8 @@
   // svelte-ignore state_referenced_locally (props of a panel are set once, when it is mounted)
   const indexed = watch(app.metadata, ['resolved'], () => ({}), { quiet: true, shown })
 
-  /** Notes linking to the open one, each with the lines its links are on. */
-  const sources = $derived.by(() => {
+  /** Notes linking to the open one, each with the numbers of the lines its links are on. */
+  const found = $derived.by(() => {
     void indexed.current
     const target = active.current
     if (!target) return []
@@ -29,12 +29,27 @@
       .filter((source) => source !== target)
       .sort((a, b) => a.localeCompare(b))
       .map((source) => {
-        const lines = (app.metadata.text(source) ?? '').split('\n')
         const links = app.metadata.get(source)?.links ?? []
         const numbers = links.filter((link) => app.metadata.resolve(link.target, source) === target).map((l) => l.line)
-        return { source, lines: [...new Set(numbers)].map((line) => ({ line, text: lines[line]?.trim() ?? '' })) }
+        return { source, numbers: [...new Set(numbers)] }
       })
   })
+
+  // The lines themselves are in the notes' texts, which the page does not hold for every note: they come a moment later, in one request.
+  let texts = $state(new Map<string, string>())
+  $effect(() => {
+    const wanted = found.map((one) => one.source)
+    let stale = false
+    void app.metadata.readMany(wanted).then((got) => !stale && (texts = got))
+    return () => (stale = true)
+  })
+
+  const sources = $derived(
+    found.map(({ source, numbers }) => {
+      const lines = (texts.get(source) ?? '').split('\n')
+      return { source, lines: numbers.map((line) => ({ line, text: lines[line]?.trim() ?? '' })) }
+    }),
+  )
 
   const title = (file: string) => path.stripExt(path.basename(file))
 </script>

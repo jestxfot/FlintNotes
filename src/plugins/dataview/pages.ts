@@ -122,7 +122,7 @@ export class Pages {
       this.generation = metadata.generation
       this.cache.clear()
     }
-    const text = metadata.text(path)
+    const text = metadata.outline(path)
     const meta = metadata.get(path)
     if (text === undefined || !meta) return undefined
     const cached = this.cache.get(path)
