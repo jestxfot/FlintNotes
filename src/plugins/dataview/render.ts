@@ -1,4 +1,5 @@
 import { errorMessage, moment, plural, renderInline, type Moment } from '../../api'
+import { reserveImage } from '../../core/sizes'
 import type { ListItem } from './pages'
 import { PAIR, type Env, type Result } from './query'
 import { Dur, Link, toText, typeOf } from './values'
@@ -29,6 +30,7 @@ export function renderValue(env: DrawEnv, value: unknown): Node {
       if (link.embed && dest && IMAGE.test(dest)) {
         const image = el('img', 'dv-image')
         image.src = app.vault.url(dest)
+        reserveImage(image, image.src)
         image.alt = toText(link)
         return image
       }

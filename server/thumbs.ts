@@ -53,6 +53,22 @@ export class Thumbs {
     return (await resizer()) !== null
   }
 
+  /** The size (width, height) a picture file is shown at, from its header: nothing is decoded. `null`: not a picture, or no resizer. */
+  async dimensions(file: string): Promise<[number, number] | null> {
+    const sharp = await resizer()
+    if (!sharp) return null
+    try {
+      const meta = await sharp(file, { failOn: 'none', limitInputPixels: MAX_PIXELS }).metadata()
+      // An animated picture's height is all its frames' together; a photo turned by its camera is shown turned.
+      let width = meta.width ?? 0
+      let height = meta.pageHeight ?? meta.height ?? 0
+      if ((meta.orientation ?? 1) >= 5) [width, height] = [height, width]
+      return width > 0 && height > 0 ? [width, height] : null
+    } catch {
+      return null
+    }
+  }
+
   /**
    * The copy of picture `id` (a name for what it is and which version of it: a path with its time and size, an address)
    * at `width`. `load` reads the picture and is called only if the copy is not kept yet. `null`: there is no resizer.

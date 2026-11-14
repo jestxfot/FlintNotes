@@ -4,6 +4,7 @@ import { flushSync, mount } from 'svelte'
 import * as api from './api'
 import { moment } from './core/moment'
 import { watchPerformance } from './core/perf'
+import { setSizeSource, watchImageSizes } from './core/sizes'
 import { errorMessage } from './core/notice'
 import { app } from './instance'
 import './ui/app.css'
@@ -12,6 +13,9 @@ import AppView from './ui/App.svelte'
 // `flint` is the API for plugins loaded from the vault; `app` is handy in the console.
 // `moment` is global as in Obsidian: templates and task queries written for it call it directly.
 Object.assign(globalThis, { flint: api, app, moment })
+// What is known of the size of pictures (and blocks) is kept, and the server tells that of the vault's files: see src/core/sizes.ts.
+setSizeSource((paths) => app.vault.imageSizes(paths))
+watchImageSizes()
 
 // A phone opens FlintNotes over plain http from the computer (Настройки → Программа → Телефон), and a page that is
 // not secure gets no clipboard: copying goes the old way there, and reading it finds nothing.

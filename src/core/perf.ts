@@ -30,6 +30,11 @@ interface LongFrame extends PerformanceEntry {
   blockingDuration: number
   scripts: Script[]
 }
+interface ShiftEntry extends PerformanceEntry {
+  value: number
+  hadRecentInput: boolean
+  sources: { node?: Node | null; previousRect: DOMRectReadOnly; currentRect: DOMRectReadOnly }[]
+}
 interface InputEntry extends PerformanceEntry {
   processingStart: number
   processingEnd: number
@@ -87,6 +92,22 @@ function watchFrames(): void {
       )
     }
   }).observe({ type: 'long-animation-frame', buffered: true })
+
+  // The page moved under the reader's eyes: what moved, how far, and whether room had been kept for it (a picture says so).
+  new PerformanceObserver((list) => {
+    for (const entry of list.getEntries() as ShiftEntry[]) {
+      if (entry.hadRecentInput || entry.value < 0.01 || document.visibilityState !== 'visible') continue
+      const moved = entry.sources.slice(0, 3).map((source) => {
+        const node = source.node
+        const from = round(source.previousRect.y)
+        const to = round(source.currentRect.y)
+        const room = node instanceof HTMLImageElement ? (node.style.aspectRatio || node.hasAttribute('height') ? ', место было занято' : ', без места') : ''
+        const file = node instanceof HTMLImageElement ? ` ${fileName(node.currentSrc || node.src).slice(0, 40)}` : ''
+        return `${describe(node)}${file} ${from}→${to}${room}`
+      })
+      note(`сдвиг страницы ${entry.value.toFixed(3)}: ${moved.join('; ')}`)
+    }
+  }).observe({ type: 'layout-shift', buffered: true })
 
   new PerformanceObserver((list) => {
     for (const entry of list.getEntries() as InputEntry[]) {

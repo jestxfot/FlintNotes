@@ -305,6 +305,11 @@ export class Vault extends Events<VaultEvents> {
     return (await request('/api/search/text', { ...json(body), signal })).json()
   }
 
+  /** The sizes (width, height) of picture files of this vault, from their headers (`/api/image-sizes`): what is not a picture is left out. */
+  async imageSizes(paths: string[]): Promise<Record<string, [number, number]>> {
+    return (await request('/api/image-sizes', json({ paths }))).json()
+  }
+
   /** The address of a small copy of a picture of this vault, made by the server (`/api/thumb`); `width` in pixels of the screen. */
   thumbUrl(path: string, width: number): string {
     const entry = this.get(path)

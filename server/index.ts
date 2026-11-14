@@ -17,7 +17,7 @@ import { Readable, Transform } from 'node:stream'
 import { pipeline } from 'node:stream/promises'
 import { fileURLToPath } from 'node:url'
 import { promisify } from 'node:util'
-import { gzip } from 'node:zlib'
+import { createGzip, gzip } from 'node:zlib'
 import { PROTOCOL, type BuildInfo, type DirListing, type ExternalPluginInfo, type RemoteEvent, type Tier, type VaultEntry, type VaultInfo } from '../shared/protocol'
 import { checkWay, chooseProxy, computerProxy, describe, parseProxy, telegramName, viaProxy, webFetch, webGet, youtubeVideo } from './web'
 import { decide } from './policy'
@@ -396,10 +396,21 @@ api.get('/tree', async (c) => {
 api.get('/notes', async (c) => {
   // From the texts the server keeps in memory (server/search.ts); read from the disk, and sent as they are read, only the first time.
   const store = storeOf(root())
+  // Notes are text and shrink to about a quarter: over wifi that is the difference between 65 MB and 15 MB at every start.
+  // Compressed as it goes, flushed after each batch, so the page still gets the first notes at once.
+  const zipped = /\bgzip\b/.test(c.req.header('accept-encoding') ?? '')
   c.header('content-type', 'application/x-ndjson; charset=utf-8')
   c.header('cache-control', 'no-store')
+  if (zipped) c.header('content-encoding', 'gzip')
   return stream(c, async (out) => {
-    await store.all(async (batch) => void (await out.write(batch.map(([file, text]) => `${JSON.stringify({ path: file, text })}\n`).join(''))))
+    const gz = zipped ? createGzip({ level: 4 }) : null
+    const finished = gz ? new Promise<void>((resolve, reject) => (gz.on('data', (chunk: Buffer) => void out.write(chunk)), gz.on('end', resolve), gz.on('error', reject))) : null
+    const send = (text: string) => (gz ? new Promise<void>((resolve) => gz.write(text, () => gz.flush(() => resolve()))) : out.write(text).then(() => {}))
+    await store.all(async (batch) => void (await send(batch.map(([file, text]) => `${JSON.stringify({ path: file, text })}\n`).join(''))))
+    if (gz) {
+      gz.end()
+      await finished
+    }
   })
 })
 
@@ -543,6 +554,35 @@ api.get('/thumb', async (c) => {
   if (!made) throw new HTTPException(501, { message: 'Уменьшать картинки нечем' })
   headers['content-length'] = String(made.length)
   return c.body(new Uint8Array(made), 200, headers)
+})
+
+// How large the pictures of the vault are, for the page to keep room for them before they arrive (src/core/sizes.ts): read
+// from the files' headers, remembered by the file's version. What is not a picture is simply left out of the answer.
+const imageSizes = new Map<string, [number, number]>()
+api.post('/image-sizes', async (c) => {
+  const body = (await c.req.json().catch(() => null)) as { paths?: unknown } | null
+  const paths = Array.isArray(body?.paths) ? body.paths.filter((one): one is string => typeof one === 'string').slice(0, 100) : []
+  const out: Record<string, [number, number]> = {}
+  await Promise.all(
+    paths.map(async (relative) => {
+      let abs: string
+      try {
+        abs = resolveInVault(relative)
+      } catch {
+        return
+      }
+      const stat = await fs.stat(abs).catch(() => null)
+      if (!stat?.isFile() || stat.size > 300_000_000) return
+      const key = `${abs}\n${Math.round(stat.mtimeMs)}-${stat.size}`
+      let size = imageSizes.get(key) ?? (await thumbs.dimensions(abs))
+      if (!size) return
+      imageSizes.delete(key)
+      imageSizes.set(key, size)
+      if (imageSizes.size > 20_000) imageSizes.delete(imageSizes.keys().next().value!)
+      out[relative] = size
+    }),
+  )
+  return c.json(out)
 })
 
 api.put('/file', async (c) => {

@@ -2,6 +2,7 @@ import { WidgetType, type EditorView } from '@codemirror/view'
 import type { PreviewRenderer } from '..'
 import type { App } from '../../../app'
 import { resolvePath } from '../../../links'
+import { reserveImage } from '../../../sizes'
 
 /** A picture in the text. `below` puts it on its own row under the source that stays visible. */
 export class ImageWidget extends WidgetType {
@@ -24,6 +25,8 @@ export class ImageWidget extends WidgetType {
     img.src = this.src
     img.alt = this.alt
     if (this.width) img.width = Number(this.width)
+    // Room for it before it arrives: what is below does not move when it does.
+    reserveImage(img, this.src, !!this.width)
     // The editor laid out the line before the picture had a size.
     img.onload = () => view.requestMeasure()
     return img

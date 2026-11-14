@@ -7,6 +7,7 @@ import type { SyntaxNode, SyntaxNodeRef } from '@lezer/common'
 import type { App } from '../../app'
 import type { Off } from '../../events'
 import { errorMessage } from '../../notice'
+import { blockHeight, rememberBlock } from '../../sizes'
 import { filePath, staticPreview } from '../state'
 import { builtinRenderers } from './elements'
 import { forgetKeptEmbeds } from './embed'
@@ -238,6 +239,42 @@ function forgetKept(view: EditorView): void {
   for (const [key, dom] of [...keptBlocks]) if (mounted.get(dom)?.view === view) dropKept(key)
 }
 
+/**
+ * What each drawn block measures, noted as it changes (`sizes.ts` keeps it): the next time the block is drawn the editor is
+ * told its height beforehand, and the block keeps that much room while its content (tasks worked out, a base, pictures) is
+ * on its way. The room is what the block's body needs plus its own padding.
+ *   - content that grows takes the room at once (nothing moves: it fills what was kept);
+ *   - content that gets smaller gives it back only when it has stayed smaller for a while: a block that is drawn again
+ *     (brought back into view) passes through an empty moment, and letting go of the room then is what made it jump.
+ */
+interface Drawn {
+  el: HTMLElement
+  key: string
+  settle?: ReturnType<typeof setTimeout>
+}
+const SETTLE = 1500
+const drawn = new WeakMap<Element, Drawn>()
+const blockSizes =
+  typeof ResizeObserver === 'function'
+    ? new ResizeObserver((entries) =>
+        entries.forEach((entry) => {
+          const block = drawn.get(entry.target)
+          if (!block || !entry.target.isConnected) return
+          const style = getComputedStyle(block.el)
+          const height = (entry.borderBoxSize?.[0]?.blockSize ?? entry.contentRect.height) + parseFloat(style.paddingTop) + parseFloat(style.paddingBottom)
+          const kept = parseFloat(block.el.style.minHeight) || 0
+          // Growing: the room is taken at once, it fills what was kept. Shrinking, or growing, is made final only once the block
+          // has stopped changing: that (not the tallest it was while loading) is what is remembered for next time.
+          if (height > kept) block.el.style.minHeight = `${height}px`
+          clearTimeout(block.settle)
+          block.settle = setTimeout(() => {
+            block.el.style.minHeight = `${height}px`
+            rememberBlock(block.key, height)
+          }, SETTLE)
+        }),
+      )
+    : null
+
 class BlockWidget extends WidgetType {
   constructor(
     private preview: LivePreview,
@@ -260,6 +297,19 @@ class BlockWidget extends WidgetType {
 
   private get key(): string {
     return blockKey(this.processor, this.lang, this.path, this.source)
+  }
+
+  /**
+   * What the editor lays out for the block before it is drawn: the height it had last time. Without it the editor guesses
+   * from the lines' height, and every block that comes into view or finishes drawing moves everything under it.
+   */
+  get estimatedHeight(): number {
+    return blockHeight(this.sizeKey) ?? -1
+  }
+
+  /** What the block is remembered by across openings: not the processor's number, which depends on which block was drawn first this time. */
+  private get sizeKey(): string {
+    return `${this.lang}\n${this.path}\n${this.source}`
   }
 
   toDOM(view: EditorView): HTMLElement {
@@ -300,6 +350,11 @@ class BlockWidget extends WidgetType {
       body.textContent = `Ошибка в блоке «${this.lang}»: ${errorMessage(err)}`
     }
     mounted.set(el, { processor: this.processor, lang: this.lang, path: this.path, instance, view })
+    // The room it had last time is kept while its content (tasks worked out, a base, pictures) is on its way.
+    const known = blockHeight(this.sizeKey)
+    if (known) el.style.minHeight = `${known}px`
+    drawn.set(body, { el, key: this.sizeKey })
+    blockSizes?.observe(body)
     return el
   }
 

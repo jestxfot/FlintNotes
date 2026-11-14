@@ -106,6 +106,12 @@ try {
   // ---- the notes at start
   const ndjson = (await (await fetch(`${base}/notes`)).text()).trim().split('\n').map((line) => JSON.parse(line))
   ok('/api/notes gives every note with the text it has on disk', ndjson.length === Object.keys(current).length && ndjson.every((n) => current[n.path] === n.text), `${ndjson.length} notes`)
+  // Compressed for a client that accepts it, plain for one that does not; the same notes either way.
+  const zipped = await fetch(`${base}/notes`, { headers: { 'accept-encoding': 'gzip' } })
+  const zippedNotes = (await zipped.text()).trim().split('\n').map((line) => JSON.parse(line))
+  ok('/api/notes is compressed for a client that accepts gzip, with the same notes', zipped.headers.get('content-encoding') === 'gzip' && JSON.stringify(zippedNotes) === JSON.stringify(ndjson), `${zipped.headers.get('content-encoding')} ${zippedNotes.length}`)
+  const plain = await fetch(`${base}/notes`, { headers: { 'accept-encoding': 'identity' } })
+  ok('and plain for one that does not', !plain.headers.get('content-encoding') && (await plain.text()).trim().split('\n').length === ndjson.length)
 
   // ---- pictures
   const original = fs.statSync(path.join(vault, 'img', 'big.png')).size

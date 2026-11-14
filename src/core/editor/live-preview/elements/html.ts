@@ -1,5 +1,6 @@
 import type { CodeBlockProcessor } from '..'
 import { openLink, resolvePath } from '../../../links'
+import { reserveImage } from '../../../sizes'
 
 /** Elements that could run code, load it, or take the page over: they are dropped with what is inside them. */
 const DROPPED = new Set(['script', 'object', 'embed', 'link', 'meta', 'base', 'frame', 'frameset', 'applet', 'noscript', 'template', 'slot', 'portal'])
@@ -39,7 +40,11 @@ export function cleanHtml(html: string, address: (value: string, attribute: stri
       node.setAttribute('target', '_blank')
       node.setAttribute('rel', 'noopener noreferrer')
     }
-    if (tag === 'img') node.setAttribute('loading', 'lazy')
+    if (tag === 'img') {
+      node.setAttribute('loading', 'lazy')
+      // A picture written with a width and no height is 0 px tall until it arrives, then pushes everything below it down.
+      reserveImage(node as HTMLImageElement, node.getAttribute('src') ?? '', node.hasAttribute('width') || /(^|;)\s*(max-)?width\s*:/i.test(node.getAttribute('style') ?? ''))
+    }
   }
   const out = document.createDocumentFragment()
   out.append(...parsed.body.childNodes)
