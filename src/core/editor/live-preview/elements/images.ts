@@ -2,7 +2,7 @@ import { WidgetType, type EditorView } from '@codemirror/view'
 import type { PreviewRenderer } from '..'
 import type { App } from '../../../app'
 import { resolvePath } from '../../../links'
-import { rememberImage, reserveImage } from '../../../sizes'
+import { imageSize, rememberImage, reserveImage } from '../../../sizes'
 
 /**
  * The address of a picture drawn by the server for an SVG (`/api/thumb?…&x=2`: a WebP at twice its own size), or null for any
@@ -50,6 +50,12 @@ export class ImageWidget extends WidgetType {
     else img.src = this.src
     img.alt = this.alt
     if (this.width) img.width = Number(this.width)
+    else if (copy) {
+      // A picture of `srcset` is never there at once, not even from the memory cache: with no size of its own it would be
+      // 0 high for a moment each time the editor draws it again (scrolled back to), and the text around it would jump.
+      const known = imageSize(this.src)
+      if (known) [img.width, img.height] = known
+    }
     // Room for it before it arrives: what is below does not move when it does.
     reserveImage(img, this.src, !!this.width)
     img.onload = () => {

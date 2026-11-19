@@ -72,7 +72,8 @@ for (const [index, file] of suites.entries()) {
   // A suite may ask for no vault at all, to see the server create the welcome one.
   if (suite.vault) buildVault(vault, suite.vault)
   else fs.rmSync(vault, { recursive: true })
-  const port = 4710 + index
+  // FLINT_E2E_PORT: where this run's ports start, so that runs of different suites can go side by side.
+  const port = Number(process.env.FLINT_E2E_PORT || 4710) + index
   const server = await startServer(vault, port)
   // A suite of the phone's frame gets a phone: a finger instead of a mouse, a narrow screen.
   const page = await browser.newPage({ viewport: suite.viewport ?? { width: 1300, height: 1000 }, timezoneId: BROWSER_ZONE, ...(suite.phone ? { isMobile: true, hasTouch: true, deviceScaleFactor: 2 } : {}) })

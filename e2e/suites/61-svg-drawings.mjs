@@ -12,7 +12,8 @@ function drawing() {
 }
 
 const WEB = 'http://flint-drawing.invalid/chart.svg'
-const NOTE = `Above.\n\n![chart.svg](chart.svg)\n\nBetween.\n\n![a chart of the web](${WEB})\n\nBelow.\n`
+const FILLER = Array.from({ length: 150 }, (_, i) => `Line ${i + 1} of the text under the charts.`).join('\n\n')
+const NOTE = `Above.\n\n![chart.svg](chart.svg)\n\nBetween.\n\n![a chart of the web](${WEB})\n\nBelow.\n\n${FILLER}\n`
 export const viewport = { width: 1400, height: 1000 }
 // The server cannot resolve the web drawing's name: its copy fails (400 or 502) and the page shows the drawing itself, which this suite serves.
 export const expectsNetworkErrors = /ERR_NAME_NOT_RESOLVED|status of (400|502)/
@@ -58,5 +59,24 @@ export async function run(t) {
   await page.keyboard.type(' More')
   await wait(900)
   ok('typing under it changes the note, and the picture is not asked for again', t.read('Charts.md').includes('Below. More') && asked.length === before, `${asked.length - before} more`)
+  // Scrolled far away and back: the editor draws the picture anew. It must have its size at once, or the text jumps.
+  await page.evaluate(() => {
+    window.__drawn = []
+    new MutationObserver((records) => {
+      for (const record of records)
+        for (const node of record.addedNodes) {
+          const img = node instanceof HTMLImageElement ? node : node.querySelector?.('img[alt="chart.svg"]')
+          if (img?.alt === 'chart.svg') window.__drawn.push({ width: img.getAttribute('width'), height: img.getAttribute('height'), box: Math.round(img.getBoundingClientRect().height) })
+        }
+    }).observe(document.querySelector('.leaf:not([hidden]) .cm-content'), { childList: true, subtree: true })
+    const scroller = document.querySelector('.leaf:not([hidden]) .cm-scroller')
+    scroller.scrollTop = scroller.scrollHeight
+  })
+  await wait(600)
+  await page.evaluate(() => (document.querySelector('.leaf:not([hidden]) .cm-scroller').scrollTop = 0))
+  await wait(600)
+  const drawn = await page.evaluate(() => window.__drawn)
+  ok('drawn again after a scroll, it has its size before the picture comes (the text does not jump)', drawn.length > 0 && drawn.every((one) => one.width === '600' && one.height === '400' && one.box > 0), JSON.stringify(drawn))
+
   ok('the note itself names the SVG, untouched', t.read('Charts.md').includes('![chart.svg](chart.svg)'))
 }

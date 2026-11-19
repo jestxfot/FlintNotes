@@ -109,8 +109,9 @@ export class MetadataCache extends Events<MetadataEvents> {
     vault.on('create', (entry) => {
       if (entry.kind !== 'file') return
       this.addName(entry.path)
+      // A note is read first (its own links come with it); any other file only changes where links by its name lead.
       if (isNote(entry)) void this.index(entry.path)
-      else this.rebuildSoon()
+      else this.namesChanged(entry.path)
     })
     // Text saved by the app itself is taken as is; only changes made elsewhere are read from disk.
     vault.on('written', (entry, text) => {
@@ -127,13 +128,19 @@ export class MetadataCache extends Events<MetadataEvents> {
       }
     })
     vault.on('delete', (entry) => {
+      const meta = this.cache.get(entry.path)
       this.cache.delete(entry.path)
       this.outlines.delete(entry.path)
       this.loose.delete(entry.path)
       this.wordCounts.delete(entry.path)
       if (entry.kind !== 'file') return
-      this.namesStale = true
-      this.rebuildSoon()
+      // What the note said goes out of the maps; the links that led to it lead elsewhere or nowhere now.
+      if (meta && !this.namesStale) {
+        this.generation++
+        this.unlink(entry.path, meta)
+      }
+      this.removeName(entry.path)
+      this.namesChanged(entry.path)
     })
     vault.on('rename', (entry, oldPath) => this.onRename(entry, oldPath))
     this.rebuild()
@@ -373,17 +380,20 @@ export class MetadataCache extends Events<MetadataEvents> {
    * (only files coming, going and renamed change it), so nothing else needs working out again.
    */
   private relink(path: string, before: CachedMetadata | undefined, meta: CachedMetadata): void {
-    // A note new to the index is a name that other notes' links may have been waiting for.
-    if (this.namesStale || !before) return this.rebuild()
+    if (this.namesStale) return this.rebuild()
     this.generation++
     this.unlink(path, before)
     this.link(path, meta)
+    // A note new to the index is a name that other notes' links may have been waiting for.
+    if (!before) return this.namesChanged(path, path)
     this.trigger('resolved', { notes: new Set([path]), names: false })
   }
 
   /** Puts what a note says (its links and its tags) into the maps. */
   private link(source: string, meta: CachedMetadata): void {
     for (const link of meta.links) {
+      const key = this.nameKey(link.target, source)
+      if (key) push(this.linkedByName, key, source)
       const dest = this.resolve(link.target, source)
       if (dest) {
         count(this.resolvedLinks, source, dest)
@@ -402,6 +412,13 @@ export class MetadataCache extends Events<MetadataEvents> {
 
   /** Takes what a note said (as `meta` has it) out of the maps. */
   private unlink(source: string, meta: CachedMetadata | undefined): void {
+    for (const link of meta?.links ?? []) {
+      const key = this.nameKey(link.target, source)
+      const sources = key ? this.linkedByName.get(key) : undefined
+      const at = sources?.indexOf(source) ?? -1
+      if (at >= 0) sources!.splice(at, 1)
+      if (sources && !sources.length) this.linkedByName.delete(key)
+    }
     for (const dest of this.resolvedLinks.get(source)?.keys() ?? []) {
       const sources = this.backlinkIndex.get(dest)
       sources?.delete(source)
@@ -457,6 +474,67 @@ export class MetadataCache extends Events<MetadataEvents> {
     this.resolved.clear()
   }
 
+  /** A file that went: links by its name resolve without it from now on. */
+  private removeName(path: string): void {
+    const lower = path.toLowerCase()
+    if (this.paths.get(lower) === path) this.paths.delete(lower)
+    const name = basename(lower)
+    for (const key of name.endsWith('.md') ? [name, name.slice(0, -3)] : [name]) {
+      const list = this.names.get(key)
+      const at = list?.indexOf(path) ?? -1
+      if (at >= 0) list!.splice(at, 1)
+      if (list && !list.length) this.names.delete(key)
+    }
+    this.resolved.clear()
+  }
+
+  /**
+   * The name by which a link can lead to a file: the last part of where it points, without `.md`, in lower case. A file
+   * named so is the only one that coming or going can change where the link leads (by name, by path, relative alike).
+   */
+  private nameKey(target: string, source: string): string {
+    const text = this.expandTarget(target, source).trim()
+    if (!text) return ''
+    return basename(normalize(text).toLowerCase()).replace(/\.md$/, '')
+  }
+
+  /** Notes, by the name their links point with (`nameKey`): the ones to look at again when a file of that name comes or goes. */
+  private linkedByName = new Map<string, string[]>()
+  private pendingNames = new Set<string>()
+  private pendingNotes = new Set<string>()
+  private namesTimer: ReturnType<typeof setTimeout> | undefined
+
+  /**
+   * A file came or went (`note`: a note just added to the maps): only the notes whose links point with its name are linked
+   * again, a moment later, all the names of a burst together. A burst of many files (a folder copied in, a sync) is one
+   * full rebuild instead.
+   */
+  private namesChanged(path: string, note?: string): void {
+    if (this.loading) return
+    if (this.namesStale) return this.rebuildSoon()
+    this.pendingNames.add(basename(path.toLowerCase()).replace(/\.md$/, ''))
+    if (note) this.pendingNotes.add(note)
+    clearTimeout(this.namesTimer)
+    this.namesTimer = setTimeout(() => this.relinkNames(), 80)
+  }
+
+  private relinkNames(): void {
+    const names = [...this.pendingNames]
+    const notes = new Set(this.pendingNotes)
+    this.pendingNames.clear()
+    this.pendingNotes.clear()
+    if (this.namesStale || names.length > 200) return this.rebuild()
+    for (const name of names) for (const source of this.linkedByName.get(name) ?? []) notes.add(source)
+    this.generation++
+    for (const source of notes) {
+      const meta = this.cache.get(source)
+      if (!meta) continue
+      this.unlink(source, meta)
+      this.link(source, meta)
+    }
+    this.trigger('resolved', { notes, names: true })
+  }
+
   /** The files' names and paths are to be made again (a file went or was renamed); a new file is added to them as it comes. */
   private namesStale = true
 
@@ -491,6 +569,10 @@ export class MetadataCache extends Events<MetadataEvents> {
     this.unresolvedLinks = new Map()
     this.backlinkIndex = new Map()
     this.tagIndex = new Map()
+    this.linkedByName = new Map()
+    this.pendingNames.clear()
+    this.pendingNotes.clear()
+    clearTimeout(this.namesTimer)
     for (const [source, meta] of this.cache) this.link(source, meta)
     this.trigger('resolved', { notes: null, names: true })
   }

@@ -13,7 +13,8 @@
   interface Node {
     entry: VaultEntry
     name: string
-    children: Node[]
+    /** Sorted when first asked for: only an open folder's are (a vault of 79 000 files has few open). */
+    readonly children: Node[]
   }
 
   const collator = new Intl.Collator(undefined, { numeric: true, sensitivity: 'base' })
@@ -47,24 +48,43 @@
     }),
   )
 
+  /**
+   * The tree, from the list of files. Built again whenever a file comes or goes, so it costs one pass over the list; each
+   * folder's contents are sorted only when the folder is drawn (sorting all 5 000 folders of the real vault, and asking the
+   * plugins about each of 79 000 entries, held the window ~200 ms for each note made in Obsidian).
+   */
   function build(list: VaultEntry[]): Node[] {
-    const nodes = new Map<string, Node>()
-    for (const entry of list) nodes.set(entry.path, { entry, name: basename(entry.path), children: [] })
-    const roots: Node[] = []
-    for (const node of nodes.values()) {
-      const parent = nodes.get(dirname(node.entry.path))
-      ;(parent ? parent.children : roots).push(node)
+    const inside = new Map<string, VaultEntry[]>()
+    const folders = new Set<string>()
+    for (const entry of list) if (entry.kind === 'folder') folders.add(entry.path)
+    const top: VaultEntry[] = []
+    for (const entry of list) {
+      const parent = dirname(entry.path)
+      if (!folders.has(parent)) top.push(entry)
+      else {
+        const siblings = inside.get(parent)
+        if (siblings) siblings.push(entry)
+        else inside.set(parent, [entry])
+      }
     }
-    const sort = (list: Node[]) => {
+    const sorted = (entries: VaultEntry[]): Node[] => {
+      const nodes = entries.map((entry) => {
+        let children: Node[] | undefined
+        return {
+          entry,
+          name: basename(entry.path),
+          get children() {
+            return (children ??= sorted(inside.get(entry.path) ?? []))
+          },
+        }
+      })
       // What a plugin has pinned comes first; then folders, then files, each by name.
-      const pinned = new Map(list.map((node) => [node, app.explorer.pinned(node.entry)]))
-      list.sort((a, b) =>
+      const pinned = new Map(nodes.map((node) => [node, app.explorer.pinned(node.entry)]))
+      return nodes.sort((a, b) =>
         pinned.get(a) !== pinned.get(b) ? (pinned.get(a) ? -1 : 1) : a.entry.kind === b.entry.kind ? collator.compare(a.name, b.name) : a.entry.kind === 'folder' ? -1 : 1,
       )
-      list.forEach((node) => sort(node.children))
     }
-    sort(roots)
-    return roots
+    return sorted(top)
   }
 
   /** Extension as written in the file name, dot included (`.md`, `.PNG`), or `''`. */

@@ -101,8 +101,13 @@ export default class FolderNotes extends Plugin {
         return inPath || !on<boolean>('enableCollapsing')
       }),
     )
-    // Notes come and go: the list of files is asked again which folders have one.
-    for (const event of ['create', 'delete', 'rename'] as const) this.register(app.vault.on(event, () => app.explorer.refresh()))
+    // Notes come and go: the list of files is asked again which folders have one, when it can have changed: a folder came or
+    // went, or the file is (or was, before a rename) the note of a folder. Any other file, the list draws by itself: asking
+    // the whole list again for each note made in Obsidian, each picture pasted, held the window ~200 ms on the real vault.
+    const matters = (entry: VaultEntry, oldPath?: string) => entry.kind === 'folder' || this.folderOf(entry.path) !== null || (oldPath !== undefined && this.folderOf(oldPath) !== null)
+    this.register(app.vault.on('create', (entry) => matters(entry) && app.explorer.refresh()))
+    this.register(app.vault.on('delete', (entry) => matters(entry) && app.explorer.refresh()))
+    this.register(app.vault.on('rename', (entry, oldPath) => matters(entry, oldPath) && app.explorer.refresh()))
 
     this.register(
       app.vault.on('create', (entry) => {
