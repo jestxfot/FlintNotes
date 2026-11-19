@@ -33,6 +33,9 @@ const resizer = (): Promise<Sharp | null> =>
 const WIDTHS = [160, 240, 320, 480, 640, 960, 1280]
 export const snapWidth = (wanted: number): number => WIDTHS.find((width) => width >= wanted) ?? WIDTHS[WIDTHS.length - 1]
 
+/** The widest an SVG is drawn, in pixels: twice the width of a wide note. */
+const MAX_DRAWN = 3200
+
 /** A picture larger than this (in pixels) is not opened: a decompression bomb would take the server's memory. */
 const MAX_PIXELS = 400_000_000
 /** An animated picture's frames all together, in pixels: 377 frames of 718x404 is 109 million (it converts in 5 s, in 135 MB). */
@@ -165,17 +168,17 @@ export class Thumbs {
    * at `width`. `load` reads the picture and is called only if the copy is not kept yet. `null`: there is no resizer.
    * Throws if the picture cannot be read or is not one.
    */
-  async make(id: string, width: number, load: () => Promise<Buffer | Uint8Array>): Promise<Buffer | null> {
+  async make(id: string, width: number, load: () => Promise<Buffer | Uint8Array>, scale = 0): Promise<Buffer | null> {
     if (!(await resizer())) return null
-    const key = createHash('sha1').update(`${id}\n${width}`).digest('hex').slice(0, 24)
+    const key = createHash('sha1').update(scale ? `${id}\nx${scale}` : `${id}\n${width}`).digest('hex').slice(0, 24)
     const pending = this.inflight.get(key)
     if (pending) return pending
-    const work = this.build(key, width, load).finally(() => this.inflight.delete(key))
+    const work = this.build(key, width, load, scale).finally(() => this.inflight.delete(key))
     this.inflight.set(key, work)
     return work
   }
 
-  private async build(key: string, width: number, load: () => Promise<Buffer | Uint8Array>): Promise<Buffer | null> {
+  private async build(key: string, width: number, load: () => Promise<Buffer | Uint8Array>, scale: number): Promise<Buffer | null> {
     const file = path.join(this.dir, `${key}.webp`)
     const kept = await fs.readFile(file).catch(() => null)
     if (kept) {
@@ -187,10 +190,14 @@ export class Thumbs {
     const bytes = await load()
     await this.turn()
     try {
-      const made = await sharp(bytes, { failOn: 'none', limitInputPixels: MAX_PIXELS })
+      const meta = await sharp(bytes, { limitInputPixels: MAX_PIXELS }).metadata()
+      // A drawing (SVG) is drawn anew at the size wanted, sharp at any width; a raster picture is only made smaller.
+      const drawing = meta.format === 'svg' && meta.width ? meta.width : 0
+      const wanted = drawing && scale ? Math.min(MAX_DRAWN, Math.round(drawing * scale)) : scale ? meta.width ?? width : width
+      const made = await sharp(bytes, { failOn: 'none', limitInputPixels: MAX_PIXELS, ...(drawing ? { density: Math.min(2400, (72 * wanted) / drawing) } : {}) })
         .rotate()
-        .resize({ width, withoutEnlargement: true })
-        .webp({ quality: 78, effort: 3 })
+        .resize({ width: wanted, withoutEnlargement: true })
+        .webp(drawing ? { quality: 86, effort: 3 } : { quality: 78, effort: 3 })
         .toBuffer()
       await fs.mkdir(this.dir, { recursive: true })
       // Written beside and then put in place: a server stopped halfway leaves no broken copy.

@@ -577,7 +577,8 @@ api.get('/thumb', async (c) => {
       headers['x-frames'] = String(made.frames)
       return c.body(new Uint8Array(made.bytes), 200, headers)
     }
-    const made = await thumbs.make(id, width, load)
+    // `x=2`: at twice the picture's own size, whatever it is (an SVG shown in a note: drawn once here, not by the page each time).
+    const made = await thumbs.make(id, width, load, Math.min(4, Math.max(0, Number(c.req.query('x')) || 0)))
     if (!made) throw new HTTPException(501, { message: 'Уменьшать картинки нечем' })
     headers['content-length'] = String(made.length)
     return c.body(new Uint8Array(made), 200, headers)

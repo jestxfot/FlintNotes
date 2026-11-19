@@ -522,15 +522,29 @@ async function openWebUrl(address: unknown): Promise<URL | null> {
   return url
 }
 
+/** What a picture is by its first bytes (GIF, PNG, JPEG, WebP), when the site did not say; '' for anything else. */
+function pictureKind(bytes: Uint8Array): string {
+  const ascii = (from: number, to: number) => String.fromCharCode(...bytes.subarray(from, to))
+  if (ascii(0, 6) === 'GIF87a' || ascii(0, 6) === 'GIF89a') return 'image/gif'
+  if (bytes[0] === 0x89 && ascii(1, 4) === 'PNG') return 'image/png'
+  if (bytes[0] === 0xff && bytes[1] === 0xd8 && bytes[2] === 0xff) return 'image/jpeg'
+  if (ascii(0, 4) === 'RIFF' && ascii(8, 12) === 'WEBP') return 'image/webp'
+  return ''
+}
+
 ipcMain.handle('fetch-bytes', async (event, address: unknown): Promise<{ type: string; bytes: Uint8Array } | null> => {
   const url = trusted(event) ? await openWebUrl(address) : null
   if (!url) return null
   try {
     const res = await net.fetch(url.href, { redirect: 'follow', signal: AbortSignal.timeout(120_000), headers: { accept: 'image/*,*/*;q=0.8' } })
     const type = res.headers.get('content-type') ?? ''
-    if (!res.ok || !/^image\//i.test(type) || Number(res.headers.get('content-length') ?? 0) > BYTES_LIMIT) return null
+    // Some sites send a picture as a download (i.gifer.com: `text/plain` with `content-disposition: attachment`): then its
+    // first bytes say what it is. A page or a script is not let through.
+    const labelled = /^image\//i.test(type)
+    if (!res.ok || !(labelled || /^(text\/plain|application\/octet-stream|binary\/|$)/i.test(type)) || Number(res.headers.get('content-length') ?? 0) > BYTES_LIMIT) return null
     const bytes = new Uint8Array(await res.arrayBuffer())
-    return bytes.length && bytes.length <= BYTES_LIMIT ? { type, bytes } : null
+    const kind = labelled ? type : pictureKind(bytes)
+    return kind && bytes.length && bytes.length <= BYTES_LIMIT ? { type: kind, bytes } : null
   } catch {
     return null
   }
