@@ -5,7 +5,9 @@
 ; The notes are never touched: they live in their vaults.
 Unicode true
 ManifestDPIAware true
-SetCompressor /SOLID lzma
+; zlib, not lzma: lzma runs on one core and took 3 of the 3.5 minutes of a release build (installer 115 MB), zlib takes 30 s (151 MB).
+; Installed apps update from a light pack of a few KB, so the full installer is downloaded rarely; the build is run every release.
+SetCompressor /SOLID zlib
 RequestExecutionLevel user
 
 !include "MUI2.nsh"

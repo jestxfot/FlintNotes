@@ -21,6 +21,7 @@ import { fileURLToPath, pathToFileURL } from 'node:url'
 import zlib from 'node:zlib'
 import { nextDelay, openKey, parseLink, probe, sealKey, SHELL_COOKIE, type Saved } from './connection'
 import { watchFullscreen } from './fullscreen'
+import { readInBrowser } from './card-browser'
 import { ReminderPresenter } from './reminders'
 import { PROTOCOL } from '../shared/protocol'
 import type { ReminderNotice } from '../shared/reminders'
@@ -607,14 +608,25 @@ async function fetchPageOnce(url: URL, timeout: number): Promise<{ url: string; 
   }
 }
 
+/** Whether a plain request's answer is the kind a bot filter gives (a stall, a reset, a refusal, a page with none of a card's tags) and a browser may get past. */
+function needsBrowser(read: { status: number; text: string; error?: string }): boolean {
+  if (read.error) return /нет ответа|ERR_TIMED_OUT|ERR_CONNECTION_RESET|ERR_CONNECTION_CLOSED/.test(read.error)
+  if ([401, 403, 429, 503].includes(read.status)) return true
+  return read.status === 200 && read.text.length > 0 && !/<meta[^>]+(property|name)=["'](og:|twitter:|description)/i.test(read.text)
+}
+
 ipcMain.handle('fetch-page', async (event, address: unknown): Promise<{ url: string; status: number; text: string; error?: string } | null> => {
   const url = trusted(event) ? await openWebUrl(address) : null
   if (!url) return null
   // One try is as long as a protected site needs to the end of its head (4-5 s was seen). A second one only if the first failed at once
   // (a dropped connection), not after a wait: a card must not take a minute to say that the page did not come.
   const began = Date.now()
-  const first = await fetchPageOnce(url, 12_000)
-  return first.error && Date.now() - began < 4_000 ? fetchPageOnce(url, 12_000) : first
+  let first = await fetchPageOnce(url, 12_000)
+  if (first.error && Date.now() - began < 4_000) first = await fetchPageOnce(url, 12_000)
+  if (!needsBrowser(first)) return first
+  // A plain request stalls or is turned away where a browser is let in (the site's bot filter): the page is opened as a browser opens it.
+  const viaBrowser = await readInBrowser(url, 25_000, browserAgent())
+  return viaBrowser.error ? { ...first, error: first.error ? `${first.error}; в окне как в браузере: ${viaBrowser.error}` : first.error } : viaBrowser
 })
 ipcMain.handle('autostart', (event) => (trusted(event) ? { enabled: autostart() } : null))
 ipcMain.handle('set-autostart', (event, enabled: unknown) => (trusted(event) ? { enabled: setAutostart(!!enabled) } : null))
