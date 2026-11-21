@@ -328,6 +328,13 @@ export function propertiesForm(source: string, root: HTMLElement, ctx: CodeBlock
           if (same && !had.has(same)) counts.set(key === 'tags' ? same : text, (counts.get(key === 'tags' ? same : text) ?? 0) + 1)
         }
       }
+      // A property that links to objects of a type (the Objects plugin's `company`, `project`) offers those objects, and only them.
+      const related = ctx.app.services.get<{ suggestValues?(key: string, source: string): string[] }>('objects')?.suggestValues?.(key, ctx.path) ?? []
+      if (related.length) {
+        const wanted = new Set(related)
+        for (const value of counts.keys()) if (!wanted.has(value)) counts.delete(value)
+        for (const value of related) if (!had.has(value) && !counts.has(value)) counts.set(value, 0)
+      }
       const typed = input.value.trim().toLowerCase()
       // The notes opened lately come first: those are the ones usually written into. Then the most used.
       const recent = new Map(ctx.app.positions.recent().map((path, i) => [path, i]))

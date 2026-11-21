@@ -1,0 +1,106 @@
+/* A link to an object in its type's colour; the icon in front of it is the core's. */
+.cm-editor .obj-link .lp-wikilink,
+.cm-editor .lp-wikilink .obj-link,
+.cm-editor .obj-link.lp-wikilink {
+  color: var(--obj-color);
+  text-decoration-color: color-mix(in srgb, var(--obj-color) 55%, transparent);
+}
+.cm-editor .obj-link .lp-link-icon { color: var(--obj-color); }
+
+/* What the keys do, under the list of `@`. */
+.cm-tooltip-autocomplete:has(li.obj-option)::after {
+  content: '↑↓ выбрать  ·  ↵ ссылка или создать  ·  esc оставить @';
+  display: block;
+  padding: 8px 10px 4px;
+  border-top: 1px solid var(--border);
+  margin-top: 4px;
+  color: var(--text-muted);
+  font-family: var(--font-ui);
+  font-size: 12px;
+  text-align: center;
+}
+.cm-tooltip-autocomplete li.obj-new .cm-completionLabel { color: var(--accent); }
+
+/* The dialog of a new type. */
+.obj-dialog {
+  padding: 0;
+  width: min(560px, calc(100vw - 32px));
+  max-height: calc(100dvh - 32px);
+  border: 1px solid var(--border);
+  border-radius: var(--radius-xl);
+  background: var(--bg);
+  color: var(--text);
+  box-shadow: var(--shadow);
+}
+.obj-dialog::backdrop { background: rgb(0 0 0 / .45); }
+.obj-dialog-head { display: flex; align-items: flex-start; justify-content: space-between; gap: 12px; padding: 18px 20px 6px; }
+.obj-dialog-head h2 { margin: 0; font-size: 18px; }
+.obj-dialog-head p { margin: 4px 0 0; color: var(--text-muted); font-size: 13px; line-height: 1.45; }
+.obj-close { padding: 0 8px; border-radius: var(--radius-m); font-size: 24px; color: var(--text-muted); }
+.obj-close:hover { background: var(--bg-hover); }
+.obj-form { padding: 4px 20px 16px; overflow: auto; }
+.obj-field { display: flex; flex-direction: column; gap: 6px; margin: 12px 0; font-size: 13px; }
+.obj-field > span { font-weight: 600; }
+.obj-field small, .obj-check small, .obj-path small, .obj-dialog-foot small { color: var(--text-muted); font-weight: 400; font-size: 12px; }
+.obj-dialog input:not([type=checkbox]) {
+  width: 100%; min-width: 0; padding: 8px 10px; border: 1px solid var(--border); border-radius: var(--radius-m); background: var(--bg-alt); color: var(--text); font: inherit;
+}
+.obj-dialog input:focus { outline: 2px solid var(--accent); outline-offset: 1px; }
+.obj-worlds { display: flex; flex-wrap: wrap; gap: 8px; }
+.obj-worlds button { padding: 7px 12px; border: 1px solid var(--border); border-radius: var(--radius-m); color: var(--text-muted); }
+.obj-worlds button.active { background: var(--text); color: var(--bg); border-color: var(--text); }
+.obj-icon-row { display: flex; gap: 8px; align-items: center; }
+.obj-icon-preview { display: flex; align-items: center; justify-content: center; flex: 0 0 36px; height: 36px; border: 1px solid var(--border); border-radius: var(--radius-m); font-size: 18px; }
+.obj-icon-preview:hover { background: var(--bg-hover); }
+.obj-hint { margin: -4px 0 8px; color: var(--text-muted); font-size: 12px; }
+.obj-check { display: flex; gap: 10px; align-items: flex-start; margin: 14px 0; font-size: 13px; cursor: pointer; }
+.obj-check input { margin-top: 3px; accent-color: var(--accent); }
+.obj-check span { display: flex; flex-direction: column; gap: 2px; }
+.obj-path { margin: 8px 0; font-size: 12px; color: var(--text-muted); }
+.obj-error { color: var(--color-red); font-size: 13px; margin: 6px 0; }
+.obj-dialog-foot { display: flex; align-items: center; gap: 10px; padding-top: 12px; border-top: 1px solid var(--border); }
+.obj-dialog-foot small { flex: 1; }
+.obj-primary, .obj-secondary { padding: 8px 14px; border-radius: var(--radius-m); font-size: 13px; border: 1px solid var(--border); cursor: pointer; }
+.obj-primary { background: var(--accent); border-color: var(--accent); color: var(--text-on-accent, #fff); }
+.obj-primary:disabled { opacity: .6; }
+.obj-secondary:hover { background: var(--bg-hover); }
+
+/* The panel of the open note as an object. */
+.obj-panel { padding: 10px 12px; font-size: 13px; overflow: auto; height: 100%; box-sizing: border-box; }
+.obj-panel h4 { margin: 16px 0 6px; font-size: 12px; text-transform: uppercase; letter-spacing: .04em; color: var(--text-muted); }
+.obj-panel h4 span { font-weight: 400; }
+.obj-panel-head { display: flex; gap: 10px; align-items: center; margin-bottom: 8px; }
+.obj-panel-head > div { display: flex; flex-direction: column; gap: 2px; min-width: 0; }
+.obj-panel-head strong { font-size: 15px; overflow-wrap: anywhere; }
+.obj-panel-head small { color: var(--text-muted); }
+.obj-panel-icon { display: flex; font-size: 22px; }
+.obj-type-chip { align-self: flex-start; padding: 0; font-size: 12px; }
+.obj-type-chip:hover { text-decoration: underline; }
+.obj-muted { color: var(--text-muted); font-size: 12px; }
+.obj-actions { display: flex; flex-wrap: wrap; gap: 6px; margin: 8px 0; }
+.obj-actions button { padding: 4px 10px; border: 1px solid var(--border); border-radius: var(--radius-m); font-size: 12px; }
+.obj-actions button:hover { background: var(--bg-hover); }
+.obj-fields { display: grid; grid-template-columns: auto 1fr; gap: 4px 10px; margin: 6px 0; }
+.obj-fields dt { display: flex; gap: 4px; align-items: center; color: var(--text-muted); }
+.obj-fields dd { margin: 0; overflow-wrap: anywhere; }
+.obj-group { display: flex; flex-wrap: wrap; gap: 4px; align-items: center; margin: 4px 0; }
+.obj-group-name { flex-basis: 100%; font-size: 11px; color: var(--text-faint); }
+.obj-chip { display: inline-flex; gap: 4px; align-items: center; padding: 2px 8px; border: 1px solid var(--border); border-radius: 999px; font-size: 12px; }
+.obj-chip:hover, .obj-list button:hover { background: var(--bg-hover); }
+.obj-list { list-style: none; margin: 4px 0; padding: 0; }
+.obj-list li { display: flex; align-items: center; gap: 6px; }
+.obj-list li > button:first-child { display: flex; flex: 1; gap: 6px; align-items: center; padding: 4px 6px; border-radius: var(--radius-s, 4px); text-align: left; min-width: 0; }
+.obj-count { margin-left: auto; padding-left: 6px; color: var(--text-faint); font-size: 12px; font-weight: 400; }
+
+/* The «My Life» tab. */
+.obj-life { padding: 32px clamp(16px, 4vw, 48px); overflow: auto; height: 100%; box-sizing: border-box; }
+.obj-life-head h1 { margin: 0 0 6px; }
+.obj-life-head p { margin: 0 0 24px; color: var(--text-muted); max-width: 70ch; }
+.obj-life-grid { display: grid; grid-template-columns: repeat(auto-fill, minmax(220px, 1fr)); gap: 16px; }
+.obj-life-part, .obj-life-unplaced { padding: 14px; border: 1px solid var(--border); border-radius: var(--radius-l, 10px); background: var(--bg-alt); }
+.obj-life-part h2, .obj-life-unplaced h2 { display: flex; align-items: center; gap: 8px; margin: 0 0 8px; font-size: 15px; }
+.obj-life-unplaced { margin-top: 20px; }
+.obj-add { margin-left: 4px; padding: 0 7px; border-radius: var(--radius-m); color: var(--text-muted); font-size: 16px; }
+.obj-add:hover { background: var(--bg-hover); color: var(--text); }
+.obj-place { padding: 2px 8px; border: 1px solid var(--border); border-radius: var(--radius-m); font-size: 12px; color: var(--text-muted); }
+.obj-place:hover { background: var(--bg-hover); color: var(--text); }

@@ -57,14 +57,18 @@ export class MarkdownView implements FileView {
           this.app.markdown.extension,
           autocompletion({
             icons: false,
+            // A suggestion may name a class of its own, for a plugin to style its rows and the list holding them.
+            optionClass: (completion) => (completion as { class?: string }).class ?? '',
             // An alias is marked with an arrow: choosing it links to the note the alias belongs to.
             addToOptions: [
               {
-                // A suggestion that stands for a file shows that file's icon, if it has one.
+                // A suggestion that stands for a file shows that file's icon, if it has one; one that stands for
+                // something else (a kind of thing, «create …») may name an icon of its own.
                 position: 10,
                 render: (completion) => {
-                  const file = (completion as { path?: string }).path
-                  const look = file ? this.app.icons.look('file', file) : undefined
+                  const own = completion as { path?: string; icon?: string; color?: string }
+                  const file = own.path
+                  const look = file ? this.app.icons.look('file', file) : own.icon ? { icon: own.icon, color: own.color } : undefined
                   if (!look?.icon) return null
                   const icon = this.app.icons.draw(look.icon, look.color)
                   icon.classList.add('cm-completionNoteIcon')
