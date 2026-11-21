@@ -550,28 +550,51 @@ ipcMain.handle('fetch-bytes', async (event, address: unknown): Promise<{ type: s
   }
 })
 
-ipcMain.handle('fetch-page', async (event, address: unknown): Promise<{ url: string; status: number; text: string } | null> => {
-  const url = trusted(event) ? await openWebUrl(address) : null
-  if (!url) return null
+/** The browser's own name without Electron's and the app's: some sites' protection (Qrator and the like) answers a client that names itself differently, or not at all. */
+function browserAgent(): string {
+  return session.defaultSession.getUserAgent().replace(/\s(Electron|flintnotes)\/\S+/gi, '')
+}
+
+/** One try at a page: the text up to the end of its head (a video's page is read further, its description is deep inside), or null if it did not answer in time. */
+async function fetchPageOnce(url: URL, timeout: number): Promise<{ url: string; status: number; text: string } | null> {
+  const wholePage = /(^|\.)(youtube\.com|youtu\.be)$/i.test(url.hostname)
+  const controller = new AbortController()
+  const timer = setTimeout(() => controller.abort(), timeout)
   try {
     // Asked as the browser asks (the window is one): the sites that give a card to a browser give it to this.
-    const res = await net.fetch(url.href, { redirect: 'follow', signal: AbortSignal.timeout(20_000), headers: { accept: 'text/html,application/xhtml+xml,application/json;q=0.9,*/*;q=0.5', 'accept-language': 'ru,en;q=0.8' } })
+    const res = await net.fetch(url.href, {
+      redirect: 'follow',
+      signal: controller.signal,
+      headers: { 'user-agent': browserAgent(), accept: 'text/html,application/xhtml+xml,application/json;q=0.9,*/*;q=0.5', 'accept-language': 'ru,en;q=0.8' },
+    })
     if (!/^(text\/|application\/(xhtml|json))/i.test(res.headers.get('content-type') ?? '')) return { url: res.url || url.href, status: res.status, text: '' }
-    // Only the start of a long page is read: the tags a card is made of are at its head (a video's description is further, in its first megabytes).
+    // Only the start of a long page is read: the tags a card is made of are in its head (and a heavy page is slow to the last byte).
     const reader = res.body?.getReader()
-    const chunks: Uint8Array[] = []
+    const decoder = new TextDecoder()
+    let text = ''
     let size = 0
     while (reader && size < PAGE_LIMIT) {
       const { done, value } = await reader.read()
       if (done) break
-      chunks.push(value)
       size += value.length
+      const piece = decoder.decode(value, { stream: true })
+      text += piece
+      if (!wholePage && text.slice(-piece.length - 7).toLowerCase().includes('</head>')) break
     }
     void reader?.cancel().catch(() => {})
-    return { url: res.url || url.href, status: res.status, text: Buffer.concat(chunks).toString('utf8') }
+    return { url: res.url || url.href, status: res.status, text }
   } catch {
     return null
+  } finally {
+    clearTimeout(timer)
   }
+}
+
+ipcMain.handle('fetch-page', async (event, address: unknown): Promise<{ url: string; status: number; text: string } | null> => {
+  const url = trusted(event) ? await openWebUrl(address) : null
+  if (!url) return null
+  // A slow site (a page that takes seconds to the first byte behind a protection) gets a second, longer try.
+  return (await fetchPageOnce(url, 15_000)) ?? (await fetchPageOnce(url, 30_000))
 })
 ipcMain.handle('autostart', (event) => (trusted(event) ? { enabled: autostart() } : null))
 ipcMain.handle('set-autostart', (event, enabled: unknown) => (trusted(event) ? { enabled: setAutostart(!!enabled) } : null))

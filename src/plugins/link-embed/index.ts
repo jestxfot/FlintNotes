@@ -106,6 +106,32 @@ export default class LinkEmbed extends Plugin {
         return address
       }
     }
+    /** A name for a card whose page said nothing: the last words of the address read as a title (`ravioli-s-syrom-118782` → `Ravioli s syrom`). */
+    const readable = (address: string) => {
+      try {
+        const slug = decodeURIComponent(new URL(address).pathname).split('/').filter(Boolean).pop() ?? ''
+        const words = slug.replace(/\.\w{2,5}$/, '').replace(/[-_+]+/g, ' ').replace(/\s*\d{4,}\s*$/, '').replace(/\s+/g, ' ').trim()
+        return words.length >= 3 ? words[0].toUpperCase() + words.slice(1) : ''
+      } catch {
+        return ''
+      }
+    }
+    /** A colour of its own for each site, steady from visit to visit: the cover of a card without a picture is tinted with it. */
+    const hueOf = (host: string) => {
+      let hash = 0
+      for (const letter of host) hash = (hash * 31 + letter.charCodeAt(0)) >>> 0
+      return hash % 360
+    }
+    /**
+     * What a picture is for a cover, by its shape: a wide one fills the cover, a tall one (a poster, a phone screen) is shown whole on
+     * a blurred copy of itself, an icon or a logo is centred small on a tinted ground. The card lays itself out from this.
+     */
+    const kindOf = (width: number, height: number): 'wide' | 'square' | 'tall' | 'icon' => {
+      if (!width || !height) return 'wide'
+      const shape = width / height
+      if ((width < 200 && height < 200) || shape > 3 || shape < 0.25) return 'icon'
+      return shape >= 1.25 ? 'wide' : shape >= 0.8 ? 'square' : 'tall'
+    }
     /** Cards being filled in right now, and pages that would not answer this time. */
     const filling = new Set<string>()
     const unanswered = new Set<string>()
@@ -168,6 +194,37 @@ export default class LinkEmbed extends Plugin {
       }
     }
 
+    /** The block's fields as the text of the block. */
+    const render = (fields: Record<string, string>) => Object.entries(fields).map(([key, value]) => `${key}: ${quote(value)}`).join('\n')
+    /**
+     * Reads the page again and gives the card's fields as the page says them now (what the page does not give stays; a picture chosen
+     * from the vault stays), or `null` when nothing is different. Unlike filling in, this overwrites: the user asked for it.
+     */
+    const reread = async (data: Record<string, unknown>): Promise<Record<string, string> | null> => {
+      const url = text(data.url)
+      const page = await app.vault.unfurl(url)
+      const old = text(data.image)
+      // The picture the user put in from the vault is theirs; a web one is the page's, and may have changed.
+      const image = old && !WEB.test(old) ? old : this.videoPictures(url)[0] || page.image || old
+      const next: Record<string, string> = {
+        title: page.title || text(data.title) || url,
+        image,
+        description: page.description || text(data.description),
+        url,
+      }
+      const favicon = page.favicon || text(data.favicon)
+      if (favicon) next.favicon = favicon
+      const aspect = image === old ? text(data.aspectRatio) : await ratio(image)
+      if (aspect) next.aspectRatio = aspect
+      for (const [key, value] of Object.entries(data)) if (!(key in next) && value !== null && value !== undefined) next[key] = text(value)
+      // What was found for this address before may be stale too.
+      delete this.pictures[url]
+      unanswered.delete(url)
+      return Object.entries(next).some(([key, value]) => value !== text(data[key])) || Object.keys(data).length !== Object.keys(next).length ? next : null
+    }
+    /** The reason a card could not be refreshed, said once per try. */
+    const refreshFailed = (url: string, err: unknown) => app.notice(`Карточка ${url.replace(/^https?:\/\/(www\.)?/i, '').split(/[/?#]/)[0]} не обновлена: ${errorMessage(err)}. Что мешает, покажет команда «Проверить, видит ли сервер страницу карточки»`)
+
     const card: CodeBlockProcessor = (block, el, { path, setSource }) => {
       const draw = (yaml: string) => {
         el.replaceChildren()
@@ -184,6 +241,8 @@ export default class LinkEmbed extends Plugin {
         }
         const url = text(data.url)
         void fill(data, setSource)
+        // The card is laid out by the width of its own place in the note (a narrow one puts the cover above).
+        el.classList.add('embed-card-host')
         const box = el.appendChild(document.createElement('a'))
         box.className = 'embed-card'
         if (WEB.test(url)) {
@@ -195,7 +254,9 @@ export default class LinkEmbed extends Plugin {
         body.className = 'embed-card-text'
         const title = body.appendChild(document.createElement('div'))
         title.className = 'embed-card-title'
-        title.textContent = text(data.title) || url
+        const named = text(data.title)
+        // A card whose title is only its address (the page was not read yet) shows the address read as a name, not the address itself.
+        title.textContent = !named || named === url || named === standIn(url) ? readable(url) || named || url : named
         const description = text(data.description)
         if (description) {
           const about = body.appendChild(document.createElement('div'))
@@ -221,21 +282,71 @@ export default class LinkEmbed extends Plugin {
         // A Telegram card says whose it is: the name the address is of, as Telegram writes it.
         site.append(telegram ? `${host} · @${telegram.name}` : host)
         box.title = url
+        // Refresh: the page is read again and the card rewritten. Beside the card's link, not in it (a click would follow the link); shown on hover.
+        if (WEB.test(url)) {
+          const again = el.appendChild(document.createElement('button'))
+          again.className = 'embed-card-refresh'
+          again.title = 'Обновить карточку: прочитать страницу заново'
+          again.setAttribute('aria-label', 'Обновить карточку')
+          again.append(app.icons.draw('refresh-cw'))
+          again.onclick = (event) => {
+            event.preventDefault()
+            event.stopPropagation()
+            if (filling.has(url)) return
+            filling.add(url)
+            again.disabled = true
+            again.classList.add('is-spinning')
+            void reread(data)
+              .then((next) => (next ? setSource(render(next)) : app.notice('Карточка уже актуальна: страница говорит то же')))
+              .catch((err) => refreshFailed(url, err))
+              .finally(() => {
+                filling.delete(url)
+                again.disabled = false
+                again.classList.remove('is-spinning')
+              })
+          }
+        }
 
+        /** A cover for a card without a picture: the site's colour and its first letter, so the card keeps its shape and says whose it is. */
+        const generated = () => {
+          if (box.querySelector('.embed-card-image')) return
+          const frame = box.appendChild(document.createElement('div'))
+          frame.className = 'embed-card-image is-generated'
+          frame.style.setProperty('--hue', String(hueOf(host)))
+          frame.dataset.kind = 'generated'
+          box.dataset.cover = 'generated'
+          const mark = frame.appendChild(document.createElement('span'))
+          mark.className = 'embed-card-mark'
+          mark.textContent = (telegram?.name ?? host).replace(/^[^\p{L}\p{N}]+/u, '').charAt(0).toUpperCase() || '↗'
+        }
         /**
          * Shows the first of the pictures that really is one. A picture that does not load, or is
          * a stand-in a few dots wide, gives way to the next; when none is left, the page is asked.
          */
         const show = (pictures: string[], asked = false) => {
           const [picture, ...rest] = pictures
+          box.querySelector('.is-generated')?.remove()
           const next = () => {
             frame.remove()
             if (rest.length) return show(rest, asked)
-            if (!asked && WEB.test(url) && this.getSetting<boolean>('findPictures') !== false) void this.findPicture(url).then((found) => found && found !== picture && box.isConnected && show([found], true))
+            if (!asked && WEB.test(url) && this.getSetting<boolean>('findPictures') !== false) void this.findPicture(url).then((found) => (found && found !== picture && box.isConnected ? show([found], true) : generated()))
+            else generated()
           }
           const frame = box.appendChild(document.createElement('div'))
           // A channel's or a person's picture is a portrait, shown round as Telegram shows it.
-          frame.className = telegram && !telegram.post && (picture === telegram.picture || /(^|\.)telesco\.pe\//i.test(picture.replace(/^https?:\/\//, ''))) ? 'embed-card-image is-avatar' : 'embed-card-image'
+          const avatar = !!telegram && !telegram.post && (picture === telegram.picture || /(^|\.)telesco\.pe\//i.test(picture.replace(/^https?:\/\//, '')))
+          frame.className = avatar ? 'embed-card-image is-avatar' : 'embed-card-image'
+          // The shape saved with the card (the height as a percentage of the width) lays the cover out before the picture is there: nothing jumps.
+          const saved = Number(text(data.aspectRatio))
+          const lay = (kind: string) => {
+            frame.dataset.kind = kind
+            box.dataset.cover = kind
+          }
+          if (avatar) lay('avatar')
+          else {
+            lay(saved > 0 ? kindOf(100, saved) : 'wide')
+            frame.style.setProperty('--cover', `url(${JSON.stringify(picture)})`)
+          }
           const image = frame.appendChild(document.createElement('img'))
           image.alt = ''
           image.loading = 'lazy'
@@ -244,22 +355,28 @@ export default class LinkEmbed extends Plugin {
           image.onload = () => {
             // The stand-in a video site sends for a missing frame is 120 dots wide; an icon is not a picture either.
             const standIn = /i\.ytimg\.com/.test(picture) && image.naturalWidth <= 120 && rest.length > 0
-            if (standIn || image.naturalWidth < 16) next()
+            if (standIn || image.naturalWidth < 16) return next()
+            // What the picture really is decides how its cover is laid out.
+            if (!avatar) lay(kindOf(image.naturalWidth, image.naturalHeight))
           }
           image.src = picture
         }
         const written = source(text(data.image), path)
         const candidates = [...(written ? [written] : []), ...this.videoPictures(url), ...(this.pictures[url] ? [this.pictures[url]] : []), ...(telegram ? [telegram.picture] : [])]
         if (candidates.length) show([...new Set(candidates)])
-        // A card saved without a picture gets the page's own (its og:image), looked up once the card is on screen.
-        else if (WEB.test(url) && this.getSetting<boolean>('findPictures') !== false && this.pictures[url] === undefined) {
-          watching?.disconnect()
-          watching = new IntersectionObserver((entries) => {
-            if (!entries.some((entry) => entry.isIntersecting)) return
+        else {
+          // Until the page's own picture is found (or if it has none) the card has a cover of its own colour.
+          generated()
+          // A card saved without a picture gets the page's own (its og:image), looked up once the card is on screen.
+          if (WEB.test(url) && this.getSetting<boolean>('findPictures') !== false && this.pictures[url] === undefined) {
             watching?.disconnect()
-            void this.findPicture(url).then((found) => found && box.isConnected && !box.querySelector('.embed-card-image') && show([found], true))
-          })
-          watching.observe(box)
+            watching = new IntersectionObserver((entries) => {
+              if (!entries.some((entry) => entry.isIntersecting)) return
+              watching?.disconnect()
+              void this.findPicture(url).then((found) => found && box.isConnected && !box.querySelector('.embed-card-image:not(.is-generated)') && show([found], true))
+            })
+            watching.observe(box)
+          }
         }
       }
       let watching: IntersectionObserver | undefined
@@ -383,6 +500,40 @@ export default class LinkEmbed extends Plugin {
         },
       }),
     )
+    this.addCommand({
+      id: 'refresh-card',
+      name: 'Обновить карточку ссылки',
+      icon: 'refresh-cw',
+      scope: 'note',
+      callback: async () => {
+        const view = app.workspace.activeEditor
+        if (!view) return
+        const text = view.state.doc.toString()
+        const cursor = view.state.selection.main.head
+        const blocks = [...text.matchAll(/```embed\n([\s\S]*?)```/g)].map((m) => ({ from: m.index ?? 0, to: (m.index ?? 0) + m[0].length, yaml: m[1] }))
+        // The card under the cursor, or the only one in the note.
+        const found = blocks.find((one) => one.from <= cursor && cursor <= one.to) ?? (blocks.length === 1 ? blocks[0] : undefined)
+        if (!found) return app.notice('Поставьте курсор в карточку ссылки')
+        let data: Record<string, unknown>
+        try {
+          data = parse(found.yaml) as Record<string, unknown>
+          if (!data || typeof data !== 'object' || !WEB.test(String(data.url ?? '').trim())) throw new Error('в карточке нет адреса страницы')
+        } catch (err) {
+          return app.notice(`Карточка: ${errorMessage(err)}`)
+        }
+        try {
+          const next = await reread(data)
+          if (!next) return app.notice('Карточка уже актуальна: страница говорит то же')
+          // The text may have moved while the page was read.
+          const now = view.state.sliceDoc(found.from, found.to)
+          const at = now.includes(found.yaml) ? found.from : view.state.doc.toString().indexOf(`\`\`\`embed\n${found.yaml}\`\`\``)
+          if (at < 0) return
+          view.dispatch({ changes: { from: at, to: at + found.to - found.from, insert: `\`\`\`embed\n${render(next)}\n\`\`\`` } })
+        } catch (err) {
+          refreshFailed(String(data.url), err)
+        }
+      },
+    })
     this.addCommand({ id: 'check-page', name: 'Проверить, видит ли сервер страницу карточки', icon: 'stethoscope', scope: 'note', callback: () => void this.checkPage() })
     this.addInsertCommand('insert', 'Вставить пустую карточку ссылки', '```embed\ntitle: "|"\nimage: ""\ndescription: ""\nurl: ""\n```\n', 'link')
     this.addCommand({

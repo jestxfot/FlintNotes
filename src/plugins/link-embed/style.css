@@ -1,8 +1,77 @@
-/* A link as a card: what the page says about itself on the left, its picture on the right. */
+/*
+ * A link as a card: what the page says about itself on the left, its cover on the right.
+ * The cover lays itself out by the picture it has (data-cover on the card: wide, square, tall, icon, generated, avatar),
+ * and the card by the width of its place in the note (the cover goes above a narrow one).
+ */
+.embed-card-host {
+  position: relative;
+  container-type: inline-size;
+}
+
+/* The refresh button, in the corner over the cover; in a note's live preview it keeps clear of the block's own "</>" button. */
+.embed-card-refresh {
+  position: absolute;
+  top: 8px;
+  right: 8px;
+  z-index: 2;
+  display: flex;
+  align-items: center;
+  justify-content: center;
+  width: 26px;
+  height: 26px;
+  padding: 0;
+  border: 1px solid var(--border);
+  border-radius: var(--radius-s);
+  background: color-mix(in srgb, var(--bg) 78%, transparent);
+  color: var(--text-muted);
+  cursor: pointer;
+  opacity: 0;
+  backdrop-filter: blur(6px);
+  transition: opacity 0.12s, color 0.12s, background-color 0.12s;
+}
+
+.lp-block .embed-card-refresh {
+  top: 0;
+  right: 38px;
+}
+
+.embed-card-refresh svg {
+  width: 15px;
+  height: 15px;
+}
+
+.embed-card-host:hover .embed-card-refresh,
+.embed-card-refresh:focus-visible,
+.embed-card-refresh.is-spinning {
+  opacity: 1;
+}
+
+.embed-card-refresh:hover {
+  background: var(--bg-hover);
+  color: var(--text);
+}
+
+.embed-card-refresh:disabled {
+  cursor: progress;
+}
+
+.embed-card-refresh.is-spinning svg {
+  animation: embed-card-spin 0.9s linear infinite;
+}
+
+@keyframes embed-card-spin {
+  to {
+    transform: rotate(360deg);
+  }
+}
+
 .embed-card {
+  --cover-width: clamp(190px, 36%, 380px);
+
+  position: relative;
   display: flex;
   align-items: stretch;
-  min-height: 112px;
+  min-height: 124px;
   overflow: hidden;
   border: 1px solid var(--border);
   border-radius: var(--radius-l);
@@ -10,30 +79,44 @@
   color: inherit;
   font-family: var(--font-ui);
   text-decoration: none;
-  transition: border-color 0.12s, box-shadow 0.12s;
+  transition: border-color 0.15s, box-shadow 0.15s, transform 0.15s;
+}
+
+.embed-card[data-cover='square'] {
+  --cover-width: clamp(150px, 26%, 260px);
+}
+
+.embed-card[data-cover='tall'] {
+  --cover-width: clamp(140px, 24%, 220px);
+}
+
+.embed-card[data-cover='icon'],
+.embed-card[data-cover='generated'] {
+  --cover-width: clamp(120px, 20%, 180px);
 }
 
 .embed-card[href]:hover {
-  border-color: color-mix(in srgb, var(--accent) 60%, var(--border));
-  box-shadow: 0 4px 18px rgb(0 0 0 / 0.12);
+  border-color: color-mix(in srgb, var(--accent) 55%, var(--border));
+  box-shadow: 0 6px 22px rgb(0 0 0 / 0.16);
+  transform: translateY(-1px);
 }
 
 .embed-card-text {
   display: flex;
   flex: 1 1 0;
   flex-direction: column;
-  gap: 6px;
+  gap: 7px;
   min-width: 0;
-  padding: 14px 18px;
+  padding: 16px 20px 14px;
 }
 
 /* The name is always seen whole enough to read: up to two lines, never cut to a sliver. */
 .embed-card-title {
   display: -webkit-box;
   overflow: hidden;
-  font-size: 1.04em;
-  font-weight: 600;
-  line-height: 1.35;
+  font-size: 1.06em;
+  font-weight: 650;
+  line-height: 1.32;
   overflow-wrap: anywhere;
   -webkit-box-orient: vertical;
   -webkit-line-clamp: 2;
@@ -45,20 +128,20 @@
   overflow: hidden;
   color: var(--text-muted);
   font-size: 0.9em;
-  line-height: 1.45;
+  line-height: 1.5;
   overflow-wrap: anywhere;
   -webkit-box-orient: vertical;
   -webkit-line-clamp: 3;
   line-clamp: 3;
 }
 
-/* The site, at the foot of the card. */
+/* The site, at the foot of the card; an arrow shows on it that the card opens the page. */
 .embed-card-url {
   display: flex;
   align-items: center;
-  gap: 6px;
+  gap: 7px;
   margin-top: auto;
-  padding-top: 2px;
+  padding-top: 4px;
   overflow: hidden;
   color: var(--text-faint);
   font-size: 0.82em;
@@ -69,42 +152,114 @@
   flex: none;
   width: 16px;
   height: 16px;
-  border-radius: 3px;
+  border-radius: 4px;
 }
 
-/* The picture on the right, whole, in a frame of its own. */
+.embed-card[href] .embed-card-url::after {
+  margin-left: auto;
+  color: var(--accent);
+  content: '↗';
+  opacity: 0;
+  transform: translate(-4px, 3px);
+  transition: opacity 0.15s, transform 0.15s;
+}
+
+.embed-card[href]:hover .embed-card-url::after {
+  opacity: 1;
+  transform: none;
+}
+
+/* The cover: the picture fills it; its tint comes from the picture itself where it does not (see data-kind). */
 .embed-card-image {
+  position: relative;
   display: flex;
-  flex: 0 0 auto;
+  flex: 0 0 var(--cover-width);
   align-items: center;
   justify-content: center;
-  width: clamp(160px, 32%, 360px);
-  border-left: 1px solid var(--border);
+  width: var(--cover-width);
+  overflow: hidden;
   background: var(--bg);
+  isolation: isolate;
 }
 
 .embed-card-image img {
+  position: absolute;
+  inset: 0;
   display: block;
   width: 100%;
   height: 100%;
-  max-height: 240px;
   object-fit: cover;
+  transition: transform 0.4s ease;
 }
 
+.embed-card[href]:hover .embed-card-image img {
+  transform: scale(1.04);
+}
+
+/* A tall picture (a poster, a phone's screen) is shown whole, over a blurred, enlarged copy of itself that carries its colours to the edges. */
+.embed-card-image[data-kind='tall']::before {
+  position: absolute;
+  inset: -24px;
+  z-index: -1;
+  background: var(--cover) center / cover;
+  content: '';
+  filter: blur(24px) saturate(1.3);
+  opacity: 0.6;
+}
+
+.embed-card-image[data-kind='tall'] img {
+  object-fit: contain;
+}
+
+/* An icon or a logo is not stretched over a cover: small, in the middle, on a ground tinted with the theme's accent. */
+.embed-card-image[data-kind='icon'] {
+  background: color-mix(in srgb, var(--accent) 9%, var(--bg));
+}
+
+.embed-card-image[data-kind='icon'] img {
+  inset: 22px;
+  width: calc(100% - 44px);
+  height: calc(100% - 44px);
+  object-fit: contain;
+}
+
+/* No picture: the site's own colour (the same on every visit) and its first letter. */
+.embed-card-image.is-generated {
+  background:
+    radial-gradient(circle at 28% 22%, rgb(255 255 255 / 0.22), transparent 55%),
+    linear-gradient(140deg, hsl(var(--hue) 52% 44%), hsl(calc(var(--hue) + 38) 56% 30%));
+}
+
+.embed-card-mark {
+  color: rgb(255 255 255 / 0.92);
+  font-size: 2.6em;
+  font-weight: 700;
+  line-height: 1;
+  text-shadow: 0 2px 10px rgb(0 0 0 / 0.25);
+  user-select: none;
+}
+
+/* A narrow place: the cover goes above the text, across the whole card. */
 @container (max-width: 520px) {
-  .embed-card {
+  .embed-card:not([data-cover='avatar']) {
     flex-direction: column-reverse;
   }
 
-  .embed-card-image {
+  .embed-card:not([data-cover='avatar']) .embed-card-image {
+    flex: none;
     width: 100%;
-    border-left: none;
-    border-bottom: 1px solid var(--border);
+    aspect-ratio: 16 / 9;
+    max-height: 240px;
   }
 
-  .embed-card-image img {
-    height: auto;
-    object-fit: contain;
+  .embed-card-image[data-kind='tall'] {
+    aspect-ratio: 4 / 3;
+  }
+
+  .embed-card-image[data-kind='icon'],
+  .embed-card-image.is-generated {
+    aspect-ratio: auto;
+    height: 96px;
   }
 }
 
@@ -158,14 +313,32 @@
 
 /* A Telegram channel's or person's picture: a round portrait, not a cover. */
 .embed-card-image.is-avatar {
+  flex: none;
   width: auto;
-  padding: 16px 18px;
-  border-left: none;
+  padding: 16px 20px;
   background: none;
 }
 
 .embed-card-image.is-avatar img {
+  position: static;
   width: 84px;
   height: 84px;
   border-radius: 50%;
+}
+
+@media (prefers-reduced-motion: reduce) {
+  .embed-card,
+  .embed-card-image img,
+  .embed-card[href] .embed-card-url::after {
+    transition: none;
+  }
+
+  .embed-card-refresh.is-spinning svg {
+    animation-duration: 3s;
+  }
+
+  .embed-card[href]:hover,
+  .embed-card[href]:hover .embed-card-image img {
+    transform: none;
+  }
 }

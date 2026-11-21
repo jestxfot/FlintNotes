@@ -66,6 +66,8 @@ export async function run(t) {
   await t.cursorToEnd()
   await wait(400)
   ok('and is drawn as one', (await t.flat(page.locator(`${leaf} .embed-card`))).includes('Example "Domain"'))
+  const made = page.locator(`${leaf} .embed-card[data-cover="generated"]`)
+  ok('a card with no picture has a cover of its own: the site\'s colour and first letter', (await made.count()) === 1 && (await made.locator('.embed-card-mark').innerText()) === 'E' && (await made.locator('.is-generated').evaluate((frame) => frame.style.getPropertyValue('--hue'))) !== '', await made.count())
 
   // ---- cards saved without a picture get one
   await page.unroute('**/api/unfurl*')
@@ -84,6 +86,9 @@ export async function run(t) {
   await wait(1500)
   const pictures = await page.locator(`${leaf} .embed-card-image img`).evaluateAll((list) => list.map((img) => img.src))
   ok('a video card shows the video\'s frame; a page card, the picture the page names', pictures.length === 3 && pictures[0].startsWith('https://i.ytimg.com/vi/xHrhYhfLrF8/') && pictures[1].includes('pic.png'), JSON.stringify(pictures))
+  // The test picture is 40 dots square: an icon, which is centred small instead of being stretched over the cover; the generated cover gave way to it.
+  const kinds = await page.locator(`${leaf} .embed-card`).evaluateAll((list) => list.map((card) => card.dataset.cover))
+  ok('the cover is laid out by the picture it got (a small one is an icon, not stretched) and no stand-in cover is left beside it', kinds.length === 3 && kinds.every((kind) => kind === 'icon') && (await page.locator(`${leaf} .is-generated`).count()) === 0, JSON.stringify(kinds))
   await wait(2500)
   const cards = read('Cards.md')
   const pageCard = cards.split('```').find((part) => part.includes('https://example.com/b')) ?? ''
@@ -92,6 +97,25 @@ export async function run(t) {
   const olderCard = cards.split('```').find((part) => part.includes('AbCdEfGhIjK')) ?? ''
   ok('a description that was only the channel\'s name gives way to the video\'s own', olderCard.includes(`description: "The video's own words"`) && olderCard.includes('title: "Older card"') && olderCard.includes('image: "x.png"'), olderCard)
   ok('a card with empty fields fills them in, in the block itself; what was written stays', /image: "[^"]*pic\.png"/.test(pageCard) && pageCard.includes('title: "A page"'), cards)
+
+  // ---- refreshing a card: the page is read again and the block rewritten
+  await page.unroute('**/api/unfurl*')
+  await page.route('**/api/unfurl*', (route) => route.fulfill({ json: { url: 'https://example.com/b', title: 'B renewed', description: 'Fresh words', image: `${t.url}api/file?path=pic.png`, favicon: '' } }))
+  const second = page.locator(`${leaf} .embed-card-refresh`).nth(1)
+  ok('a card has a refresh button, beside its link and not inside it', (await page.locator(`${leaf} .embed-card-refresh`).count()) === 3 && (await page.locator(`${leaf} a.embed-card button`).count()) === 0)
+  await second.click()
+  await wait(1500)
+  const renewed = (read('Cards.md').split('```').find((part) => part.includes('https://example.com/b')) ?? '')
+  ok('the refresh button reads the page again and rewrites that card only', renewed.includes('title: "B renewed"') && renewed.includes('description: "Fresh words"') && read('Cards.md').includes('title: "A video"'), renewed)
+  await page.route('**/api/unfurl*', (route) => route.fulfill({ json: { url: 'https://example.com/b', title: 'B again', description: 'Fresh words', image: `${t.url}api/file?path=pic.png`, favicon: '' } }))
+  await page.evaluate(() => {
+    const view = app.workspace.activeEditor
+    const at = view.state.doc.toString().indexOf('https://example.com/b')
+    view.dispatch({ selection: { anchor: at } })
+  })
+  await page.evaluate(() => app.commands.run('link-embed:refresh-card'))
+  await wait(1500)
+  ok('the command does the same for the card under the cursor', (read('Cards.md').split('```').find((part) => part.includes('https://example.com/b')) ?? '').includes('title: "B again"'), read('Cards.md'))
 
   // ---- charts
   await t.open('Charts')

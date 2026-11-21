@@ -1070,7 +1070,7 @@ api.get('/unfurl', async (c) => {
       let failed: unknown
       for (const way of ways) {
         try {
-          return await webGet(way, { timeout: 8000 })
+          return await webGet(way, { timeout: 12_000, head: true })
         } catch (err) {
           failed ??= err
         }
@@ -1078,7 +1078,7 @@ api.get('/unfurl', async (c) => {
       throw failed
     }
     // A slow site gets its second, longer try; one that could not be connected to at all does not (another 20 s would change nothing).
-    const page = await ask().catch((err) => (connectionFailed(err) ? Promise.reject(err) : webGet(url.href, { timeout: 20_000 })))
+    const page = await ask().catch((err) => (connectionFailed(err) ? Promise.reject(err) : webGet(url.href, { timeout: 25_000, head: true })))
     final = page.url || url.href
     html = page.text
   } catch (err) {

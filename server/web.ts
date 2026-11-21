@@ -196,19 +196,22 @@ function socksTunnel(proxy: URL, proxyPort: number, host: string, port: number, 
   })
 }
 
-/** Reads up to `limit` characters of a response. */
-async function readText(body: AsyncIterable<Uint8Array>, limit: number): Promise<string> {
+/** Reads up to `limit` characters of a response; with `head`, up to the end of the page's `<head>` (a card is made of what is there). */
+async function readText(body: AsyncIterable<Uint8Array>, limit: number, head = false): Promise<string> {
   const decoder = new TextDecoder()
   let text = ''
   for await (const chunk of body) {
-    text += decoder.decode(chunk, { stream: true })
+    const piece = decoder.decode(chunk, { stream: true })
+    text += piece
     if (text.length >= limit) break
+    // Only the new piece and a few letters before it are searched, not the whole text again.
+    if (head && text.slice(-piece.length - 7).toLowerCase().includes('</head>')) break
   }
   return text
 }
 
 /** Gets a page of the web, through the computer's proxy when it has one; redirects are followed. */
-export function webGet(address: string, options: { timeout?: number; limit?: number } = {}): Promise<WebPage> {
+export function webGet(address: string, options: { timeout?: number; limit?: number; head?: boolean } = {}): Promise<WebPage> {
   return nodeGet(address, options)
 }
 
@@ -274,11 +277,11 @@ export async function webFetch(address: string, { timeout = 12_000, limit = 25_0
 }
 
 /** A page asked by Node itself: straight, or through the proxy of the environment or of the settings. */
-async function nodeGet(address: string, { timeout = 8000, limit = 600_000 }: { timeout?: number; limit?: number } = {}): Promise<WebPage> {
+async function nodeGet(address: string, { timeout = 8000, limit = 600_000, head = false }: { timeout?: number; limit?: number; head?: boolean } = {}): Promise<WebPage> {
   const proxy = await systemProxy()
   if (!proxy) {
     const res = await fetch(address, { signal: AbortSignal.timeout(timeout), redirect: 'follow', headers: BROWSER_HEADERS })
-    const text = res.body ? await readText(res.body as unknown as AsyncIterable<Uint8Array>, limit) : ''
+    const text = res.body ? await readText(res.body as unknown as AsyncIterable<Uint8Array>, limit, head) : ''
     return { status: res.status, url: res.url || address, text }
   }
   let url = new URL(address)
@@ -290,7 +293,7 @@ async function nodeGet(address: string, { timeout = 8000, limit = 600_000 }: { t
       url = new URL(location, url)
       continue
     }
-    const text = await readText(res, limit)
+    const text = await readText(res, limit, head)
     res.destroy()
     return { status: res.statusCode ?? 0, url: url.href, text }
   }
