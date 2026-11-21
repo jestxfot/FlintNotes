@@ -239,6 +239,21 @@
   user-select: none;
 }
 
+/* A page being read: the cover breathes and the foot says so. */
+.embed-card.is-loading .embed-card-image {
+  animation: embed-card-pulse 1.4s ease-in-out infinite;
+}
+
+.embed-card-status {
+  color: var(--text-faint);
+}
+
+@keyframes embed-card-pulse {
+  50% {
+    opacity: 0.72;
+  }
+}
+
 /* A narrow place: the cover goes above the text, across the whole card. */
 @container (max-width: 520px) {
   .embed-card:not([data-cover='avatar']) {
@@ -335,6 +350,10 @@
 
   .embed-card-refresh.is-spinning svg {
     animation-duration: 3s;
+  }
+
+  .embed-card.is-loading .embed-card-image {
+    animation: none;
   }
 
   .embed-card[href]:hover,

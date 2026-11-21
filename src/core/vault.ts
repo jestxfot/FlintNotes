@@ -275,16 +275,27 @@ export class Vault extends Events<VaultEvents> {
     const server = () => request(`/api/unfurl?url=${encodeURIComponent(address)}`).then((res) => res.json())
     const isVideo = /^https?:\/\/((www|m|music)\.)?(youtube\.com|youtu\.be)\//i.test(address)
     // The desktop app reaches sites that the home server may not (its line to the web is often not the computer's): it fetches the page
-    // and the card is read from it here, the way the server reads a page it fetched. Where it cannot, the server is asked as before.
+    // and the card is read from it here, the way the server reads a page it fetched. Both are asked at once and the first card wins:
+    // a site that one of them cannot reach (an 8-12 s wait for a timeout) does not hold up the card the other already has.
     if (desktop?.fetchPage && !isVideo) {
-      const got = await desktop.fetchPage(address).catch(() => null)
-      if (got?.status === 200 && got.text) {
-        try {
+      const fetchPage = desktop.fetchPage
+      const byWindow = fetchPage(address).then(
+        (got) => {
+          if (!got) throw new Error('не адрес открытого интернета')
+          if (got.error) throw new Error(got.error)
+          if (got.status !== 200) throw new Error(`сайт ответил ${got.status}${got.text ? '' : ' без страницы'}`)
           const card = cardOfHtml(address, got.text, got.url)
-          if (card.title || card.description) return card
-        } catch {
-          // Not a page that makes a card: the server may read it differently.
-        }
+          if (!card.title && !card.description) throw new Error(`на странице нет названия и описания (${got.text.length} зн., вероятно, это проверка «вы не робот»)`)
+          return card
+        },
+        (err) => Promise.reject(new Error(`приложение не ответило: ${errorText(err)}`)),
+      )
+      try {
+        return await Promise.any([byWindow, server()])
+      } catch (err) {
+        // Both reasons are told: the server's, and what the app met (a card that stays empty must say whether the app tried).
+        const [fromWindow, fromServer] = ((err as AggregateError).errors ?? [err, err]) as unknown[]
+        throw new Error(`${errorText(fromServer)}. Окно приложения: ${errorText(fromWindow)}`)
       }
     }
     if (!isVideo) return server()

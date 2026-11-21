@@ -134,6 +134,14 @@ export default class LinkEmbed extends Plugin {
     }
     /** Cards being filled in right now, and pages that would not answer this time. */
     const filling = new Set<string>()
+    /** What to do when a page's card has been read (or failed to be), for the cards on screen that show it is being read. */
+    const waiting = new Map<string, Set<() => void>>()
+    /** A card's page is no longer being read: the cards that show it stop. */
+    const finished = (url: string) => {
+      filling.delete(url)
+      for (const done of waiting.get(url) ?? []) done()
+      waiting.delete(url)
+    }
     const unanswered = new Set<string>()
     /** Video cards asked about in this visit already. */
     const checked = new Set<string>()
@@ -190,7 +198,7 @@ export default class LinkEmbed extends Plugin {
           app.notice(`Карточка ${site} не дописана: ${errorMessage(err)}. Что мешает, покажет команда «Проверить, видит ли сервер страницу карточки»`)
         }
       } finally {
-        filling.delete(url)
+        finished(url)
       }
     }
 
@@ -300,13 +308,26 @@ export default class LinkEmbed extends Plugin {
               .then((next) => (next ? setSource(render(next)) : app.notice('Карточка уже актуальна: страница говорит то же')))
               .catch((err) => refreshFailed(url, err))
               .finally(() => {
-                filling.delete(url)
+                finished(url)
                 again.disabled = false
                 again.classList.remove('is-spinning')
               })
           }
         }
 
+        // A page being read is shown on its card: a pulse on the cover and a word at the foot, until the answer (or the failure) comes.
+        if (filling.has(url)) {
+          const status = site.appendChild(document.createElement('span'))
+          status.className = 'embed-card-status'
+          status.textContent = '· читаю страницу…'
+          box.classList.add('is-loading')
+          const set = waiting.get(url) ?? new Set()
+          set.add(() => {
+            status.remove()
+            box.classList.remove('is-loading')
+          })
+          waiting.set(url, set)
+        }
         /** A cover for a card without a picture: the site's colour and its first letter, so the card keeps its shape and says whose it is. */
         const generated = () => {
           if (box.querySelector('.embed-card-image')) return
@@ -592,6 +613,17 @@ export default class LinkEmbed extends Plugin {
         .catch((err) => `не дошёл: ${errorMessage(err)}`)
       lines.push(`Браузер → YouTube (название видео): ${browser} — ${Math.round(performance.now() - began)} мс`)
     }
+    // The app's own way: its connection, not the server's. This is the one that makes cards for sites the server cannot reach.
+    const bridge = (window as Window & { flintDesktop?: { fetchPage?: (address: string) => Promise<{ status: number; text: string; error?: string } | null> } }).flintDesktop
+    if (!bridge?.fetchPage) lines.push('Окно приложения: нет (это браузер или старая версия приложения, обновите его: «Настройки → Программа → Обновление»)')
+    else {
+      const began = performance.now()
+      const got = await bridge.fetchPage(address).catch((err) => ({ status: 0, text: '', error: errorMessage(err) }))
+      const took = `${Math.round(performance.now() - began)} мс`
+      const head = got?.text.match(/<title[^>]*>([\s\S]*?)<\/title>/i)?.[1]?.replace(/\s+/g, ' ').trim()
+      lines.push(!got ? `✗ Окно приложения: не адрес открытого интернета — ${took}` : got.error ? `✗ Окно приложения: ${got.error} — ${took}` : `${got.status === 200 && got.text ? '✓' : '✗'} Окно приложения: ответ ${got.status}, ${got.text.length} зн.${head ? `, «${head.slice(0, 80)}»` : ''} — ${took}`)
+    }
+    lines.push('')
     try {
       const report = await app.vault.netCheck(address)
       lines.push(`Сервер FlintNotes: сборка ${report.build}, ${report.platform}`, '')

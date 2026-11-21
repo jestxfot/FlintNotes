@@ -15,9 +15,9 @@ export interface DesktopBridge {
   fetchBytes?(address: string): Promise<{ type: string; bytes: Uint8Array } | null>
   /**
    * The text of a page of the web (its first 4 MB) fetched by the app itself, for the card of a link to a site the server cannot get
-   * to. `status` is the site's own answer; `null`: not the open web, or it did not come. An older app has no such call.
+   * to. `status` is the site's own answer (0 and `error`: it did not come, and why); `null`: not the open web. An older app has no such call.
    */
-  fetchPage?(address: string): Promise<{ url: string; status: number; text: string } | null>
+  fetchPage?(address: string): Promise<{ url: string; status: number; text: string; error?: string } | null>
   /** Starting together with Windows, as the system keeps it for the app. */
   autostart(): Promise<{ enabled: boolean }>
   setAutostart(enabled: boolean): Promise<{ enabled: boolean }>

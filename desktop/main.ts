@@ -555,8 +555,22 @@ function browserAgent(): string {
   return session.defaultSession.getUserAgent().replace(/\s(Electron|flintnotes)\/\S+/gi, '')
 }
 
+/** What Chromium's connection errors mean, in words: a card that cannot be made says whether it is the site, the name, the proxy or the line. */
+const NET_REASONS: Record<string, string> = {
+  ERR_CONNECTION_TIMED_OUT: 'соединение с сайтом не установилось (сайт не отвечает с этого компьютера: закрыт для вашей страны или сети, или нужен прокси/VPN)',
+  ERR_TIMED_OUT: 'сайт не ответил вовремя',
+  ERR_NAME_NOT_RESOLVED: 'имя сайта не находится (DNS)',
+  ERR_CONNECTION_REFUSED: 'сайт отказал в соединении',
+  ERR_CONNECTION_RESET: 'соединение оборвано (часто так отвечает защита сайта или провайдер)',
+  ERR_CONNECTION_CLOSED: 'сайт закрыл соединение',
+  ERR_PROXY_CONNECTION_FAILED: 'не удалось подключиться к прокси',
+  ERR_TUNNEL_CONNECTION_FAILED: 'прокси не смог соединиться с сайтом',
+  ERR_INTERNET_DISCONNECTED: 'нет интернета',
+  ERR_SSL_PROTOCOL_ERROR: 'ошибка защищённого соединения',
+}
+
 /** One try at a page: the text up to the end of its head (a video's page is read further, its description is deep inside), or null if it did not answer in time. */
-async function fetchPageOnce(url: URL, timeout: number): Promise<{ url: string; status: number; text: string } | null> {
+async function fetchPageOnce(url: URL, timeout: number): Promise<{ url: string; status: number; text: string; error?: string }> {
   const wholePage = /(^|\.)(youtube\.com|youtu\.be)$/i.test(url.hostname)
   const controller = new AbortController()
   const timer = setTimeout(() => controller.abort(), timeout)
@@ -583,18 +597,24 @@ async function fetchPageOnce(url: URL, timeout: number): Promise<{ url: string; 
     }
     void reader?.cancel().catch(() => {})
     return { url: res.url || url.href, status: res.status, text }
-  } catch {
-    return null
+  } catch (err) {
+    // Why it did not come is handed on: a card that stays empty must be able to say whether the app tried and what it met.
+    const code = (err instanceof Error ? err.message : String(err)).replace(/^net::/, '').match(/ERR_[A-Z_]+/)?.[0]
+    const reason = controller.signal.aborted ? `нет ответа за ${timeout / 1000} с` : code ? `${code}: ${NET_REASONS[code] ?? 'ошибка соединения'}` : err instanceof Error ? err.message : String(err)
+    return { url: url.href, status: 0, text: '', error: reason }
   } finally {
     clearTimeout(timer)
   }
 }
 
-ipcMain.handle('fetch-page', async (event, address: unknown): Promise<{ url: string; status: number; text: string } | null> => {
+ipcMain.handle('fetch-page', async (event, address: unknown): Promise<{ url: string; status: number; text: string; error?: string } | null> => {
   const url = trusted(event) ? await openWebUrl(address) : null
   if (!url) return null
-  // A slow site (a page that takes seconds to the first byte behind a protection) gets a second, longer try.
-  return (await fetchPageOnce(url, 15_000)) ?? (await fetchPageOnce(url, 30_000))
+  // One try is as long as a protected site needs to the end of its head (4-5 s was seen). A second one only if the first failed at once
+  // (a dropped connection), not after a wait: a card must not take a minute to say that the page did not come.
+  const began = Date.now()
+  const first = await fetchPageOnce(url, 12_000)
+  return first.error && Date.now() - began < 4_000 ? fetchPageOnce(url, 12_000) : first
 })
 ipcMain.handle('autostart', (event) => (trusted(event) ? { enabled: autostart() } : null))
 ipcMain.handle('set-autostart', (event, enabled: unknown) => (trusted(event) ? { enabled: setAutostart(!!enabled) } : null))
