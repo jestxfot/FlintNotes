@@ -26,8 +26,6 @@ export async function run(t) {
   ok('a line of the day plan whose time has come alerts, as a card in the corner', (await banner.count()) === 1 && (await t.flat(banner)).includes('Vitamin D') && !(await t.flat(banner)).includes('Old plan') && !(await t.flat(banner)).includes('not a plan'), await t.flat(banner).catch(() => 'no banner'))
   ok('the card does not take the page away', (await page.evaluate(() => document.querySelector('.task-alert').matches(':modal'))) === false)
 
-  await page.evaluate(() => app.settings.set('tasks', 'alertStyle', 'fullscreen'))
-  ok('changing alert style updates the outstanding reminder immediately', await page.locator('.task-alert').evaluate((el) => el.matches(':modal') && !el.classList.contains('banner')))
   await page.evaluate(() => app.settings.set('tasks', 'alertStyle', 'off'))
   ok('list-only mode closes an outstanding popup immediately', (await t.count('.task-alert')) === 0)
   await page.evaluate(() => app.settings.set('tasks', 'alertStyle', 'banner'))
@@ -42,16 +40,7 @@ export async function run(t) {
   const text = await t.flat(list)
   ok('groups carry their counts, the overdue in front', /Просрочено\s*1/.test(text) && /Сегодня\s*1/.test(text) && text.includes('Vitamin D') && text.includes('Evening tea') && text.includes('Call bank') && !text.includes('Old plan') && !text.includes('Done already'), text)
 
-  await list.locator('.reminder-row', { hasText: 'Vitamin D' }).locator('button[title^="Закрыть"]').click()
-  await wait(700)
-  ok('a closed reminder leaves the list and the alert', !(await t.flat(list)).includes('Vitamin D') && (await t.count('.task-alert')) === 0, await t.flat(list))
-  await list.locator('.reminders-tool').click()
-  await page.locator('.menu button', { hasText: 'Показать закрытые' }).click()
-  await wait(400)
-  ok('closed ones can be shown and brought back', (await list.locator('.reminder-row.closed', { hasText: 'Vitamin D' }).count()) === 1)
-  await list.locator('.reminder-row', { hasText: 'Vitamin D' }).locator('button[title="Вернуть"]').click()
-  await banner.waitFor({ timeout: 8000 }).catch(() => {})
-  ok('brought back, it alerts again', (await banner.count()) === 1)
+  ok('a reminder cannot be closed from the list, only done or put off', (await list.locator('.reminder-row', { hasText: 'Vitamin D' }).locator('button[title^="Закрыть"]').count()) === 0 && (await t.count('.task-alert')) === 1)
 
   // ---- do not disturb
   await list.locator('.reminders-tool').click()

@@ -101,49 +101,6 @@ const saveState = () => {
 let win: BrowserWindow | undefined
 let tray: Tray | undefined
 let reminders: ReminderPresenter | undefined
-const reminderNotifications = new Map<string, { notification: Notification; timer: ReturnType<typeof setTimeout> }>()
-
-function closeReminderNotifications(keep: Set<string>): void {
-  for (const [key, shown] of reminderNotifications) {
-    if (keep.has(key)) continue
-    clearTimeout(shown.timer)
-    reminderNotifications.delete(key)
-    shown.notification.removeAllListeners()
-    shown.notification.close()
-  }
-}
-
-function notifyReminder(item: ReminderNotice, failed: () => void): boolean {
-  if (!Notification.isSupported()) return false
-  try {
-    const notification = new Notification({ title: item.title, body: item.body, silent: true, timeoutType: 'never', icon: icon(process.platform === 'win32' ? 'flintnotes.ico' : 'flintnotes.png') })
-    // Some systems silently reject a toast (permissions, missing shortcut). Do not lose the reminder.
-    const timer = setTimeout(failed, 5000)
-    reminderNotifications.set(item.key, { notification, timer })
-    notification.once('show', () => clearTimeout(timer))
-    notification.once('failed', (_event, error) => {
-      clearTimeout(timer)
-      note(`Уведомление не показано: ${error}`)
-      failed()
-    })
-    notification.once('click', () => {
-      clearTimeout(timer)
-      showWindow()
-      win?.webContents.send('reminder-click', item.key)
-    })
-    notification.show()
-    return true
-  } catch (error) {
-    const shown = reminderNotifications.get(item.key)
-    if (shown) {
-      clearTimeout(shown.timer)
-      shown.notification.removeAllListeners()
-      reminderNotifications.delete(item.key)
-    }
-    note(`Уведомление не создано: ${String(error)}`)
-    return false
-  }
-}
 
 /** Where the window was, if that place is still on one of the screens. */
 function placed(bounds: Electron.Rectangle | undefined): Partial<Electron.Rectangle> | undefined {
@@ -634,10 +591,10 @@ ipcMain.on('quit', (event) => trusted(event) && void quit(true))
 ipcMain.on('show', (event) => trusted(event) && showWindow())
 ipcMain.on('reminders', (event, value: unknown) => {
   if (!trusted(event) || event.sender !== win?.webContents || !value || typeof value !== 'object') return
-  const { system, items } = value as { system?: unknown; items?: unknown }
-  if (typeof system !== 'boolean' || !Array.isArray(items) || items.length > 5000) return
+  const { items } = value as { items?: unknown }
+  if (!Array.isArray(items) || items.length > 5000) return
   if (!items.every((item): item is ReminderNotice => item && typeof item.key === 'string' && typeof item.title === 'string' && typeof item.body === 'string')) return
-  reminders?.update({ system, items })
+  reminders?.update({ items })
 })
 ipcMain.handle('updates', (event) => (trusted(event) ? updateInfo() : null))
 ipcMain.handle('set-updates', (event, enabled: unknown) => {
@@ -980,7 +937,7 @@ void app.whenReady().then(async () => {
   if (Number(process.env.FLINT_WINDOW_DELAY)) await new Promise((resume) => setTimeout(resume, Number(process.env.FLINT_WINDOW_DELAY)))
   win = createWindow()
   void connect()
-  reminders = new ReminderPresenter(win, (changed) => watchFullscreen(changed, (error) => note(`Проверка полноэкранного режима: ${error}`)), notifyReminder, closeReminderNotifications)
+  reminders = new ReminderPresenter(win, (changed) => watchFullscreen(changed, (error) => note(`Проверка полноэкранного режима: ${error}`)))
   setInterval(() => {
     if (win && !win.isDestroyed()) win.webContents.send('reminder-tick')
   }, 15_000)

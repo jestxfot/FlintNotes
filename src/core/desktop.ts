@@ -25,9 +25,8 @@ export interface DesktopBridge {
   quit(): void
   /** Brings the window out of the tray. */
   show(): void
-  /** Outstanding reminders: native delivery or raising the app, deferred during fullscreen. */
+  /** Outstanding reminders: raising the app over other windows, deferred during fullscreen. */
   setReminders(presentation: ReminderPresentation): void
-  onReminderClick(open: (key: string) => void): () => void
   /** The main process clock keeps reminders timely while the renderer is hidden. */
   onReminderTick(check: () => void): () => void
   /** The installed app's own updates (from the project's releases): whether they come by themselves, which version is waiting. */

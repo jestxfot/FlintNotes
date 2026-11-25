@@ -31,11 +31,6 @@ if (kind === 'server') {
     quit: () => ipcRenderer.send('quit'),
     show: () => ipcRenderer.send('show'),
     setReminders: (presentation: ReminderPresentation) => ipcRenderer.send('reminders', presentation),
-    onReminderClick: (open: (key: string) => void) => {
-      const handler = (_event: Electron.IpcRendererEvent, key: string) => open(key)
-      ipcRenderer.on('reminder-click', handler)
-      return () => ipcRenderer.removeListener('reminder-click', handler)
-    },
     onReminderTick: (check: () => void) => {
       ipcRenderer.on('reminder-tick', check)
       return () => ipcRenderer.removeListener('reminder-tick', check)

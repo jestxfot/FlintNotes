@@ -66,11 +66,10 @@ export default class Tasks extends Plugin {
       {
         key: 'alertStyle',
         name: 'Как показывать напоминание',
-        desc: 'Диалог в программе, карточка в углу или только список. В настольной версии окно появляется поверх других окон, кроме полноэкранного режима',
+        desc: 'Карточка в правом нижнем углу программы; закрыть её нельзя, только выполнить задачу или отложить. В настольной версии окно появляется поверх других окон, кроме полноэкранного режима',
         type: 'select',
-        default: 'fullscreen',
+        default: 'banner',
         options: [
-          { value: 'fullscreen', label: 'На весь экран' },
           { value: 'banner', label: 'Карточкой в углу' },
           { value: 'off', label: 'Только в списке напоминаний' },
         ],
@@ -138,23 +137,7 @@ export default class Tasks extends Plugin {
         ],
       },
       { key: 'repeatSeconds', name: 'Пауза между сигналами, секунд', desc: 'Для повторяющегося сигнала', type: 'number', default: 15, min: 2, max: 300 },
-      {
-        key: 'system',
-        name: 'Системные уведомления',
-        desc: 'Когда программа не на виду, показывать уведомление ОС. Если его показать не удалось — открыть окно программы. Во время полноэкранного режима показ откладывается',
-        type: 'toggle',
-        default: false,
-      },
     ])
-    this.onSettingChange((key) => {
-      // The browser only shows the permission prompt in response to a click, like this toggle.
-      if (!desktop && key === 'system' && this.getSetting<boolean>('system')) {
-        void globalThis.Notification?.requestPermission().then((permission) => {
-          if (permission !== 'granted') app.notice('Системные уведомления не разрешены. Напоминания будут показаны в программе')
-        }).catch(() => app.notice('Не удалось разрешить системные уведомления. Напоминания будут показаны в программе'))
-      }
-    })
-
     /** A reminder set in the form is written the way the settings say, unless the task already had one written otherwise. */
     const styled = (before: TaskFields, after: TaskFields): TaskFields => ({ ...after, reminderAt: before.reminder ? before.reminderAt : this.getSetting<string>('reminderStyle') === 'at' })
     const openDialog = (task: TaskFields, title: string, save: (fields: TaskFields) => void) => {

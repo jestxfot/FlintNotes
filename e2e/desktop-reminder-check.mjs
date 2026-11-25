@@ -99,10 +99,9 @@ try {
     Notification.isSupported = () => false
   })
   await page.evaluate(() => {
-    window.app.settings.set('tasks', 'system', true)
     window.app.settings.set('tasks', 'muteUntil', 0)
   })
-  check('unavailable native notifications fall back through IPC to the real app window', await until(async () => { const s = await state(); return s.visible && s.top }))
+  check('a reminder raises the real app window through IPC', await until(async () => { const s = await state(); return s.visible && s.top }))
 
   await app.evaluate(({ BrowserWindow }) => BrowserWindow.getAllWindows()[0].hide())
   await page.waitForTimeout(2200)

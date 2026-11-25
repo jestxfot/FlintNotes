@@ -6,6 +6,5 @@ export interface ReminderNotice {
 }
 
 export interface ReminderPresentation {
-  system: boolean
   items: ReminderNotice[]
 }

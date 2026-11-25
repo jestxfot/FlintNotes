@@ -1,9 +1,9 @@
 import { renderInline, whenQuiet, type App } from '../../api'
 import { iso } from './dates'
 import { daysChip } from './days-left'
-import type { Due, Reminders } from './reminders'
+import { holdButton, type Due, type Reminders } from './reminders'
 import type { TaskStore } from './store'
-import type { Task } from './task'
+import { NO_PRIORITY, type Task } from './task'
 
 type Show = 'all' | 'overdue' | 'today' | 'later'
 
@@ -109,6 +109,15 @@ export function mountReminders(app: App, store: TaskStore, reminders: Reminders,
         if (!due.closed) meta.append(daysChip(task.due ?? task.scheduled ?? iso(at), task.due || task.scheduled ? undefined : 'Напоминание'))
         if (until) el(meta, 'span', 'reminder-snoozed', `отложено до ${clock(new Date(until))}`)
         const tools = el(row, 'span', 'reminder-tools')
+        // A priority task is put off only by holding a button down, so that it is not skipped by a slip.
+        const confirmPutOff = (at: Date) => {
+          const saved = [...tools.childNodes]
+          const cancel = el(tools, 'button', '', 'Отмена')
+          cancel.onclick = (event) => (event.stopPropagation(), tools.replaceChildren(...saved))
+          const hold = holdButton('Удерживайте, чтобы отложить', 1500, () => (reminders.postpone(due, at), draw()))
+          hold.addEventListener('click', (event) => event.stopPropagation())
+          tools.replaceChildren(cancel, hold)
+        }
         const tool = (icon: string, label: string, action: (event: MouseEvent) => void) => {
           const button = el(tools, 'button')
           button.title = label
@@ -121,17 +130,17 @@ export function mountReminders(app: App, store: TaskStore, reminders: Reminders,
         }
         tool('file-text', 'Открыть в заметке', () => app.workspace.openFile(task.path, { line: task.line }))
         // What is done here shows here at once; the list does not wait for the note to be written.
-        if (!task.plain) tool('check', 'Выполнено', () => (reminders.dismiss(due), void store.toggle(task), draw()))
+        if (!due.closed) tool('check', task.plain ? 'Готово' : 'Выполнено', () => (reminders.dismiss(due), task.plain || void store.toggle(task), draw()))
         tool('alarm-clock', 'Отложить', (event) =>
           app.menus.show(
             event,
             'reminders-later',
             due,
-            reminders.choices().map((option) => ({ icon: 'alarm-clock', title: `${option.label} — ${option.at.toLocaleString('ru', { day: 'numeric', month: 'short', hour: '2-digit', minute: '2-digit' })}`, onClick: () => (reminders.postpone(due, option.at), draw()) })),
+            reminders.choices().map((option) => ({ icon: 'alarm-clock', title: `${option.label} — ${option.at.toLocaleString('ru', { day: 'numeric', month: 'short', hour: '2-digit', minute: '2-digit' })}`, onClick: () => (task.priority < NO_PRIORITY ? confirmPutOff(option.at) : (reminders.postpone(due, option.at), draw())) })),
           ),
         )
+        // A reminder is not closed from here: it is done or put off. Only one closed earlier can be brought back.
         if (due.closed) tool('rotate-ccw', 'Вернуть', () => (reminders.restore(due), draw()))
-        else tool('x', 'Закрыть: больше не напоминать', () => (reminders.dismiss(due), draw()))
         row.onclick = (event) => {
           if ((event.target as Element).closest('a, button')) return
           // A task opens in its window; a plain line that only reminds has nothing to edit but its note.

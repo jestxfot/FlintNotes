@@ -1281,3 +1281,34 @@
 .alert-text .task-chip.days {
   margin-left: 0.4em;
 }
+
+/* The question before a priority task is put off. */
+.task-alert.banner .alert-confirm {
+  flex-basis: 100%;
+  color: var(--text);
+  font-size: 12px;
+}
+
+/* Hold to confirm: the fill grows while the button is held and empties if it is let go. */
+.task-alert.banner button.alert-hold {
+  position: relative;
+  overflow: hidden;
+  user-select: none;
+  touch-action: none;
+}
+
+.task-alert.banner button.alert-hold::before {
+  content: '';
+  position: absolute;
+  inset: 0;
+  width: 0;
+  background: var(--danger, #d9534f);
+  opacity: 0.35;
+  transition: width 0.15s ease-out;
+  pointer-events: none;
+}
+
+.task-alert.banner button.alert-hold.holding::before {
+  width: 100%;
+  transition: width var(--hold) linear;
+}
