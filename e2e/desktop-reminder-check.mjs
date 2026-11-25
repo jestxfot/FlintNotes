@@ -61,51 +61,73 @@ try {
       FLINT_UPDATE_DELAY: '3600000',
     },
   })
-  const page = await app.firstWindow()
-  const state = () => app.evaluate(({ BrowserWindow }) => {
-    const window = BrowserWindow.getAllWindows()[0]
-    // Without a display (headless Chromium) the window never keeps always-on-top, so what the app asked for is recorded.
-    if (!window.__raise) {
-      window.__raise = { asked: window.isAlwaysOnTop() }
-      const set = window.setAlwaysOnTop.bind(window)
-      window.setAlwaysOnTop = (value, ...rest) => { window.__raise.asked = value; return set(value, ...rest) }
-    }
-    return { visible: window.isVisible(), top: window.__raise.asked }
+  // Without a display (headless Chromium) a window never keeps always-on-top, so what the app asked for is recorded.
+  await app.evaluate(({ BrowserWindow }) => {
+    const set = BrowserWindow.prototype.setAlwaysOnTop
+    BrowserWindow.prototype.setAlwaysOnTop = function (value, ...rest) { this.__asked = value; return set.call(this, value, ...rest) }
   })
-  await page.waitForSelector('.task-alert.banner[open]', { state: 'attached' })
-  await page.waitForTimeout(1500)
-  check('the plugin renders its reminder while fullscreen keeps the real window hidden', !(await state()).visible && !(await state()).top)
+  const page = await app.firstWindow()
+  // The reminders live in a window of their own (desktop/pages/alert.html); the notes window stays where it is.
+  const alertState = () => app.evaluate(({ BrowserWindow, screen }) => {
+    const window = BrowserWindow.getAllWindows().find((one) => one.webContents.getURL().endsWith('/alert.html'))
+    const main = BrowserWindow.getAllWindows().find((one) => !one.webContents.getURL().endsWith('/alert.html'))
+    const area = screen.getPrimaryDisplay().workArea
+    if (!window) return { exists: false, mainVisible: main.isVisible() }
+    const bounds = window.getBounds()
+    return { exists: true, visible: window.isVisible(), top: window.__asked === true, bounds, area, mainVisible: main.isVisible() }
+  })
+  const alertPage = () => app.windows().find((one) => one.url().endsWith('/alert.html'))
+  await page.waitForTimeout(3000)
+  let s = await alertState()
+  check('fullscreen of another program keeps the reminders window away', !s.exists || !s.visible)
 
   fs.writeFileSync(fullscreen, '0')
-  const delivered = await until(async () => { const s = await state(); return s.visible && s.top })
-  if (!delivered) console.log({ state: await state(), log: fs.readFileSync(path.join(dir, 'profile', 'flintnotes.log'), 'utf8') })
-  check('leaving fullscreen shows the real app above other windows', delivered)
+  const delivered = await until(async () => (await alertState()).visible)
+  if (!delivered) console.log({ state: await alertState(), log: fs.readFileSync(path.join(dir, 'profile', 'flintnotes.log'), 'utf8') })
+  check('leaving fullscreen shows the reminders window', delivered)
+  s = await alertState()
+  check('it is above other windows', s.top === true)
+  check('it is a window of its own: the notes window stays hidden', s.mainVisible === false)
+  check('it sits in the bottom right corner of the main screen', s.bounds.x + s.bounds.width === s.area.x + s.area.width - 16 && s.bounds.y + s.bounds.height === s.area.y + s.area.height - 16, JSON.stringify(s))
+  check('the card is drawn', await until(async () => !!alertPage() && (await alertPage().locator('.item').count()) === 1))
+  check('it shows the task', (await alertPage().locator('.item').innerText()).includes('Window delivery'))
+  if (process.env.FLINT_SHOT) {
+    // The headless display is one pixel big, which squeezes the window; a real screen gives it room.
+    await app.evaluate(({ BrowserWindow }) => BrowserWindow.getAllWindows().find((one) => one.webContents.getURL().endsWith('/alert.html')).setBounds({ x: 0, y: 0, width: 420, height: 520 }))
+    await page.waitForTimeout(500)
+    await alertPage().screenshot({ path: process.env.FLINT_SHOT })
+  }
+  check('it has no close button', (await alertPage().getByRole('button', { name: /Закрыть/ }).count()) === 0)
+
   fs.writeFileSync(fullscreen, '1')
-  check('entering fullscreen removes always-on-top from the real app', await until(async () => !(await state()).top))
-
-  await app.evaluate(({ BrowserWindow }) => BrowserWindow.getAllWindows()[0].hide())
-  fs.writeFileSync(path.join(vault, 'Another.md'), `- [ ] Another reminder ⏰ ${day(-1)} 13:00\n`)
-  // Playwright's default rAF polling pauses along with a hidden window's rendering.
-  check('the hidden renderer receives a new reminder', await until(() => page.evaluate(() => document.querySelector('.task-alert')?.dataset.count === '2'), 30_000))
-  await page.waitForTimeout(1200)
-  check('a fresh reminder in the tray waits during fullscreen', !(await state()).visible)
+  check('entering fullscreen puts the reminders window away', await until(async () => !(await alertState()).visible))
   fs.writeFileSync(fullscreen, '0')
-  check('the deferred reminder opens the real app after fullscreen ends', await until(async () => { const s = await state(); return s.visible && s.top }))
+  check('and it comes back when fullscreen ends', await until(async () => (await alertState()).visible))
+
+  await alertPage().getByRole('button', { name: /Выполнено/ }).click()
+  check('done in the reminders window completes the task in the note', await until(() => fs.readFileSync(path.join(vault, 'Reminder.md'), 'utf8').includes('- [x] Window delivery')))
+  check('and the window goes when nothing is left', await until(async () => !(await alertState()).visible))
+
+  fs.writeFileSync(path.join(vault, 'Another.md'), `- [ ] Priority one ⏫ ⏰ ${day(-1)} 13:00\n`)
+  check('a new reminder brings the window back', await until(async () => (await alertState()).visible, 30_000))
+  check('its card has the new task', await until(async () => (await alertPage().locator('.item').innerText()).includes('Priority one')))
+  await alertPage().getByRole('button', { name: /Напомнить позже/ }).click()
+  await alertPage().locator('.choices button').first().click()
+  check('a priority task asks for a slide', (await alertPage().locator('.slide').count()) === 1)
+  await alertPage().locator('.slide').click()
+  check('a click on the slider changes nothing', (await alertState()).visible)
+  const handle = await alertPage().locator('.slide .handle').boundingBox()
+  const track = await alertPage().locator('.slide').boundingBox()
+  await alertPage().mouse.move(handle.x + handle.width / 2, handle.y + handle.height / 2)
+  await alertPage().mouse.down()
+  await alertPage().mouse.move(track.x + track.width - 4, handle.y + handle.height / 2, { steps: 10 })
+  await alertPage().mouse.up()
+  check('sliding to the end puts it off and the window goes', await until(async () => !(await alertState()).visible))
 
   await page.evaluate(() => window.app.settings.set('tasks', 'muteUntil', Date.now() + 3_600_000))
-  check('muting removes the dialog and releases always-on-top', await until(async () => !(await state()).top && await page.locator('.task-alert').count() === 0))
-  await app.evaluate(({ BrowserWindow, Notification }) => {
-    BrowserWindow.getAllWindows()[0].hide()
-    Notification.isSupported = () => false
-  })
-  await page.evaluate(() => {
-    window.app.settings.set('tasks', 'muteUntil', 0)
-  })
-  check('a reminder raises the real app window through IPC', await until(async () => { const s = await state(); return s.visible && s.top }))
-
-  await app.evaluate(({ BrowserWindow }) => BrowserWindow.getAllWindows()[0].hide())
-  await page.waitForTimeout(2200)
-  check('manually hiding the reminder does not reopen the app on each fullscreen check', !(await state()).visible)
+  fs.writeFileSync(path.join(vault, 'More.md'), `- [ ] Quiet one ⏰ ${day(-1)} 14:00\n`)
+  await page.waitForTimeout(3000)
+  check('"do not disturb" keeps the window away', !(await alertState()).visible)
 
   console.log(`\nВсе ${passed} проверок прошли`)
 } finally {

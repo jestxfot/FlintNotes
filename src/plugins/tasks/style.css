@@ -1289,26 +1289,50 @@
   font-size: 12px;
 }
 
-/* Hold to confirm: the fill grows while the button is held and empties if it is let go. */
-.task-alert.banner button.alert-hold {
+/* Slide to confirm: a handle dragged across a track; let go early and it goes back. */
+.alert-slide {
+  --slide: 0;
   position: relative;
+  flex: 1 1 200px;
+  height: 36px;
+  min-width: 180px;
+  border: 1px solid var(--border);
+  border-radius: 2em;
+  background: color-mix(in srgb, var(--accent) calc(var(--slide) * 35%), var(--bg-hover));
   overflow: hidden;
   user-select: none;
   touch-action: none;
 }
 
-.task-alert.banner button.alert-hold::before {
-  content: '';
+.alert-slide-label {
   position: absolute;
   inset: 0;
-  width: 0;
-  background: var(--danger, #d9534f);
-  opacity: 0.35;
-  transition: width 0.15s ease-out;
+  display: grid;
+  place-items: center;
+  padding-left: 34px;
+  color: var(--text-muted);
+  font-size: 12.5px;
   pointer-events: none;
 }
 
-.task-alert.banner button.alert-hold.holding::before {
-  width: 100%;
-  transition: width var(--hold) linear;
+.alert-slide-handle {
+  position: absolute;
+  top: 2px;
+  left: calc(2px + var(--slide) * (100% - 38px));
+  display: grid;
+  place-items: center;
+  width: 30px;
+  height: 30px;
+  border-radius: 50%;
+  background: var(--accent);
+  color: var(--accent-text);
+  cursor: grab;
+}
+
+.alert-slide.back .alert-slide-handle {
+  transition: left 0.2s ease-out;
+}
+
+.alert-slide:focus-visible {
+  outline: 2px solid var(--accent);
 }

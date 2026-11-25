@@ -22,9 +22,10 @@ import zlib from 'node:zlib'
 import { nextDelay, openKey, parseLink, probe, sealKey, SHELL_COOKIE, type Saved } from './connection'
 import { watchFullscreen } from './fullscreen'
 import { readInBrowser } from './card-browser'
+import { AlertWindow } from './alert-window'
 import { ReminderPresenter } from './reminders'
 import { PROTOCOL } from '../shared/protocol'
-import type { ReminderNotice } from '../shared/reminders'
+import type { AlertAction, AlertModel, ReminderNotice } from '../shared/reminders'
 import { isNewer } from '../shared/version'
 
 const self = fileURLToPath(import.meta.url)
@@ -101,6 +102,7 @@ const saveState = () => {
 let win: BrowserWindow | undefined
 let tray: Tray | undefined
 let reminders: ReminderPresenter | undefined
+let alertWindow: AlertWindow | undefined
 
 /** Where the window was, if that place is still on one of the screens. */
 function placed(bounds: Electron.Rectangle | undefined): Partial<Electron.Rectangle> | undefined {
@@ -141,7 +143,6 @@ function createWindow(): BrowserWindow {
     event.preventDefault()
     window.hide()
   })
-  window.on('hide', () => reminders?.hidden())
   window.webContents.on('did-start-loading', () => reminders?.clear())
   const remember = () => {
     state.maximized = window.isMaximized()
@@ -384,7 +385,10 @@ const isApp = (url: string | undefined) => {
   }
 }
 /** One of the app's own local pages (connecting, no connection). */
-const isShellPage = (url: string | undefined) => !!url && url.startsWith(pathToFileURL(SHELL_PAGES).href + '/')
+const ALERT_PAGE = pathToFileURL(path.join(SHELL_PAGES, 'alert.html')).href
+/** The reminders' window: a local page of its own, with a bridge of its own. */
+const isAlertPage = (url: string | undefined) => url === ALERT_PAGE
+const isShellPage = (url: string | undefined) => !!url && !isAlertPage(url) && url.startsWith(pathToFileURL(SHELL_PAGES).href + '/')
 /** Only the server's page, not a frame inside it, talks to the app. */
 const trusted = (event: IpcMainEvent | IpcMainInvokeEvent) => !!event.senderFrame && event.senderFrame === event.sender.mainFrame && isApp(event.senderFrame.url)
 const trustedShell = (event: IpcMainEvent | IpcMainInvokeEvent) => !!event.senderFrame && event.senderFrame === event.sender.mainFrame && isShellPage(event.senderFrame.url)
@@ -434,7 +438,7 @@ ipcMain.on('title-bar-colors', (event, colors: { color?: unknown; symbolColor?: 
 // The preload asks what kind of page it is in, to give it only the bridge that page may have.
 ipcMain.on('whoami', (event) => {
   const main = !!event.senderFrame && event.senderFrame === event.sender.mainFrame
-  event.returnValue = main && isApp(event.senderFrame?.url) ? 'server' : main && isShellPage(event.senderFrame?.url) ? 'shell' : ''
+  event.returnValue = main && isApp(event.senderFrame?.url) ? 'server' : main && isShellPage(event.senderFrame?.url) ? 'shell' : main && isAlertPage(event.senderFrame?.url) ? 'alert' : ''
 })
 ipcMain.handle('shell:state', (event) => (trustedShell(event) ? { origin: server?.origin ?? '', ...shellState } : null))
 ipcMain.handle('shell:connect', async (event, link: unknown) => {
@@ -594,7 +598,25 @@ ipcMain.on('reminders', (event, value: unknown) => {
   const { items } = value as { items?: unknown }
   if (!Array.isArray(items) || items.length > 5000) return
   if (!items.every((item): item is ReminderNotice => item && typeof item.key === 'string' && typeof item.title === 'string' && typeof item.body === 'string')) return
+  const model = (value as { model?: unknown }).model
+  if (model && typeof model === 'object' && Array.isArray((model as AlertModel).items) && (model as AlertModel).items.length <= 5000) alertWindow?.send(model as AlertModel)
   reminders?.update({ items })
+})
+// The reminders' window: it tells when it is ready, how tall its card is, and what the person chose.
+const fromAlert = (event: IpcMainEvent) => !!alertWindow?.contents && event.sender === alertWindow.contents && isAlertPage(event.senderFrame?.url)
+ipcMain.on('alert:ready', (event) => fromAlert(event) && alertWindow?.ready())
+ipcMain.on('alert:size', (event, height: unknown) => fromAlert(event) && typeof height === 'number' && alertWindow?.resize(height))
+ipcMain.on('alert:action', (event, action: unknown) => {
+  if (!fromAlert(event) || !action || typeof action !== 'object') return
+  const { type, key, option } = action as { type?: unknown; key?: unknown; option?: unknown }
+  let clean: AlertAction | undefined
+  if (type === 'all-later') clean = { type }
+  else if ((type === 'done' || type === 'open') && typeof key === 'string') clean = { type, key }
+  else if (type === 'later' && typeof key === 'string' && typeof option === 'number') clean = { type, key, option }
+  if (!clean) return
+  // Opening a note brings the notes window forward; the page does the rest.
+  if (clean.type === 'open') showWindow()
+  win?.webContents.send('reminder-action', clean)
 })
 ipcMain.handle('updates', (event) => (trusted(event) ? updateInfo() : null))
 ipcMain.handle('set-updates', (event, enabled: unknown) => {
@@ -937,7 +959,8 @@ void app.whenReady().then(async () => {
   if (Number(process.env.FLINT_WINDOW_DELAY)) await new Promise((resume) => setTimeout(resume, Number(process.env.FLINT_WINDOW_DELAY)))
   win = createWindow()
   void connect()
-  reminders = new ReminderPresenter(win, (changed) => watchFullscreen(changed, (error) => note(`Проверка полноэкранного режима: ${error}`)))
+  alertWindow = new AlertWindow({ preload: PRELOAD, page: path.join(SHELL_PAGES, 'alert.html'), icon: icon(process.platform === 'win32' ? 'flintnotes.ico' : 'flintnotes.png'), backgroundColor: () => state.colors?.color ?? '#262626' })
+  reminders = new ReminderPresenter(alertWindow, (changed) => watchFullscreen(changed, (error) => note(`Проверка полноэкранного режима: ${error}`)))
   setInterval(() => {
     if (win && !win.isDestroyed()) win.webContents.send('reminder-tick')
   }, 15_000)

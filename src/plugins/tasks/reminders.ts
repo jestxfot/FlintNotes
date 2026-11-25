@@ -5,6 +5,7 @@ import { fromIso, iso } from './dates'
 import { dueReminders, isQuiet, plannedTime, reminderSettings, timedReminders, type Due, type ReminderSettings } from './due'
 import { daysChip } from './days-left'
 import type { TaskStore } from './store'
+import type { AlertAction, AlertModel } from '../../../shared/reminders'
 import { formatTaskLine, movePlainReminder, NO_PRIORITY, parseTaskLine, type Task } from './task'
 
 export { plannedTime, type Due }
@@ -13,47 +14,66 @@ const MINUTE = 60_000
 const CHECK_EVERY = 15_000
 const FORGET_AFTER = 60 * 24 * 60 * MINUTE
 
-const HOLD_MS = 1500
-
 /**
- * A button that does its work only when held down for `ms` (pointer, or Space and
- * Enter on the keyboard); a click or an early release does nothing. The fill
- * shows how far the hold has got.
+ * A track with a handle: sliding it to the end does the work, anything less and it goes back. A click does
+ * nothing. The arrow keys work too, in five steps. (The reminders window of the desktop app has its own
+ * copy of this in desktop/pages/alert.js.)
  */
-export function holdButton(label: string, ms: number, done: () => void): HTMLButtonElement {
-  const el = document.createElement('button')
-  el.className = 'alert-hold'
-  el.style.setProperty('--hold', `${ms}ms`)
-  el.textContent = label
-  let timer: ReturnType<typeof setTimeout> | undefined
-  const stop = () => {
-    clearTimeout(timer)
-    timer = undefined
-    el.classList.remove('holding')
+export function slideConfirm(label: string, done: () => void): HTMLElement {
+  const track = document.createElement('div')
+  track.className = 'alert-slide'
+  track.setAttribute('role', 'slider')
+  track.setAttribute('aria-label', label)
+  track.setAttribute('aria-valuemin', '0')
+  track.setAttribute('aria-valuemax', '100')
+  track.setAttribute('aria-valuenow', '0')
+  track.tabIndex = 0
+  const text = document.createElement('div')
+  text.className = 'alert-slide-label'
+  text.textContent = label
+  const handle = document.createElement('div')
+  handle.className = 'alert-slide-handle'
+  handle.textContent = '›'
+  track.append(text, handle)
+  let value = 0
+  let start = 0
+  let dragging = false
+  const room = () => Math.max(1, track.clientWidth - 38)
+  const set = (next: number) => {
+    value = Math.max(0, Math.min(1, next))
+    track.style.setProperty('--slide', String(value))
+    track.setAttribute('aria-valuenow', String(Math.round(value * 100)))
   }
-  const start = () => {
-    if (timer) return
-    el.classList.add('holding')
-    timer = setTimeout(() => {
-      stop()
-      done()
-    }, ms)
+  handle.addEventListener('pointerdown', (event) => {
+    if (event.button !== 0) return
+    dragging = true
+    track.classList.remove('back')
+    start = event.clientX - value * room()
+    handle.setPointerCapture(event.pointerId)
+  })
+  handle.addEventListener('pointermove', (event) => dragging && set((event.clientX - start) / room()))
+  for (const type of ['pointerup', 'pointercancel']) {
+    handle.addEventListener(type, () => {
+      if (!dragging) return
+      dragging = false
+      if (value >= 0.95) return done()
+      track.classList.add('back')
+      set(0)
+    })
   }
-  el.addEventListener('pointerdown', (event) => {
-    if (event.button === 0) start()
+  track.addEventListener('keydown', (event) => {
+    if (event.key === 'ArrowRight') set(value + 0.2)
+    else if (event.key === 'ArrowLeft') set(value - 0.2)
+    else if (event.key === 'Escape') set(0)
+    else return
+    event.preventDefault()
+    if (value >= 1) done()
   })
-  for (const type of ['pointerup', 'pointerleave', 'pointercancel', 'blur']) el.addEventListener(type, stop)
-  el.addEventListener('keydown', (event) => {
-    if (event.key === ' ' || event.key === 'Enter') {
-      event.preventDefault()
-      if (!event.repeat) start()
-    }
-  })
-  el.addEventListener('keyup', stop)
-  return el
+  return track
 }
 
-/** A task with a priority raised above the ordinary: putting it off must be confirmed. */
+/** A task with a priority raised above the ordinary: putting it off must be confirmed by a slide. */
+const laterLabel = (label: string) => `Через ${label}`.replace(/^Через (через|завтра|послезавтра|in |tomorrow|next )/i, '$1').replace(/^./, (c) => c.toUpperCase())
 const urgent = (task: Task) => task.priority < NO_PRIORITY
 
 const pad = (n: number) => String(n).padStart(2, '0')
@@ -128,6 +148,7 @@ export class Reminders {
     const offSettings = this.plugin.app.settings.on('change', (scope) => {
       if (scope === this.plugin.manifest.id) check()
     })
+    const offAction = desktop?.onReminderAction?.((action) => this.act(action))
     document.addEventListener('visibilitychange', check)
     check()
     return () => {
@@ -136,6 +157,7 @@ export class Reminders {
       off()
       offSettings()
       offTick?.()
+      offAction?.()
       document.removeEventListener('visibilitychange', check)
       this.close()
     }
@@ -200,12 +222,56 @@ export class Reminders {
       this.close()
       return
     }
-    this.render(due)
-    desktop?.setReminders({ items: due.map(({ key, task }) => ({ key, title: task.plain ? 'Напоминание' : 'Напоминание о задаче', body: task.description })) })
+    // The desktop app shows reminders in a window of its own, on top of everything; elsewhere the page draws the card.
+    const own = !!desktop?.onReminderAction
+    if (!own) this.render(due)
+    desktop?.setReminders({
+      items: due.map(({ key, task }) => ({ key, title: task.plain ? 'Напоминание' : 'Напоминание о задаче', body: task.description })),
+      ...(own ? { model: this.model(due) } : {}),
+    })
     if (this.setting<boolean>('sound')) {
       const { kind, volume } = this.sound()
       this.beeper.start(kind, volume, (this.setting<string>('soundRepeat') ?? 'few') as Repeat, this.setting<number>('repeatSeconds'))
     }
+  }
+
+  /** What the reminders window draws: the text as markup, and the colours of this page. */
+  private model(due: Due[]): AlertModel {
+    const { app } = this.plugin
+    const style = getComputedStyle(document.documentElement)
+    const theme = Object.fromEntries(['--bg', '--bg-hover', '--text', '--text-muted', '--text-faint', '--border', '--accent', '--accent-text', '--radius-m', '--radius-xl'].map((name) => [name, style.getPropertyValue(name).trim()]))
+    return {
+      theme: { ...theme, 'color-scheme': style.colorScheme || 'light dark' },
+      later: this.laterOptions().map((option) => laterLabel(option.label)),
+      items: due.map(({ key, task, at }) => {
+        const text = document.createElement('div')
+        text.append(renderInline(app, task.description, task.path))
+        return {
+          key,
+          time: at.toLocaleString('ru', { day: 'numeric', month: 'long', hour: '2-digit', minute: '2-digit' }),
+          html: text.innerHTML,
+          source: paths.stripExt(paths.basename(task.path)),
+          statusHtml: daysChip(task.due ?? task.scheduled ?? iso(at), task.due || task.scheduled ? undefined : 'Напоминание').outerHTML,
+          urgent: urgent(task),
+          plain: !!task.plain,
+        }
+      }),
+    }
+  }
+
+  /** What was chosen in the reminders window. Confirming a priority task's postponement was done there. */
+  private act(action: AlertAction): void {
+    const due = this.due()
+    const one = 'key' in action ? due.find((d) => d.key === action.key) : undefined
+    if (action.type === 'all-later') return this.snooze(due.map((d) => d.key), Date.now() + 10 * MINUTE)
+    if (!one) return
+    if (action.type === 'done') {
+      this.acknowledge([one.key])
+      if (!one.task.plain) void this.store.toggle(one.task)
+    } else if (action.type === 'later') {
+      const option = this.laterOptions()[action.option]
+      if (option) this.later(one, option.at)
+    } else this.plugin.app.workspace.openFile(one.task.path, { line: one.task.line })
   }
 
   private mark(kind: 'acknowledged' | 'snoozed', keys: string[], value: number): void {
@@ -296,7 +362,7 @@ export class Reminders {
 
   /**
    * Asks again before a priority task is put off: its buttons are replaced by a
-   * button that has to be held down, so that a slip of the finger cannot skip it.
+   * slider that has to be dragged to the end, so that a slip of the finger cannot skip it.
    * (Re-rendering is skipped while the list is unchanged, so this stays put.)
    */
   private confirmPutOff(actions: HTMLElement, what: string, run: () => void): void {
@@ -304,12 +370,12 @@ export class Reminders {
     const ask = document.createElement('span')
     ask.className = 'alert-confirm'
     ask.textContent = `${what}?`
-    const yes = holdButton('Удерживайте, чтобы отложить', HOLD_MS, run)
+    const yes = slideConfirm('Проведите, чтобы отложить', run)
     const no = document.createElement('button')
     no.className = 'primary'
     no.textContent = 'Нет, вернуться'
     no.onclick = () => actions.replaceChildren(...saved)
-    actions.replaceChildren(ask, no, yes)
+    actions.replaceChildren(ask, yes, no)
   }
 
   private render(due: Due[]): void {
@@ -327,7 +393,6 @@ export class Reminders {
       return el
     }
 
-    const laterLabel = (label: string) => `Через ${label}`.replace(/^Через (через|завтра|послезавтра|in |tomorrow|next )/i, '$1').replace(/^./, (c) => c.toUpperCase())
     const keys = due.map((d) => d.key)
     const footer = dialog.querySelector('.alert-footer') as HTMLElement
     for (const one of due) {

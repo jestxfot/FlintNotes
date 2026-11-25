@@ -1,84 +1,47 @@
-import type { ReminderNotice, ReminderPresentation } from '../shared/reminders'
+import type { ReminderPresentation } from '../shared/reminders'
 
-interface ReminderWindow {
-  isDestroyed(): boolean
-  isFullScreen(): boolean
-  isFocused(): boolean
-  isMinimized(): boolean
-  isAlwaysOnTop(): boolean
-  restore(): void
-  showInactive(): void
-  setAlwaysOnTop(value: boolean): void
+/** The window the reminders live in: shown on top of everything, or put away. */
+export interface ReminderSurface {
+  show(): void
+  hide(): void
 }
 
-/** Raises the window over others for each new reminder; held back during fullscreen. Finishing or snoozing removes it from the queue. */
+/**
+ * Decides when the reminder window is on the screen: while something is outstanding, except while another
+ * program is fullscreen (a film, a game), when it waits and comes back as that ends.
+ */
 export class ReminderPresenter {
-  private items = new Map<string, ReminderNotice>()
-  private pending = new Set<string>()
+  private keys = new Set<string>()
   private blocked = true
-  private raised = false
-  private windowPending = false
   private stopWatching: (() => void) | undefined
 
   constructor(
-    private window: ReminderWindow,
+    private surface: ReminderSurface,
     private watch: (changed: (blocked: boolean) => void) => () => void,
   ) {}
 
   update(presentation: ReminderPresentation): void {
-    const previous = this.items
-    this.items = new Map(presentation.items.map((item) => [item.key, item]))
-    for (const key of this.pending) if (!this.items.has(key)) this.pending.delete(key)
-    for (const key of this.items.keys()) if (!previous.has(key)) this.pending.add(key)
-    if (!this.items.size) return this.clear()
-    if (!this.stopWatching) this.stopWatching = this.watch((blocked) => {
-      this.blocked = blocked || this.window.isFullScreen()
-      if (this.blocked) {
-        this.windowPending ||= this.raised
-        this.lower()
-      } else this.deliver()
-    })
-    this.deliver()
-  }
-
-  /** Hiding the app manually must not bring it back every polling tick. */
-  hidden(): void {
-    this.windowPending = false
-    this.lower()
+    this.keys = new Set(presentation.items.map((item) => item.key))
+    if (!this.keys.size) return this.clear()
+    if (!this.stopWatching) {
+      this.stopWatching = this.watch((blocked) => {
+        this.blocked = blocked
+        this.apply()
+      })
+    }
+    this.apply()
   }
 
   clear(): void {
     this.stopWatching?.()
     this.stopWatching = undefined
-    this.items.clear()
-    this.pending.clear()
-    this.windowPending = false
+    this.keys.clear()
     this.blocked = true
-    this.lower()
+    this.surface.hide()
   }
 
-  private lower(): void {
-    if (this.raised && !this.window.isDestroyed()) this.window.setAlwaysOnTop(false)
-    this.raised = false
-  }
-
-  private deliver(): void {
-    if (this.blocked || this.window.isDestroyed() || this.window.isFullScreen()) return
-    if (this.pending.size) {
-      this.pending.clear()
-      this.windowPending = true
-    }
-    if (!this.windowPending) {
-      // The window manager may finish mapping the window after showInactive returns.
-      if (this.raised && !this.window.isAlwaysOnTop()) this.window.setAlwaysOnTop(true)
-      return
-    }
-    this.windowPending = false
-    // Raise without moving keyboard focus away from the program the user is working in.
-    if (this.window.isMinimized()) this.window.restore()
-    this.window.showInactive()
-    // Mapping a previously hidden window can reset its topmost state (e.g. on X11).
-    this.window.setAlwaysOnTop(true)
-    this.raised = true
+  private apply(): void {
+    if (this.blocked || !this.keys.size) this.surface.hide()
+    else this.surface.show()
   }
 }

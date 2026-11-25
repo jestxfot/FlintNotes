@@ -1,7 +1,7 @@
 import { renderInline, whenQuiet, type App } from '../../api'
 import { iso } from './dates'
 import { daysChip } from './days-left'
-import { holdButton, type Due, type Reminders } from './reminders'
+import { slideConfirm, type Due, type Reminders } from './reminders'
 import type { TaskStore } from './store'
 import { NO_PRIORITY, type Task } from './task'
 
@@ -109,14 +109,14 @@ export function mountReminders(app: App, store: TaskStore, reminders: Reminders,
         if (!due.closed) meta.append(daysChip(task.due ?? task.scheduled ?? iso(at), task.due || task.scheduled ? undefined : 'Напоминание'))
         if (until) el(meta, 'span', 'reminder-snoozed', `отложено до ${clock(new Date(until))}`)
         const tools = el(row, 'span', 'reminder-tools')
-        // A priority task is put off only by holding a button down, so that it is not skipped by a slip.
+        // A priority task is put off only by sliding a handle to the end, so that it is not skipped by a slip.
         const confirmPutOff = (at: Date) => {
           const saved = [...tools.childNodes]
           const cancel = el(tools, 'button', '', 'Отмена')
           cancel.onclick = (event) => (event.stopPropagation(), tools.replaceChildren(...saved))
-          const hold = holdButton('Удерживайте, чтобы отложить', 1500, () => (reminders.postpone(due, at), draw()))
-          hold.addEventListener('click', (event) => event.stopPropagation())
-          tools.replaceChildren(cancel, hold)
+          const slide = slideConfirm('Проведите, чтобы отложить', () => (reminders.postpone(due, at), draw()))
+          slide.addEventListener('click', (event) => event.stopPropagation())
+          tools.replaceChildren(slide, cancel)
         }
         const tool = (icon: string, label: string, action: (event: MouseEvent) => void) => {
           const button = el(tools, 'button')

@@ -51,13 +51,20 @@ export async function run(t) {
   ok('"no" brings the buttons back', await card.getByRole('button', { name: 'Напомнить позже' }).count() === 1)
   await card.getByRole('button', { name: 'Напомнить позже' }).click()
   await page.getByRole('menu').getByRole('menuitem', { name: 'Через 10 минут', exact: true }).click()
-  const hold = card.locator('button.alert-hold')
-  await hold.click()
-  ok('a click does not put a priority task off', (await card.locator('.alert-confirm').count()) === 1 && (await page.locator('.task-alert').count()) === 1)
-  await hold.hover()
-  await page.mouse.down()
-  await page.waitForTimeout(1800)
-  await page.mouse.up()
+  const slideTo = async (share) => {
+    // A handle let go early goes back for a moment; it is taken once it has settled.
+    await page.waitForTimeout(500)
+    const handle = await card.locator('.alert-slide-handle').boundingBox()
+    const track = await card.locator('.alert-slide').boundingBox()
+    await page.mouse.move(handle.x + handle.width / 2, handle.y + handle.height / 2)
+    await page.mouse.down()
+    await page.mouse.move(handle.x + handle.width / 2 + (track.width - 40) * share, handle.y + handle.height / 2, { steps: 10 })
+    await page.mouse.up()
+  }
+  await card.locator('.alert-slide').click()
+  await slideTo(0.5)
+  ok('a click or a short slide does not put a priority task off', (await card.locator('.alert-slide').count()) === 1 && (await page.locator('.task-alert').count()) === 1)
+  await slideTo(1)
   await card.waitFor({ state: 'detached' })
   ok('"yes" puts it off', await page.locator('.task-alert').count() === 0)
 }

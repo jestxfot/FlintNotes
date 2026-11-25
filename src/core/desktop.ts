@@ -3,7 +3,7 @@
  * (desktop/preload.ts) puts a small bridge on `window.flintDesktop`. In a browser there is none,
  * and everything here answers as for a page in a browser.
  */
-import type { ReminderPresentation } from '../../shared/reminders'
+import type { AlertAction, ReminderPresentation } from '../../shared/reminders'
 
 export interface DesktopBridge {
   /** The window's controls (minimise, maximise, close) take the colours of the bar they sit on. */
@@ -25,8 +25,10 @@ export interface DesktopBridge {
   quit(): void
   /** Brings the window out of the tray. */
   show(): void
-  /** Outstanding reminders: raising the app over other windows, deferred during fullscreen. */
+  /** Outstanding reminders: showing the reminders window over other windows, deferred during fullscreen. */
   setReminders(presentation: ReminderPresentation): void
+  /** The reminders are shown in a window of their own; what was chosen there comes back to be done. Older apps lack this and the page draws the card itself. */
+  onReminderAction?(handler: (action: AlertAction) => void): () => void
   /** The main process clock keeps reminders timely while the renderer is hidden. */
   onReminderTick(check: () => void): () => void
   /** The installed app's own updates (from the project's releases): whether they come by themselves, which version is waiting. */

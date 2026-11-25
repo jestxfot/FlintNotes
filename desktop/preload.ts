@@ -6,9 +6,9 @@
  * the notes, say) gets nothing. Built by `npm run release` into `release/preload.cjs`.
  */
 import { contextBridge, ipcRenderer } from 'electron'
-import type { ReminderPresentation } from '../shared/reminders'
+import type { AlertAction, AlertModel, ReminderPresentation } from '../shared/reminders'
 
-const kind = ipcRenderer.sendSync('whoami') as 'server' | 'shell' | ''
+const kind = ipcRenderer.sendSync('whoami') as 'server' | 'shell' | 'alert' | ''
 
 if (kind === 'server') {
   let save: (() => Promise<unknown>) | undefined
@@ -31,6 +31,12 @@ if (kind === 'server') {
     quit: () => ipcRenderer.send('quit'),
     show: () => ipcRenderer.send('show'),
     setReminders: (presentation: ReminderPresentation) => ipcRenderer.send('reminders', presentation),
+    /** The reminders live in a window of their own; what was chosen there comes back here to be done. */
+    onReminderAction: (handler: (action: AlertAction) => void) => {
+      const listener = (_event: unknown, action: AlertAction) => handler(action)
+      ipcRenderer.on('reminder-action', listener)
+      return () => ipcRenderer.removeListener('reminder-action', listener)
+    },
     onReminderTick: (check: () => void) => {
       ipcRenderer.on('reminder-tick', check)
       return () => ipcRenderer.removeListener('reminder-tick', check)
@@ -41,6 +47,15 @@ if (kind === 'server') {
     installUpdate: () => ipcRenderer.invoke('install-update'),
     onFlush: (handler: () => Promise<unknown>) => void (save = handler),
     onCommand: (handler: (id: string) => void) => void (run = handler),
+  })
+}
+
+if (kind === 'alert') {
+  contextBridge.exposeInMainWorld('flintAlert', {
+    onModel: (show: (model: AlertModel) => void) => ipcRenderer.on('alert:model', (_event, model) => show(model)),
+    ready: () => ipcRenderer.send('alert:ready'),
+    size: (height: number) => ipcRenderer.send('alert:size', Number(height)),
+    act: (action: AlertAction) => ipcRenderer.send('alert:action', action),
   })
 }
 
