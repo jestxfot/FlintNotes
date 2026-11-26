@@ -61,6 +61,17 @@ export function tools(page, vault, results) {
     ok(name, cond, extra = '') {
       results.push({ name, pass: !!cond, extra: cond ? "" : String(extra).slice(0, 1500) })
     },
+    /** Slides the confirm handle inside `root` (the page's `.alert-slide`, or the reminders window's `.slide`) part of the way; the whole way confirms. */
+    async slide(root, share = 1, on = page) {
+      // A handle let go early goes back for a moment; it is taken once it has settled.
+      await on.waitForTimeout(500)
+      const handle = await root.locator('.alert-slide-handle, .slide .handle').first().boundingBox()
+      const track = await root.locator('.alert-slide, .slide').first().boundingBox()
+      await on.mouse.move(handle.x + handle.width / 2, handle.y + handle.height / 2)
+      await on.mouse.down()
+      await on.mouse.move(handle.x + handle.width / 2 + (track.width - 40) * share, handle.y + handle.height / 2, { steps: 10 })
+      await on.mouse.up()
+    },
     read: (file) => fs.readFileSync(path.join(vault, file), 'utf8'),
     write: (file, text) => fs.writeFileSync(path.join(vault, file), text),
     exists: (file) => fs.existsSync(path.join(vault, file)),

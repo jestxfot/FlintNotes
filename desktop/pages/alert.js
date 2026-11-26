@@ -111,7 +111,8 @@ function render(model) {
     status.append(clean(item.statusHtml))
     const actions = make('div', 'actions')
     const slot = make('div')
-    const done = button(item.plain ? '✓ Готово' : '✓ Выполнено', 'primary', () => bridge.act({ type: 'done', key: item.key }))
+    // Done is a slide too: a reminder is not ticked off by a stray click.
+    const done = slider(item.plain ? 'Проведите — готово' : 'Проведите — выполнено', () => bridge.act({ type: 'done', key: item.key }))
     const later = button('Напомнить позже ▾', '', () => {
       if (slot.firstChild) return slot.replaceChildren()
       const choices = make('div', 'choices')

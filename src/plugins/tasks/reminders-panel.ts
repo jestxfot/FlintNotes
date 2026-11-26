@@ -109,12 +109,12 @@ export function mountReminders(app: App, store: TaskStore, reminders: Reminders,
         if (!due.closed) meta.append(daysChip(task.due ?? task.scheduled ?? iso(at), task.due || task.scheduled ? undefined : 'Напоминание'))
         if (until) el(meta, 'span', 'reminder-snoozed', `отложено до ${clock(new Date(until))}`)
         const tools = el(row, 'span', 'reminder-tools')
-        // A priority task is put off only by sliding a handle to the end, so that it is not skipped by a slip.
-        const confirmPutOff = (at: Date) => {
+        // Done, and putting off a priority task, are made by sliding a handle to the end, so that nothing is skipped by a slip.
+        const slideThen = (label: string, run: () => void) => {
           const saved = [...tools.childNodes]
           const cancel = el(tools, 'button', '', 'Отмена')
           cancel.onclick = (event) => (event.stopPropagation(), tools.replaceChildren(...saved))
-          const slide = slideConfirm('Проведите, чтобы отложить', () => (reminders.postpone(due, at), draw()))
+          const slide = slideConfirm(label, run)
           slide.addEventListener('click', (event) => event.stopPropagation())
           tools.replaceChildren(slide, cancel)
         }
@@ -130,13 +130,13 @@ export function mountReminders(app: App, store: TaskStore, reminders: Reminders,
         }
         tool('file-text', 'Открыть в заметке', () => app.workspace.openFile(task.path, { line: task.line }))
         // What is done here shows here at once; the list does not wait for the note to be written.
-        if (!due.closed) tool('check', task.plain ? 'Готово' : 'Выполнено', () => (reminders.dismiss(due), task.plain || void store.toggle(task), draw()))
+        if (!due.closed) tool('check', task.plain ? 'Готово' : 'Выполнено', () => slideThen(task.plain ? 'Проведите — готово' : 'Проведите — выполнено', () => (reminders.dismiss(due), task.plain || void store.toggle(task), draw())))
         tool('alarm-clock', 'Отложить', (event) =>
           app.menus.show(
             event,
             'reminders-later',
             due,
-            reminders.choices().map((option) => ({ icon: 'alarm-clock', title: `${option.label} — ${option.at.toLocaleString('ru', { day: 'numeric', month: 'short', hour: '2-digit', minute: '2-digit' })}`, onClick: () => (task.priority < NO_PRIORITY ? confirmPutOff(option.at) : (reminders.postpone(due, option.at), draw())) })),
+            reminders.choices().map((option) => ({ icon: 'alarm-clock', title: `${option.label} — ${option.at.toLocaleString('ru', { day: 'numeric', month: 'short', hour: '2-digit', minute: '2-digit' })}`, onClick: () => (task.priority < NO_PRIORITY ? slideThen('Проведите, чтобы отложить', () => (reminders.postpone(due, option.at), draw())) : (reminders.postpone(due, option.at), draw())) })),
           ),
         )
         // A reminder is not closed from here: it is done or put off. Only one closed earlier can be brought back.

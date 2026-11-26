@@ -11,7 +11,7 @@ export async function run(t) {
   const card = page.locator('.task-alert.banner[open]')
   await card.waitFor()
   const actions = card.locator('.alert-actions')
-  ok('the card keeps two main actions and a separate quiet overdue caption', await actions.locator('button').count() === 2 && await card.locator('.alert-status .days.overdue').count() === 1 && await card.locator('.alert-text .days').count() === 0)
+  ok('the card keeps two main actions and a separate quiet overdue caption', await actions.locator('.alert-slide').count() === 1 && await actions.locator('button').count() === 1 && await card.locator('.alert-status .days.overdue').count() === 1 && await card.locator('.alert-text .days').count() === 0)
   const box = await card.boundingBox()
   ok('a single reminder fits in a compact card', box.width <= 380 && box.height < 270, JSON.stringify(box))
   await card.screenshot({ path: '/tmp/flint-reminder-card-light.png' })

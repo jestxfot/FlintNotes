@@ -416,11 +416,11 @@ export class Reminders {
       meta.append(status)
       const actions = item.appendChild(document.createElement('div'))
       actions.className = 'alert-actions'
-      const done = button(task.plain ? 'Готово' : 'Выполнено', 'primary', () => {
+      // Done is a slide too: a reminder is not ticked off by a stray click.
+      const done = slideConfirm(task.plain ? 'Проведите — готово' : 'Проведите — выполнено', () => {
         this.acknowledge([key])
         if (!task.plain) void this.store.toggle(task)
       })
-      done.prepend(app.icons.draw('check'))
       const later = button('Напомнить позже', 'alert-later', (event) => {
         event.preventDefault()
         event.stopPropagation()

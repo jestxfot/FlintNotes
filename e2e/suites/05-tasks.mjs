@@ -37,7 +37,9 @@ export async function run(t) {
   await page.getByRole('menu').getByRole('menuitem', { name: 'Через 10 минут', exact: true }).click()
   await wait(600)
   ok('snooze removes the task for now', (await alert.getAttribute('data-count')) === '2')
-  await item('Water plants').locator('button', { hasText: 'Выполнено' }).click()
+  await item('Water plants').locator('.alert-slide').click()
+  ok('done is a slide: a click does nothing', (await alert.getAttribute('data-count')) === '2')
+  await t.slide(item('Water plants'))
   await wait(1500)
   ok(
     'done from the alert completes and repeats the task',
