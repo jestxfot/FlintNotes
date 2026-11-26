@@ -97,6 +97,14 @@ try {
     await page.waitForTimeout(500)
     await alertPage().screenshot({ path: process.env.FLINT_SHOT })
   }
+  // Icons in a task's text come as bare SVG: without the page's own style they would fill the whole window.
+  const icon = await alertPage().evaluate(() => {
+    const host = document.querySelector('.item .text')
+    host.insertAdjacentHTML('beforeend', '<span class="icon"><svg viewBox="0 0 24 24"><path d="M12 21C-4 8 6-2 12 6c6-8 16 2 0 15z"/></svg></span>')
+    const box = host.querySelector('.icon svg').getBoundingClientRect()
+    return { width: box.width, height: box.height, fill: getComputedStyle(host.querySelector('.icon svg')).fill }
+  })
+  check('an icon in the text stays a character wide and is drawn as lines', icon.width <= 24 && icon.height <= 24 && icon.fill === 'none', JSON.stringify(icon))
   check('it has no close button', (await alertPage().getByRole('button', { name: /Закрыть/ }).count()) === 0)
 
   fs.writeFileSync(fullscreen, '1')
