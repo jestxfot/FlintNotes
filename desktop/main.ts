@@ -959,7 +959,7 @@ void app.whenReady().then(async () => {
   if (Number(process.env.FLINT_WINDOW_DELAY)) await new Promise((resume) => setTimeout(resume, Number(process.env.FLINT_WINDOW_DELAY)))
   win = createWindow()
   void connect()
-  alertWindow = new AlertWindow({ preload: PRELOAD, page: path.join(SHELL_PAGES, 'alert.html'), icon: icon(process.platform === 'win32' ? 'flintnotes.ico' : 'flintnotes.png'), backgroundColor: () => state.colors?.color ?? '#262626' })
+  alertWindow = new AlertWindow({ preload: PRELOAD, page: path.join(SHELL_PAGES, 'alert.html'), icon: icon(process.platform === 'win32' ? 'flintnotes.ico' : 'flintnotes.png') })
   reminders = new ReminderPresenter(alertWindow, (changed) => watchFullscreen(changed, (error) => note(`Проверка полноэкранного режима: ${error}`)))
   setInterval(() => {
     if (win && !win.isDestroyed()) win.webContents.send('reminder-tick')

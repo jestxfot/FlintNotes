@@ -1289,19 +1289,28 @@
   font-size: 12px;
 }
 
-/* Slide to confirm: a handle dragged across a track; let go early and it goes back. */
+/* Slide to confirm: a handle dragged across a track; let go early and it goes back. Green for done, amber for putting off. */
 .alert-slide {
   --slide: 0;
+  --tone: var(--accent);
   position: relative;
   flex: 1 1 200px;
-  height: 36px;
+  height: 38px;
   min-width: 180px;
-  border: 1px solid var(--border);
+  border: 1px solid color-mix(in srgb, var(--tone) 35%, var(--border));
   border-radius: 2em;
-  background: color-mix(in srgb, var(--accent) calc(var(--slide) * 35%), var(--bg-hover));
+  background: color-mix(in srgb, var(--tone) calc(8% + var(--slide) * 30%), var(--bg));
   overflow: hidden;
   user-select: none;
   touch-action: none;
+}
+
+.alert-slide.ok {
+  --tone: var(--color-green, #2fa56b);
+}
+
+.alert-slide.warn {
+  --tone: var(--color-yellow, #d9a000);
 }
 
 .alert-slide-label {
@@ -1312,6 +1321,8 @@
   padding-left: 34px;
   color: var(--text-muted);
   font-size: 12.5px;
+  font-weight: 500;
+  opacity: calc(1 - var(--slide) * 1.6);
   pointer-events: none;
 }
 
@@ -1321,12 +1332,26 @@
   left: calc(2px + var(--slide) * (100% - 38px));
   display: grid;
   place-items: center;
-  width: 30px;
-  height: 30px;
+  width: 32px;
+  height: 32px;
   border-radius: 50%;
-  background: var(--accent);
-  color: var(--accent-text);
+  background: var(--tone);
+  color: #fff;
+  font-size: 18px;
+  line-height: 1;
   cursor: grab;
+  box-shadow: 0 1px 4px rgba(0, 0, 0, 0.3);
+}
+
+.alert-slide.full .alert-slide-handle::after {
+  content: '✓';
+  position: absolute;
+  inset: 0;
+  display: grid;
+  place-items: center;
+  border-radius: 50%;
+  background: var(--tone);
+  font-size: 15px;
 }
 
 .alert-slide.back .alert-slide-handle {

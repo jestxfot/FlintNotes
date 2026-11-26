@@ -16,7 +16,7 @@ export class AlertWindow implements ReminderSurface {
   private model: AlertModel | undefined
   private height = 200
 
-  constructor(private options: { preload: string; page: string; icon: NativeImage; backgroundColor: () => string }) {}
+  constructor(private options: { preload: string; page: string; icon: NativeImage }) {}
 
   get contents() {
     return this.window && !this.window.isDestroyed() ? this.window.webContents : undefined
@@ -80,7 +80,9 @@ export class AlertWindow implements ReminderSurface {
       alwaysOnTop: true,
       title: 'FlintNotes — напоминания',
       icon: this.options.icon,
-      backgroundColor: this.options.backgroundColor(),
+      // See-through, so that the card's rounded corners are corners (the page paints the card itself).
+      transparent: true,
+      backgroundColor: '#00000000',
       webPreferences: { preload: this.options.preload, contextIsolation: true, sandbox: true, nodeIntegration: false },
     })
     window.setMenuBarVisibility(false)

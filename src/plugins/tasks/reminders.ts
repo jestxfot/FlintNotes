@@ -19,9 +19,9 @@ const FORGET_AFTER = 60 * 24 * 60 * MINUTE
  * nothing. The arrow keys work too, in five steps. (The reminders window of the desktop app has its own
  * copy of this in desktop/pages/alert.js.)
  */
-export function slideConfirm(label: string, done: () => void): HTMLElement {
+export function slideConfirm(label: string, done: () => void, tone?: 'ok' | 'warn'): HTMLElement {
   const track = document.createElement('div')
-  track.className = 'alert-slide'
+  track.className = tone ? `alert-slide ${tone}` : 'alert-slide'
   track.setAttribute('role', 'slider')
   track.setAttribute('aria-label', label)
   track.setAttribute('aria-valuemin', '0')
@@ -38,14 +38,29 @@ export function slideConfirm(label: string, done: () => void): HTMLElement {
   let value = 0
   let start = 0
   let dragging = false
+  let fired = false
   const room = () => Math.max(1, track.clientWidth - 38)
   const set = (next: number) => {
     value = Math.max(0, Math.min(1, next))
     track.style.setProperty('--slide', String(value))
     track.setAttribute('aria-valuenow', String(Math.round(value * 100)))
+    track.classList.toggle('full', value >= 0.95)
+  }
+  // Once is enough: a second release or key press while the answer is on its way must not act twice. If nothing
+  // came of it (the reminder was gone already), the handle goes back after a moment.
+  const fire = () => {
+    if (fired) return
+    fired = true
+    set(1)
+    done()
+    setTimeout(() => {
+      fired = false
+      track.classList.add('back')
+      set(0)
+    }, 2000)
   }
   handle.addEventListener('pointerdown', (event) => {
-    if (event.button !== 0) return
+    if (event.button !== 0 || fired) return
     dragging = true
     track.classList.remove('back')
     start = event.clientX - value * room()
@@ -56,18 +71,19 @@ export function slideConfirm(label: string, done: () => void): HTMLElement {
     handle.addEventListener(type, () => {
       if (!dragging) return
       dragging = false
-      if (value >= 0.95) return done()
+      if (value >= 0.95) return fire()
       track.classList.add('back')
       set(0)
     })
   }
   track.addEventListener('keydown', (event) => {
+    if (fired) return
     if (event.key === 'ArrowRight') set(value + 0.2)
     else if (event.key === 'ArrowLeft') set(value - 0.2)
     else if (event.key === 'Escape') set(0)
     else return
     event.preventDefault()
-    if (value >= 1) done()
+    if (value >= 1) fire()
   })
   return track
 }
@@ -118,7 +134,10 @@ export function laterTime(option: string, morning = '09:00', now = new Date()): 
 export class Reminders {
   private dialog: HTMLDialogElement | null = null
   private beeper = new Signal()
-  private shown = ''
+  /** What the card was last drawn for; `undefined` until the first check, which also clears a window left over from before. */
+  private shown: string | undefined
+  /** Keys that have already sounded the signal. */
+  private heard = new Set<string>()
   private title = document.title
   private flash: ReturnType<typeof setInterval> | undefined
 
@@ -209,13 +228,14 @@ export class Reminders {
   /** Holds alerts back for so many minutes; `0` lets them through again. */
   mute(minutes: number): void {
     this.plugin.setSetting('muteUntil', minutes > 0 ? Date.now() + minutes * MINUTE : 0)
-    this.shown = ''
+    this.shown = undefined
     this.check()
   }
 
   check(): void {
     const due = this.muted() || this.setting<string>('alertStyle') === 'off' ? [] : this.due()
-    const signature = due.map((d) => d.key).join('\n')
+    // The text and the priority are part of it: a task edited while it is showing is drawn again.
+    const signature = due.map((d) => [d.key, d.task.description, d.task.priority, d.task.due, d.task.scheduled].join('|')).join('\n')
     if (signature === this.shown) return
     this.shown = signature
     if (!due.length) {
@@ -229,7 +249,10 @@ export class Reminders {
       items: due.map(({ key, task }) => ({ key, title: task.plain ? 'Напоминание' : 'Напоминание о задаче', body: task.description })),
       ...(own ? { model: this.model(due) } : {}),
     })
-    if (this.setting<boolean>('sound')) {
+    // The signal sounds for what is new; finishing one of several must not start it over for the rest.
+    const fresh = due.some((d) => !this.heard.has(d.key))
+    this.heard = new Set(due.map((d) => d.key))
+    if (fresh && this.setting<boolean>('sound')) {
       const { kind, volume } = this.sound()
       this.beeper.start(kind, volume, (this.setting<string>('soundRepeat') ?? 'few') as Repeat, this.setting<number>('repeatSeconds'))
     }
@@ -358,6 +381,7 @@ export class Reminders {
     this.dialog?.remove()
     this.dialog = null
     this.shown = ''
+    this.heard.clear()
   }
 
   /**
@@ -370,7 +394,7 @@ export class Reminders {
     const ask = document.createElement('span')
     ask.className = 'alert-confirm'
     ask.textContent = `${what}?`
-    const yes = slideConfirm('Проведите, чтобы отложить', run)
+    const yes = slideConfirm('Проведите, чтобы отложить', run, 'warn')
     const no = document.createElement('button')
     no.className = 'primary'
     no.textContent = 'Нет, вернуться'
@@ -420,7 +444,7 @@ export class Reminders {
       const done = slideConfirm(task.plain ? 'Проведите — готово' : 'Проведите — выполнено', () => {
         this.acknowledge([key])
         if (!task.plain) void this.store.toggle(task)
-      })
+      }, 'ok')
       const later = button('Напомнить позже', 'alert-later', (event) => {
         event.preventDefault()
         event.stopPropagation()
